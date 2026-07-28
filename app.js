@@ -1,4 +1,4 @@
-import { fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, wait } from "./market-data.js";
+import { fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=4";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
@@ -54,6 +54,10 @@ function loadState() {
       remoteDividends: [],
       dividendUpdatedAt: null,
       dividendSource: null,
+      dividendDataQuality: null,
+      dividendLastError: null,
+      snapshotAnnualDividendPerShare: 0,
+      snapshotDividendYield: 0,
       ...asset,
       apiSymbol: asset.apiSymbol || asset.ticker,
       remoteDividends: Array.isArray(asset.remoteDividends) ? asset.remoteDividends : [],
@@ -125,14 +129,24 @@ function getTtmDividendPerShare(asset) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 365);
   const cutoffDate = isoDate(cutoff);
-  return getHistoricalRemoteDividends(asset)
+  const value = getHistoricalRemoteDividends(asset)
     .filter((row) => row.exDate >= cutoffDate)
     .reduce((sum, row) => sum + number(row.amount), 0);
+  if (value > 0) return value;
+  const snapshotPerShare = number(asset.snapshotAnnualDividendPerShare);
+  if (snapshotPerShare > 0) return snapshotPerShare;
+  const snapshotYield = number(asset.snapshotDividendYield);
+  return snapshotYield > 0 && number(asset.currentPrice) > 0 ? snapshotYield * number(asset.currentPrice) : 0;
 }
 
 function getForwardDividendPerShare(asset) {
   const rows = getHistoricalRemoteDividends(asset);
-  if (!rows.length) return 0;
+  if (!rows.length) {
+    const snapshotPerShare = number(asset.snapshotAnnualDividendPerShare);
+    if (snapshotPerShare > 0) return snapshotPerShare;
+    const snapshotYield = number(asset.snapshotDividendYield);
+    return snapshotYield > 0 && number(asset.currentPrice) > 0 ? snapshotYield * number(asset.currentPrice) : 0;
+  }
   if (asset.frequency === "irregular") return getTtmDividendPerShare(asset);
   const count = asset.frequency === "monthly" ? 3 : asset.frequency === "quarterly" ? 4 : asset.frequency === "semiannual" ? 2 : 1;
   const multiplier = asset.frequency === "monthly" ? 12 : asset.frequency === "quarterly" ? 4 : asset.frequency === "semiannual" ? 2 : 1;
@@ -144,8 +158,15 @@ function getForwardDividendPerShare(asset) {
 function getNextDeclaredDividend(asset) {
   const today = todayKey();
   return (asset.remoteDividends || [])
-    .filter((row) => (row.paymentDate || row.exDate) >= today && number(row.amount) > 0)
+    .filter((row) => row.canAutoCreate !== false && (row.paymentDate || row.exDate) >= today && number(row.amount) > 0)
     .sort((a, b) => (a.paymentDate || a.exDate).localeCompare(b.paymentDate || b.exDate))[0] || null;
+}
+
+function mergeDividendRows(existingRows, fallbackRows) {
+  const exactByMonth = new Set((existingRows || []).filter((row) => row.canAutoCreate !== false).map((row) => String(row.exDate || "").slice(0, 7)));
+  const fallback = (fallbackRows || []).filter((row) => !exactByMonth.has(String(row.exDate || "").slice(0, 7)));
+  return [...(existingRows || []).filter((row) => row.canAutoCreate !== false), ...fallback]
+    .sort((a, b) => String(b.exDate || "").localeCompare(String(a.exDate || "")));
 }
 
 function getObservedNetFactor(item) {
@@ -204,6 +225,7 @@ function syncDeclaredDividendTransactions(asset) {
   let updated = 0;
 
   (asset.remoteDividends || []).forEach((row) => {
+    if (row.canAutoCreate === false) return;
     const eventDate = row.paymentDate || row.exDate;
     if (!row.exDate || !eventDate || eventDate < cutoffDate || number(row.amount) <= 0) return;
 
@@ -347,6 +369,7 @@ function calculatePortfolio() {
       currentYield: marketValue > 0 ? annualForecast / marketValue : 0,
       yieldOnCost: item.cost > 0 ? annualForecast / item.cost : 0,
       nextDividend: getNextDeclaredDividend(item.asset),
+      hasDividendEstimate: item.shares <= 0 || forwardPerShare > 0 || item.dividendRecords.length > 0,
     };
   });
 
@@ -356,8 +379,13 @@ function calculatePortfolio() {
     acc.pnl += item.pnl;
     acc.received += item.receivedDividends;
     acc.annualForecast += item.annualForecast;
+    if (item.shares > 0) {
+      acc.heldCount += 1;
+      if (item.hasDividendEstimate) acc.dividendCoveredCount += 1;
+    }
     return acc;
-  }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0 });
+  }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0, heldCount: 0, dividendCoveredCount: 0 });
+  totals.dividendCoverageComplete = totals.heldCount > 0 && totals.dividendCoveredCount === totals.heldCount;
 
   return { positions, totals };
 }
@@ -445,12 +473,14 @@ function renderHome() {
   const chart = monthlyIncomeData(year);
   const yearReceived = chart.received.reduce((a, b) => a + b, 0);
   const currentMonth = new Date().getMonth();
-  const monthExpected = chart.received[currentMonth] + chart.announced[currentMonth] + chart.forecast[currentMonth] || totals.annualForecast / 12;
+  const explicitMonthExpected = chart.received[currentMonth] + chart.announced[currentMonth] + chart.forecast[currentMonth];
+  const monthExpected = explicitMonthExpected > 0 ? explicitMonthExpected : totals.dividendCoverageComplete ? totals.annualForecast / 12 : null;
   const monthlyGoalUsd = state.settings.monthlyGoal / number(state.settings.exchangeRate, 7.2);
-  const progress = monthlyGoalUsd > 0 ? Math.min(100, monthExpected / monthlyGoalUsd * 100) : 0;
-  const requiredCapital = totals.annualForecast > 0 && totals.marketValue > 0
-    ? Math.max(0, (monthlyGoalUsd * 12 - totals.annualForecast) / (totals.annualForecast / totals.marketValue))
-    : 0;
+  const progress = monthExpected !== null && monthlyGoalUsd > 0 ? Math.min(100, monthExpected / monthlyGoalUsd * 100) : 0;
+  const portfolioYield = totals.annualForecast > 0 && totals.marketValue > 0 ? totals.annualForecast / totals.marketValue : 0;
+  const requiredCapital = totals.dividendCoverageComplete && portfolioYield > 0
+    ? Math.max(0, (monthlyGoalUsd * 12 - totals.annualForecast) / portfolioYield)
+    : null;
 
   return `
     ${renderDataStatusBar()}
@@ -469,13 +499,13 @@ function renderHome() {
       <div class="hero-row">
         <div>
           <div class="eyebrow">本月预计被动收入</div>
-          <div class="hero-value">${money(monthExpected)}</div>
-          <div class="hero-sub">未来 12 个月估算 ${money(totals.annualForecast)}</div>
+          <div class="hero-value">${monthExpected === null ? "—" : money(monthExpected)}</div>
+          <div class="hero-sub">${totals.dividendCoverageComplete ? `未来 12 个月估算 ${money(totals.annualForecast)}` : `股息数据 ${totals.dividendCoveredCount}/${totals.heldCount} 只完整，暂不乱估`}</div>
         </div>
         <div style="text-align:right"><div class="eyebrow">目标</div><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div>
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
-      <div class="progress-note"><span>完成 ${progress.toFixed(1)}%</span><span>还差 ${money(Math.max(0, monthlyGoalUsd - monthExpected))}/月</span></div>
+      <div class="progress-note"><span>${monthExpected === null ? "等待股息数据完整" : `完成 ${progress.toFixed(1)}%`}</span><span>${monthExpected === null ? "—" : `还差 ${money(Math.max(0, monthlyGoalUsd - monthExpected))}/月`}</span></div>
     </section>
 
     <div class="grid-2">
@@ -486,8 +516,8 @@ function renderHome() {
       </div>
       <div class="metric-card orange">
         <div class="metric-label">预计新增本金</div>
-        <div class="metric-value">${requiredCapital > 0 ? money(requiredCapital) : "—"}</div>
-        <div class="metric-foot">按当前组合净股息率估算</div>
+        <div class="metric-value">${requiredCapital !== null && requiredCapital > 0 ? money(requiredCapital) : "—"}</div>
+        <div class="metric-foot">${totals.dividendCoverageComplete ? "按当前组合净股息率估算" : "股息数据不完整时不计算"}</div>
       </div>
     </div>
 
@@ -561,6 +591,10 @@ function renderAssetCard(item) {
   const dataStatus = asset.currentPrice > 0
     ? `${asset.priceSource || "手动"} · ${asset.priceTradingDay || formatUpdatedAt(asset.priceUpdatedAt)}`
     : "尚无价格";
+  const qualityText = asset.dividendDataQuality === "exact" ? "精确日期" : asset.dividendDataQuality === "monthly" ? "月度历史回退" : asset.dividendDataQuality === "snapshot" ? "年度快照" : "";
+  const dividendStatusText = asset.dividendUpdatedAt
+    ? `${asset.dividendSource || "动态数据"}${qualityText ? ` · ${qualityText}` : ""} · ${formatUpdatedAt(asset.dividendUpdatedAt)}`
+    : asset.dividendLastError ? `更新失败：${asset.dividendLastError}` : "尚未更新";
   return `
     <article class="card asset-card" data-asset-card="${asset.id}">
       <div class="asset-head">
@@ -579,7 +613,7 @@ function renderAssetCard(item) {
         <div><label>成本股息率</label><strong>${item.yieldOnCost > 0 ? `${(item.yieldOnCost * 100).toFixed(2)}%` : "—"}</strong></div>
       </div>
       <div class="dividend-next"><span>下次已宣布</span><strong>${escapeHtml(nextText)}</strong></div>
-      <div class="market-foot"><span>股息数据 ${dividendFresh ? "已更新" : "可能过期"} · ${formatUpdatedAt(asset.dividendUpdatedAt)}</span></div>
+      <div class="market-foot"><span class="${asset.dividendLastError && !asset.dividendUpdatedAt ? "negative" : ""}">股息数据 ${dividendFresh ? "已更新" : "需更新"} · ${escapeHtml(dividendStatusText)}</span>${asset.dividendDataQuality === "monthly" ? "<small>可自动算股息率；不把月末日期冒充到账日</small>" : ""}</div>
       <div class="btn-row" style="margin-top:16px"><button class="btn yellow" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>动态更新</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑</button></div>
     </article>
   `;
@@ -648,7 +682,7 @@ function renderSettings() {
       <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${number(state.settings.apiUsageCount)}/25 次</span></div>
       <div class="btn-row setting-actions"><button class="btn yellow" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "正在更新" : "更新全部"}</button><button class="btn" data-action="refresh-fx" ${refreshInProgress ? "disabled" : ""}>只更新汇率</button></div>
     </section>
-    <p class="settings-hint">股票价格与股息来自 Alpha Vantage；汇率来自 Frankfurter。同步后会按除息日前持仓股数自动生成“已宣布/待确认”记录，只有你确认实际到账后才计入已收净股息。接口失败时保留上次成功数据，不会清零。</p>
+    <p class="settings-hint">股票价格与股息来自 Alpha Vantage；汇率来自 Frankfurter。精确股息接口失败时，会自动改用月度调整序列计算股息率，不需要你手填；但月末日期不会冒充真实到账日。只有精确日期数据才自动生成“已宣布/待确认”记录，到账仍由你确认。</p>
 
     <div class="section-title"><h2>显示与目标</h2></div>
     <section class="card settings-group">
@@ -979,13 +1013,46 @@ async function updateAssetMarketData(asset) {
   try {
     consumeApiRequest();
     const result = await fetchAlphaDividends(symbol, apiKey);
+    if (!result.dividends.length) throw new Error(`${symbol} 精确股息接口返回空记录`);
     asset.remoteDividends = result.dividends;
     asset.dividendUpdatedAt = new Date().toISOString();
     asset.dividendSource = result.source;
+    asset.dividendDataQuality = result.quality || "exact";
+    asset.dividendLastError = null;
+    asset.snapshotAnnualDividendPerShare = 0;
+    asset.snapshotDividendYield = 0;
     dividendSync = syncDeclaredDividendTransactions(asset);
     dividendOk = true;
-  } catch (error) {
-    lastError = lastError || error;
+  } catch (exactError) {
+    asset.dividendLastError = exactError.message;
+    lastError = lastError || exactError;
+    await wait(350);
+    try {
+      consumeApiRequest();
+      const fallback = await fetchAlphaMonthlyAdjustedDividends(symbol, apiKey);
+      asset.remoteDividends = mergeDividendRows(asset.remoteDividends, fallback.dividends);
+      asset.dividendUpdatedAt = new Date().toISOString();
+      asset.dividendSource = fallback.source;
+      asset.dividendDataQuality = fallback.quality || "monthly";
+      asset.dividendLastError = `精确日期接口失败，已用月度历史：${exactError.message}`;
+      dividendOk = true;
+    } catch (monthlyError) {
+      await wait(350);
+      try {
+        consumeApiRequest();
+        const snapshot = await fetchAlphaOverviewDividend(symbol, apiKey);
+        asset.snapshotAnnualDividendPerShare = snapshot.annualDividendPerShare;
+        asset.snapshotDividendYield = snapshot.dividendYield;
+        asset.dividendUpdatedAt = new Date().toISOString();
+        asset.dividendSource = snapshot.source;
+        asset.dividendDataQuality = snapshot.quality || "snapshot";
+        asset.dividendLastError = `精确与月度接口失败，已用年度快照：${monthlyError.message}`;
+        dividendOk = true;
+      } catch (snapshotError) {
+        asset.dividendLastError = snapshotError.message;
+        lastError = lastError || snapshotError;
+      }
+    }
   }
 
   if (!quoteOk && !dividendOk) throw lastError || new Error(`${symbol} 更新失败`);
@@ -1055,7 +1122,7 @@ async function refreshAllData(options = {}) {
           const result = await updateAssetMarketData(asset);
           if (result.quoteOk || result.dividendOk) marketSuccess += 1;
           createdDividendCount += number(result.dividendSync?.created);
-          if (result.partialError) errors.push(`${asset.ticker}：部分数据失败`);
+          if (result.partialError) errors.push(`${asset.ticker}：精确股息日期未完整，已尝试回退`);
         } catch (error) {
           errors.push(`${asset.ticker}：${error.message}`);
         }

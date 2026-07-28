@@ -60,3 +60,12 @@ python3 -m http.server 8080
 仓库根目录可直接通过 GitHub Pages 发布：
 
 `Settings → Pages → Deploy from a branch → main → /(root)`
+
+
+## V4 修复
+
+- 股息率无需手填。
+- 精确 `DIVIDENDS` 接口失败时，自动回退到 `TIME_SERIES_MONTHLY_ADJUSTED` 的月度股息数据。
+- 月度回退只用于近12月/估算年化股息率，不会把月末日期冒充真实除息日或到账日。
+- 股息覆盖不完整时，首页不再显示离谱的“预计新增本金”。
+- 每只标的会直接显示股息数据来源和失败原因。

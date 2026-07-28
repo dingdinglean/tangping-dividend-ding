@@ -70,7 +70,50 @@ export async function fetchAlphaDividends(symbol, apiKey) {
     amount: Number(row.amount),
   })).filter((row) => row.exDate && Number.isFinite(row.amount) && row.amount >= 0)
     .sort((a, b) => b.exDate.localeCompare(a.exDate));
-  return { dividends, source: "Alpha Vantage Dividends" };
+  return { dividends, source: "Alpha Vantage Dividends", quality: "exact" };
+}
+
+export async function fetchAlphaMonthlyAdjustedDividends(symbol, apiKey) {
+  const url = `${ALPHA_BASE}?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`;
+  const data = await fetchJson(url);
+  assertAlphaResponse(data);
+  const series = data?.["Monthly Adjusted Time Series"] || data?.["Monthly Time Series"] || {};
+  const dividends = Object.entries(series).map(([date, row]) => ({
+    // 月度调整序列只提供月份，不提供精确除息/到账日。仅用于收益率估算。
+    exDate: date,
+    declarationDate: "",
+    recordDate: "",
+    paymentDate: "",
+    amount: Number(row?.["7. dividend amount"] ?? row?.dividend_amount ?? 0),
+    datePrecision: "month",
+    canAutoCreate: false,
+  })).filter((row) => row.exDate && Number.isFinite(row.amount) && row.amount > 0)
+    .sort((a, b) => b.exDate.localeCompare(a.exDate));
+  if (!dividends.length) throw new Error(`${symbol} 月度序列未返回股息记录`);
+  return {
+    dividends,
+    source: "Alpha Vantage Monthly Adjusted",
+    quality: "monthly",
+  };
+}
+
+export async function fetchAlphaOverviewDividend(symbol, apiKey) {
+  const url = `${ALPHA_BASE}?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`;
+  const data = await fetchJson(url);
+  assertAlphaResponse(data);
+  const annualDividendPerShare = Number(data?.DividendPerShare);
+  const dividendYield = Number(data?.DividendYield);
+  if ((!Number.isFinite(annualDividendPerShare) || annualDividendPerShare <= 0) && (!Number.isFinite(dividendYield) || dividendYield <= 0)) {
+    throw new Error(`${symbol} 概览未返回股息数据`);
+  }
+  return {
+    annualDividendPerShare: Number.isFinite(annualDividendPerShare) && annualDividendPerShare > 0 ? annualDividendPerShare : 0,
+    dividendYield: Number.isFinite(dividendYield) && dividendYield > 0 ? dividendYield : 0,
+    exDate: data?.ExDividendDate || "",
+    paymentDate: data?.DividendDate || "",
+    source: "Alpha Vantage Overview",
+    quality: "snapshot",
+  };
 }
 
 export function wait(ms) {

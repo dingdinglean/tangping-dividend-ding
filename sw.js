@@ -1,10 +1,10 @@
-const CACHE_NAME = "tangping-dividend-v3";
+const CACHE_NAME = "tangping-dividend-v4";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=3",
-  "./app.js?v=3",
-  "./market-data.js",
+  "./styles.css?v=4",
+  "./app.js?v=4",
+  "./market-data.js?v=4",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icon-180.png",

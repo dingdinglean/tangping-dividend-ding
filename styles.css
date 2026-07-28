@@ -167,3 +167,70 @@ textarea { resize: vertical; min-height: 80px; }
   .bottom-nav { width: calc(100% - 18px); grid-template-columns: repeat(4, 1fr) 58px; }
   .setting-row { grid-template-columns: 1fr 128px; }
 }
+
+/* 动态行情与汇率 */
+.sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 15px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(29, 29, 31, .82);
+}
+.sync-bar strong { display: block; font-size: 13px; }
+.sync-bar span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.sync-bar.fresh { border-color: rgba(86,186,121,.28); }
+.sync-bar.stale { border-color: rgba(245,187,59,.24); }
+.btn.compact { padding: 9px 13px; border-radius: 12px; white-space: nowrap; }
+.btn:disabled { opacity: .48; cursor: wait; }
+.market-line { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.status-dot.fresh { background: var(--green); box-shadow: 0 0 10px rgba(86,186,121,.45); }
+.status-dot.stale { background: var(--yellow); }
+.dividend-next { display: flex; justify-content: space-between; gap: 12px; margin-top: 17px; padding: 12px 13px; border-radius: 14px; background: #151517; }
+.dividend-next span { color: var(--muted); font-size: 12px; }
+.dividend-next strong { text-align: right; font-size: 12px; }
+.market-foot { margin-top: 9px; color: var(--muted); font-size: 10px; }
+.setting-row.stacked { grid-template-columns: 1fr; }
+.input.wide { width: 100%; }
+.setting-actions { padding: 17px 19px; }
+.settings-hint { margin: 9px 5px 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.data-pill { display: inline-flex; justify-content: center; justify-self: end; min-width: 72px; padding: 6px 9px; border-radius: 999px; font-size: 11px; }
+.data-pill.ok { color: #9ee8b7; background: rgba(86,186,121,.13); }
+.data-pill.warn { color: #f7cf73; background: rgba(245,187,59,.13); }
+
+@media (max-width: 420px) {
+  .asset-grid { grid-template-columns: repeat(2, 1fr); }
+  .asset-grid div:nth-child(3n) { text-align: left; }
+  .asset-grid div:nth-child(even) { text-align: right; }
+  .btn-row { flex-wrap: wrap; }
+  .asset-card .btn-row .btn { flex: 1 1 30%; padding-left: 10px; padding-right: 10px; }
+  .dividend-next { align-items: flex-start; }
+}
+
+/* 自动股息待确认 */
+.tag.warn { color: #f7cf73; background: rgba(245,187,59,.13); }
+.pending-list { padding: 0 18px; }
+.pending-dividend { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 17px 0; border-bottom: 1px solid var(--line); }
+.pending-dividend:last-child { border-bottom: 0; }
+.pending-main { min-width: 0; }
+.pending-title { display: flex; align-items: center; gap: 8px; }
+.pending-main p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.pending-side { flex: 0 0 auto; text-align: right; display: grid; justify-items: end; gap: 4px; }
+.pending-side strong { font-size: 18px; }
+.pending-side small { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+.event-actions { flex: 0 0 auto; display: grid; justify-items: end; align-content: center; gap: 8px; }
+.confirm-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 14px; margin-bottom: 16px; border-radius: 18px; background: #111113; }
+.confirm-summary div { padding: 9px 10px; border-radius: 12px; background: #1f1f22; }
+.confirm-summary span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+.confirm-summary strong { font-size: 14px; }
+
+@media (max-width: 420px) {
+  .pending-dividend { align-items: flex-start; }
+  .pending-side strong { font-size: 16px; }
+  .pending-side .btn { padding: 9px 11px; }
+  .confirm-summary { grid-template-columns: 1fr 1fr; }
+}

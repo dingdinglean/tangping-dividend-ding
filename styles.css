@@ -234,3 +234,7 @@ textarea { resize: vertical; min-height: 80px; }
   .pending-side .btn { padding: 9px 11px; }
   .confirm-summary { grid-template-columns: 1fr 1fr; }
 }
+
+.advanced-settings { border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.advanced-settings summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.advanced-grid { margin-top: 14px; }

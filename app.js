@@ -23,10 +23,10 @@ const defaultState = {
     lastBackupAt: null,
   },
   assets: [
-    { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, role: "高现金流" },
-    { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, role: "高现金流" },
-    { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, role: "资产增长" },
-    { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, role: "股息增长" },
+    { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "资产增长" },
+    { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "股息增长" },
   ],
   transactions: [],
 };
@@ -313,6 +313,14 @@ function getPendingDividendTransactions() {
     .sort((a, b) => (a.paymentDate || a.date).localeCompare(b.paymentDate || b.date));
 }
 
+function getManualDividendYield(asset) {
+  const raw = asset?.manualDividendYieldPercent;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const percent = Number(raw);
+  if (!Number.isFinite(percent) || percent < 0) return null;
+  return percent / 100;
+}
+
 function calculatePortfolio() {
   const map = new Map(state.assets.map((asset) => [asset.id, {
     asset,
@@ -355,8 +363,14 @@ function calculatePortfolio() {
     const pnl = marketValue - item.cost;
     const ttmPerShare = getTtmDividendPerShare(item.asset);
     const forwardPerShare = getForwardDividendPerShare(item.asset);
-    const annualForecast = estimateAnnualDividend(item, forwardPerShare);
     const currentPrice = number(item.asset.currentPrice);
+    const ttmYield = currentPrice > 0 ? ttmPerShare / currentPrice : 0;
+    const forwardYield = currentPrice > 0 ? forwardPerShare / currentPrice : 0;
+    const manualYield = getManualDividendYield(item.asset);
+    const dividendYield = manualYield !== null ? manualYield : (forwardYield > 0 ? forwardYield : ttmYield);
+    const annualForecast = manualYield !== null
+      ? marketValue * manualYield * getObservedNetFactor(item)
+      : estimateAnnualDividend(item, forwardPerShare || ttmPerShare);
     return {
       ...item,
       marketValue,
@@ -364,12 +378,14 @@ function calculatePortfolio() {
       annualForecast,
       ttmPerShare,
       forwardPerShare,
-      ttmYield: currentPrice > 0 ? ttmPerShare / currentPrice : 0,
-      forwardYield: currentPrice > 0 ? forwardPerShare / currentPrice : 0,
+      ttmYield,
+      forwardYield,
+      manualYield,
+      dividendYield,
       currentYield: marketValue > 0 ? annualForecast / marketValue : 0,
       yieldOnCost: item.cost > 0 ? annualForecast / item.cost : 0,
       nextDividend: getNextDeclaredDividend(item.asset),
-      hasDividendEstimate: item.shares <= 0 || forwardPerShare > 0 || item.dividendRecords.length > 0,
+      hasDividendEstimate: item.shares <= 0 || manualYield !== null || forwardPerShare > 0 || ttmPerShare > 0 || item.dividendRecords.length > 0,
     };
   });
 
@@ -604,16 +620,13 @@ function renderAssetCard(item) {
       <div class="market-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${escapeHtml(dataStatus)}</span></div>
       <div class="asset-grid">
         <div><label>最新价格</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
-        <div><label>近12月股息率</label><strong>${item.ttmYield > 0 ? `${(item.ttmYield * 100).toFixed(2)}%` : "—"}</strong></div>
-        <div><label>估算年化股息率</label><strong>${item.forwardYield > 0 ? `${(item.forwardYield * 100).toFixed(2)}%` : "—"}</strong></div>
+        <div><label>股息率${item.manualYield !== null ? "（手动）" : ""}</label><strong>${item.dividendYield !== null && item.dividendYield >= 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "—"}</strong></div>
         <div><label>持仓成本</label><strong>${money(item.cost)}</strong></div>
         <div><label>浮动盈亏</label><strong class="${item.pnl >= 0 ? "positive" : "negative"}">${money(item.pnl)}</strong></div>
         <div><label>已收净股息</label><strong>${money(item.receivedDividends)}</strong></div>
-        <div><label>预计年股息</label><strong>${money(item.annualForecast)}</strong></div>
-        <div><label>成本股息率</label><strong>${item.yieldOnCost > 0 ? `${(item.yieldOnCost * 100).toFixed(2)}%` : "—"}</strong></div>
+        <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       </div>
-      <div class="dividend-next"><span>下次已宣布</span><strong>${escapeHtml(nextText)}</strong></div>
-      <div class="market-foot"><span class="${asset.dividendLastError && !asset.dividendUpdatedAt ? "negative" : ""}">股息数据 ${dividendFresh ? "已更新" : "需更新"} · ${escapeHtml(dividendStatusText)}</span>${asset.dividendDataQuality === "monthly" ? "<small>可自动算股息率；不把月末日期冒充到账日</small>" : ""}</div>
+      ${next ? `<div class="dividend-next"><span>下次分红</span><strong>${escapeHtml(nextText)}</strong></div>` : ""}
       <div class="btn-row" style="margin-top:16px"><button class="btn yellow" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>动态更新</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑</button></div>
     </article>
   `;
@@ -674,34 +687,30 @@ function renderSettings() {
     ? `${formatUpdatedAt(state.settings.lastMarketRefreshAt)} · ${state.settings.lastMarketRefreshMessage || "更新完成"}`
     : state.settings.lastMarketRefreshMessage || "尚未连接行情";
   return `
-    <div class="section-title"><h2>动态数据</h2><small>价格为最近交易日收盘价</small></div>
+    <div class="section-title"><h2>动态数据</h2></div>
     <section class="card settings-group">
-      <div class="setting-row stacked"><div><label>Alpha Vantage API Key</label><small>只保存在当前设备，不会上传 GitHub</small></div><input class="input wide" id="alphaVantageApiKey" type="password" autocomplete="off" value="${escapeHtml(state.settings.alphaVantageApiKey || "")}" placeholder="粘贴免费 API Key" /></div>
-      <div class="setting-row"><div><label>自动更新</label><small>打开应用且数据过期时更新</small></div><select id="autoRefresh"><option value="true" ${state.settings.autoRefresh ? "selected" : ""}>开启</option><option value="false" ${!state.settings.autoRefresh ? "selected" : ""}>关闭</option></select></div>
+      <div class="setting-row stacked"><div><label>Alpha Vantage API Key</label></div><input class="input wide" id="alphaVantageApiKey" type="password" autocomplete="off" value="${escapeHtml(state.settings.alphaVantageApiKey || "")}" placeholder="粘贴免费 API Key" /></div>
+      <div class="setting-row"><div><label>自动更新</label></div><select id="autoRefresh"><option value="true" ${state.settings.autoRefresh ? "selected" : ""}>开启</option><option value="false" ${!state.settings.autoRefresh ? "selected" : ""}>关闭</option></select></div>
       <div class="setting-row"><div><label>美元兑人民币</label><small>${escapeHtml(fxStatus)}</small></div><strong>${number(state.settings.exchangeRate).toFixed(4)}</strong></div>
       <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${number(state.settings.apiUsageCount)}/25 次</span></div>
       <div class="btn-row setting-actions"><button class="btn yellow" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "正在更新" : "更新全部"}</button><button class="btn" data-action="refresh-fx" ${refreshInProgress ? "disabled" : ""}>只更新汇率</button></div>
     </section>
-    <p class="settings-hint">股票价格与股息来自 Alpha Vantage；汇率来自 Frankfurter。精确股息接口失败时，会自动改用月度调整序列计算股息率，不需要你手填；但月末日期不会冒充真实到账日。只有精确日期数据才自动生成“已宣布/待确认”记录，到账仍由你确认。</p>
 
     <div class="section-title"><h2>显示与目标</h2></div>
     <section class="card settings-group">
-      <div class="setting-row"><div><label>显示货币</label><small>原始交易始终保存为美元</small></div><select id="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div>
-      <div class="setting-row"><div><label>汇率备用值</label><small>只有联网更新失败时使用</small></div><input class="input" id="exchangeRate" type="number" step="0.0001" value="${state.settings.exchangeRate}" /></div>
-      <div class="setting-row"><div><label>每月被动收入目标</label><small>人民币金额</small></div><input class="input" id="monthlyGoal" type="number" step="100" value="${state.settings.monthlyGoal}" /></div>
+      <div class="setting-row"><div><label>显示货币</label></div><select id="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div>
+      <div class="setting-row"><div><label>备用汇率</label></div><input class="input" id="exchangeRate" type="number" step="0.0001" value="${state.settings.exchangeRate}" /></div>
+      <div class="setting-row"><div><label>每月收入目标</label></div><input class="input" id="monthlyGoal" type="number" step="100" value="${state.settings.monthlyGoal}" /></div>
     </section>
     <button class="btn primary full" style="margin-top:14px" data-action="save-settings">保存设置</button>
 
     <div class="section-title"><h2>数据备份</h2><small>${backupText}</small></div>
     <section class="card settings-group">
-      <div class="setting-row"><div><label>导出 JSON</label><small>换手机前务必备份</small></div><button class="btn yellow" data-action="export-data">导出</button></div>
-      <div class="setting-row"><div><label>导入 JSON</label><small>导入前会先备份当前数据</small></div><button class="btn" data-action="import-data">导入</button></div>
-      <div class="setting-row"><div><label>清空全部数据</label><small>恢复为 4 只默认标的</small></div><button class="btn danger" data-action="reset-data">清空</button></div>
+      <div class="setting-row"><div><label>导出备份</label></div><button class="btn yellow" data-action="export-data">导出</button></div>
+      <div class="setting-row"><div><label>导入备份</label></div><button class="btn" data-action="import-data">导入</button></div>
+      <div class="setting-row"><div><label>清空全部数据</label></div><button class="btn danger" data-action="reset-data">清空</button></div>
     </section>
     <input class="file-input" id="importFile" type="file" accept="application/json" />
-
-    <div class="section-title"><h2>说明</h2></div>
-    <section class="card"><p style="margin-top:0">持仓、交易、API Key 和股息记录只保存在当前浏览器本地，不会上传到 GitHub。</p><p>自动股息记录按“除息日前一日持仓”计算对应股数；接口只负责生成预计记录，实际到账日期、税费和净金额由你确认。</p><p style="margin-bottom:0;color:var(--muted)">近12月股息率＝过去365天每股分红合计 ÷ 最新价格；估算年化股息率按最近3次月度分红或最近4次季度分红平均后年化。它们是动态估算，不是承诺收益。</p></section>
   `;
 }
 
@@ -764,13 +773,19 @@ function renderAssetModal(assetId) {
   return `<div class="modal-backdrop" data-action="close-modal"><div class="modal" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>${asset ? "编辑标的" : "添加标的"}</h3><button class="icon-btn" data-action="close-modal">×</button></div>
     <form id="assetForm" class="form-grid">
       <input type="hidden" name="assetId" value="${asset?.id || ""}" />
-      <div class="form-row"><label>股票代码</label><input class="input" name="ticker" maxlength="12" value="${escapeHtml(asset?.ticker || "")}" placeholder="例如 NVO" required /></div>
-      <div class="form-row"><label>行情接口代码</label><input class="input" name="apiSymbol" maxlength="24" value="${escapeHtml(asset?.apiSymbol || asset?.ticker || "")}" placeholder="通常和股票代码相同" /></div>
-      <div class="form-row"><label>名称</label><input class="input" name="name" value="${escapeHtml(asset?.name || "")}" placeholder="允许自定义" required /></div>
-      <div class="form-row"><label>类型</label><select name="assetType"><option ${asset?.type === "ETF" ? "selected" : ""}>ETF</option><option ${asset?.type === "Stock" ? "selected" : ""}>Stock</option><option ${asset?.type === "ADR" ? "selected" : ""}>ADR</option><option ${asset?.type === "Other" ? "selected" : ""}>Other</option></select></div>
-      <div class="form-row"><label>分红频率</label><select name="frequency"><option value="monthly" ${asset?.frequency === "monthly" ? "selected" : ""}>每月</option><option value="quarterly" ${asset?.frequency === "quarterly" ? "selected" : ""}>每季度</option><option value="semiannual" ${asset?.frequency === "semiannual" ? "selected" : ""}>每半年</option><option value="annual" ${asset?.frequency === "annual" ? "selected" : ""}>每年</option><option value="irregular" ${asset?.frequency === "irregular" ? "selected" : ""}>不固定</option></select></div>
-      <div class="form-row"><label>组合定位</label><select name="role"><option ${asset?.role === "高现金流" ? "selected" : ""}>高现金流</option><option ${asset?.role === "股息增长" ? "selected" : ""}>股息增长</option><option ${asset?.role === "资产增长" ? "selected" : ""}>资产增长</option><option ${asset?.role === "自定义" ? "selected" : ""}>自定义</option></select></div>
-      <div class="form-row"><label>手动价格备用值（USD）</label><input class="input" name="currentPrice" type="number" step="0.0001" min="0" value="${asset?.currentPrice || 0}" /></div>
+      <div class="form-row"><label>股票代码</label><input class="input" name="ticker" maxlength="12" value="${escapeHtml(asset?.ticker || "")}" placeholder="例如 QNDX" required /></div>
+      <div class="form-row"><label>名称</label><input class="input" name="name" value="${escapeHtml(asset?.name || "")}" required /></div>
+      <div class="form-row"><label>手动股息率（%）</label><input class="input" name="manualDividendYieldPercent" type="number" step="0.01" min="0" value="${asset?.manualDividendYieldPercent ?? ""}" placeholder="留空自动更新" /></div>
+      <details class="advanced-settings">
+        <summary>更多设置</summary>
+        <div class="form-grid advanced-grid">
+          <div class="form-row"><label>行情代码</label><input class="input" name="apiSymbol" maxlength="24" value="${escapeHtml(asset?.apiSymbol || asset?.ticker || "")}" /></div>
+          <div class="form-row"><label>类型</label><select name="assetType"><option ${asset?.type === "ETF" ? "selected" : ""}>ETF</option><option ${asset?.type === "Stock" ? "selected" : ""}>Stock</option><option ${asset?.type === "ADR" ? "selected" : ""}>ADR</option><option ${asset?.type === "Other" ? "selected" : ""}>Other</option></select></div>
+          <div class="form-row"><label>分红频率</label><select name="frequency"><option value="monthly" ${asset?.frequency === "monthly" ? "selected" : ""}>每月</option><option value="quarterly" ${asset?.frequency === "quarterly" ? "selected" : ""}>每季度</option><option value="semiannual" ${asset?.frequency === "semiannual" ? "selected" : ""}>每半年</option><option value="annual" ${asset?.frequency === "annual" ? "selected" : ""}>每年</option><option value="irregular" ${asset?.frequency === "irregular" ? "selected" : ""}>不固定</option></select></div>
+          <div class="form-row"><label>组合定位</label><select name="role"><option ${asset?.role === "高现金流" ? "selected" : ""}>高现金流</option><option ${asset?.role === "股息增长" ? "selected" : ""}>股息增长</option><option ${asset?.role === "资产增长" ? "selected" : ""}>资产增长</option><option ${asset?.role === "自定义" ? "selected" : ""}>自定义</option></select></div>
+          <div class="form-row"><label>备用价格（USD）</label><input class="input" name="currentPrice" type="number" step="0.0001" min="0" value="${asset?.currentPrice || 0}" /></div>
+        </div>
+      </details>
       <button class="btn primary full" type="submit">保存标的</button>
       ${asset ? `<button class="btn danger full" type="button" data-action="delete-asset" data-id="${asset.id}">删除标的</button>` : ""}
     </form>
@@ -942,6 +957,7 @@ function submitAsset(event) {
     type: data.assetType,
     frequency: data.frequency,
     role: data.role,
+    manualDividendYieldPercent: String(data.manualDividendYieldPercent ?? "").trim() === "" ? null : Math.max(0, number(data.manualDividendYieldPercent)),
     currentPrice: number(data.currentPrice),
   };
   if (data.assetId) Object.assign(getAsset(data.assetId), payload);

@@ -1,9 +1,21 @@
-import { fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=4";
+import { fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=6";
 
 const STORAGE_KEY = "tangping-dividend.v1";
+const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
+const APP_VERSION = "v6";
+const INCOME_YEAR = 2026;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
 const AUTO_DIVIDEND_LOOKBACK_DAYS = 120;
+
+const defaultMilestones = [
+  { id: "milk-tea", icon: "☕", name: "奶茶自由", amountCny: 150 },
+  { id: "utilities", icon: "⚡", name: "水电自由", amountCny: 400 },
+  { id: "meals", icon: "🍽", name: "三餐自由", amountCny: 2500 },
+  { id: "semi-retired", icon: "🌴", name: "半步退休", amountCny: 6000 },
+  { id: "journey", icon: "🏔", name: "诗和远方", amountCny: 12000 },
+  { id: "life", icon: "✨", name: "人生自由", amountCny: 20000 },
+];
 
 const defaultState = {
   version: 1,
@@ -21,6 +33,7 @@ const defaultState = {
     apiUsageDate: null,
     apiUsageCount: 0,
     lastBackupAt: null,
+    freedomMilestones: defaultMilestones,
   },
   assets: [
     { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "高现金流" },
@@ -31,6 +44,7 @@ const defaultState = {
   transactions: [],
 };
 
+let stateNeedsMigration = false;
 let state = loadState();
 let currentTab = "home";
 let modal = null;
@@ -45,7 +59,10 @@ function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!saved || saved.version !== 1) return structuredClone(defaultState);
+    stateNeedsMigration = !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
     const merged = { ...structuredClone(defaultState), ...saved, settings: { ...defaultState.settings, ...saved.settings } };
+    merged.transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
+    merged.settings.freedomMilestones = normalizeMilestones(saved.settings?.freedomMilestones);
     merged.assets = (saved.assets || defaultState.assets).map((asset) => ({
       apiSymbol: asset.ticker,
       priceUpdatedAt: null,
@@ -66,6 +83,19 @@ function loadState() {
   } catch {
     return structuredClone(defaultState);
   }
+}
+
+function normalizeMilestones(savedMilestones) {
+  if (!Array.isArray(savedMilestones)) return structuredClone(defaultMilestones);
+  return defaultMilestones.map((fallback, index) => {
+    const saved = savedMilestones.find((item) => item?.id === fallback.id) || savedMilestones[index] || {};
+    return {
+      id: fallback.id,
+      icon: String(saved.icon || fallback.icon).trim().slice(0, 8) || fallback.icon,
+      name: String(saved.name || fallback.name).trim().slice(0, 24) || fallback.name,
+      amountCny: Math.max(1, number(saved.amountCny ?? saved.amount, fallback.amountCny)),
+    };
+  });
 }
 
 function saveState() {
@@ -426,14 +456,41 @@ function monthlyIncomeData(year) {
   const announced = Array(12).fill(0);
   const forecast = Array(12).fill(0);
   state.transactions.forEach((tx) => {
-    if (tx.type !== "dividend" || !tx.date.startsWith(String(year))) return;
-    const month = Number(tx.date.slice(5, 7)) - 1;
+    const date = String(tx.date || "");
+    if (tx.type !== "dividend" || !date.startsWith(String(year))) return;
+    const month = Number(date.slice(5, 7)) - 1;
     if (month < 0 || month > 11) return;
     if (tx.status === "received") received[month] += number(tx.netDividend);
     if (tx.status === "announced") announced[month] += number(tx.netDividend);
     if (tx.status === "forecast") forecast[month] += number(tx.netDividend);
   });
   return { received, announced, forecast };
+}
+
+function getMonthlyPassiveIncomeUsd(totals, chart, monthIndex = new Date().getMonth()) {
+  const recorded = chart.received[monthIndex] + chart.announced[monthIndex] + chart.forecast[monthIndex];
+  return recorded > 0 ? recorded : Math.max(0, totals.annualForecast / 12);
+}
+
+function displayCnyAmount(amountCny) {
+  if (state.settings.displayCurrency === "CNY") {
+    return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(amountCny || 0);
+  }
+  return money(number(amountCny) / number(state.settings.exchangeRate, 7.2), "USD");
+}
+
+function getFreedomStatus(monthlyIncomeCny) {
+  const milestones = normalizeMilestones(state.settings.freedomMilestones)
+    .map((item) => ({ ...item, unlocked: monthlyIncomeCny >= item.amountCny }))
+    .sort((a, b) => a.amountCny - b.amountCny);
+  const unlocked = milestones.filter((item) => item.unlocked);
+  const current = unlocked.at(-1) || null;
+  const next = milestones.find((item) => !item.unlocked) || null;
+  const rangeStart = current?.amountCny || 0;
+  const progress = next
+    ? Math.min(100, Math.max(0, (monthlyIncomeCny - rangeStart) / Math.max(1, next.amountCny - rangeStart) * 100))
+    : 100;
+  return { milestones, current, next, progress };
 }
 
 function render() {
@@ -485,63 +542,59 @@ function renderDataStatusBar() {
 function renderHome() {
   const { totals } = calculatePortfolio();
   const pendingDividends = getPendingDividendTransactions();
-  const year = new Date().getFullYear();
+  const year = INCOME_YEAR;
   const chart = monthlyIncomeData(year);
-  const yearReceived = chart.received.reduce((a, b) => a + b, 0);
   const currentMonth = new Date().getMonth();
-  const explicitMonthExpected = chart.received[currentMonth] + chart.announced[currentMonth] + chart.forecast[currentMonth];
-  const monthExpected = explicitMonthExpected > 0 ? explicitMonthExpected : totals.dividendCoverageComplete ? totals.annualForecast / 12 : null;
+  const monthExpected = getMonthlyPassiveIncomeUsd(totals, chart, currentMonth);
+  const monthlyIncomeCny = monthExpected * number(state.settings.exchangeRate, 7.2);
   const monthlyGoalUsd = state.settings.monthlyGoal / number(state.settings.exchangeRate, 7.2);
-  const progress = monthExpected !== null && monthlyGoalUsd > 0 ? Math.min(100, monthExpected / monthlyGoalUsd * 100) : 0;
-  const portfolioYield = totals.annualForecast > 0 && totals.marketValue > 0 ? totals.annualForecast / totals.marketValue : 0;
-  const requiredCapital = totals.dividendCoverageComplete && portfolioYield > 0
-    ? Math.max(0, (monthlyGoalUsd * 12 - totals.annualForecast) / portfolioYield)
-    : null;
+  const progress = monthlyGoalUsd > 0 ? Math.min(100, monthExpected / monthlyGoalUsd * 100) : 0;
+  const currentYield = totals.marketValue > 0 ? totals.annualForecast / totals.marketValue : 0;
+  const yieldOnCost = totals.cost > 0 ? totals.annualForecast / totals.cost : 0;
 
   return `
     ${renderDataStatusBar()}
-    <section class="card hero">
+    <section class="card hero income-hero">
       <div class="hero-row">
         <div>
-          <div class="eyebrow">当前资产</div>
-          <div class="hero-value">${money(totals.marketValue)}</div>
-          <div class="hero-sub">持仓成本 ${money(totals.cost)} · 浮动盈亏 <span class="${totals.pnl >= 0 ? "positive" : "negative"}">${money(totals.pnl)}</span></div>
+          <div class="eyebrow">本月被动收入</div>
+          <div class="hero-value">${money(monthExpected)}</div>
+          <div class="hero-sub">已记录收入优先；无当月记录时按当前持仓年股息折算</div>
         </div>
-        <span class="tag">躺平路线</span>
-      </div>
-    </section>
-
-    <section class="card hero" style="margin-top:14px">
-      <div class="hero-row">
-        <div>
-          <div class="eyebrow">本月预计被动收入</div>
-          <div class="hero-value">${monthExpected === null ? "—" : money(monthExpected)}</div>
-          <div class="hero-sub">${totals.dividendCoverageComplete ? `未来 12 个月估算 ${money(totals.annualForecast)}` : `股息数据 ${totals.dividendCoveredCount}/${totals.heldCount} 只完整，暂不乱估`}</div>
-        </div>
-        <div style="text-align:right"><div class="eyebrow">目标</div><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div>
+        <div class="hero-goal"><div class="eyebrow">月目标</div><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div>
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
-      <div class="progress-note"><span>${monthExpected === null ? "等待股息数据完整" : `完成 ${progress.toFixed(1)}%`}</span><span>${monthExpected === null ? "—" : `还差 ${money(Math.max(0, monthlyGoalUsd - monthExpected))}/月`}</span></div>
+      <div class="progress-note"><span>完成 ${progress.toFixed(1)}%</span><span>还差 ${money(Math.max(0, monthlyGoalUsd - monthExpected))}/月</span></div>
     </section>
 
     <div class="grid-2">
-      <div class="metric-card pink">
-        <div class="metric-label">今年已收净股息</div>
-        <div class="metric-value">${money(yearReceived)}</div>
-        <div class="metric-foot">真实到账，可以喝咖啡</div>
+      <div class="metric-card">
+        <div class="metric-label">价格股息率</div>
+        <div class="metric-value">${(currentYield * 100).toFixed(2)}%</div>
+        <div class="metric-foot">按当前市值计算</div>
       </div>
-      <div class="metric-card orange">
-        <div class="metric-label">预计新增本金</div>
-        <div class="metric-value">${requiredCapital !== null && requiredCapital > 0 ? money(requiredCapital) : "—"}</div>
-        <div class="metric-foot">${totals.dividendCoverageComplete ? "按当前组合净股息率估算" : "股息数据不完整时不计算"}</div>
+      <div class="metric-card">
+        <div class="metric-label">成本股息率</div>
+        <div class="metric-value">${(yieldOnCost * 100).toFixed(2)}%</div>
+        <div class="metric-foot">按持仓成本计算</div>
       </div>
     </div>
 
+    ${renderFreedomMilestones(monthlyIncomeCny)}
+    ${renderIncomeChart(chart, monthlyGoalUsd, year)}
     ${renderPendingDividends(pendingDividends)}
-
-    <div class="section-title"><h2>${year} 年股息收入</h2><small>总计 ${money(yearReceived)}</small></div>
-    ${renderIncomeChart(chart, monthlyGoalUsd)}
   `;
+}
+
+function renderFreedomMilestones(monthlyIncomeCny) {
+  const { milestones, current, next, progress } = getFreedomStatus(monthlyIncomeCny);
+  return `
+    <section class="card freedom-card">
+      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? `${escapeHtml(current.icon)} ${escapeHtml(current.name)}` : "正在迈出第一步"}</h2></div><strong>${displayCnyAmount(monthlyIncomeCny)}<small>/月</small></strong></div>
+      <div class="freedom-next">${next ? `下一等级：${escapeHtml(next.icon)} ${escapeHtml(next.name)}，还差 <strong>${displayCnyAmount(Math.max(0, next.amountCny - monthlyIncomeCny))}</strong>` : "六个里程碑已全部解锁"}</div>
+      <div class="progress-track freedom-progress"><div class="progress-fill" style="width:${progress}%"></div></div>
+      <div class="milestone-grid">${milestones.map((item) => `<div class="milestone ${item.unlocked ? "unlocked" : "locked"}"><span class="milestone-icon">${escapeHtml(item.icon)}</span><div><strong>${escapeHtml(item.name)}</strong><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(item.amountCny)}/月</small></div><span class="milestone-state">${item.unlocked ? "已解锁" : "未解锁"}</span></div>`).join("")}</div>
+    </section>`;
 }
 
 function renderPendingDividends(rows) {
@@ -563,20 +616,24 @@ function renderPendingDividends(rows) {
     </section>`;
 }
 
-function renderIncomeChart(chart, goalUsd) {
+function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
+  const plotHeight = 210;
   const values = chart.received.map((v, i) => v + chart.announced[i] + chart.forecast[i]);
-  const max = Math.max(goalUsd, ...values, 1) * 1.18;
-  const goalBottom = Math.min(100, goalUsd / max * 100);
+  const max = Math.max(goalUsd, ...values, 1) * 1.12;
+  const annualTotal = values.reduce((sum, value) => sum + value, 0);
+  const goalBottom = Math.min(plotHeight, goalUsd / max * plotHeight);
+  const heightFor = (value) => value > 0 ? Math.max(3, value / max * plotHeight) : 0;
   const bars = values.map((_, i) => {
-    const r = chart.received[i] / max * 100;
-    const a = chart.announced[i] / max * 100;
-    const f = chart.forecast[i] / max * 100;
-    return `<div class="bar-group"><div class="bar-stack" style="height:calc(100% - 24px)"><div class="bar received" style="height:${r}%"></div><div class="bar announced" style="height:${a}%"></div><div class="bar forecast" style="height:${f}%"></div></div><div class="month-label">${i + 1}月</div></div>`;
+    const r = heightFor(chart.received[i]);
+    const a = heightFor(chart.announced[i]);
+    const f = heightFor(chart.forecast[i]);
+    const total = values[i];
+    return `<div class="bar-group" aria-label="${i + 1} 月 ${money(total)}"><div class="bar-stack ${total > 0 ? "has-value" : ""}"><div class="bar received" style="height:${r}px"></div><div class="bar announced" style="height:${a}px"></div><div class="bar forecast" style="height:${f}px"></div></div><div class="month-label">${i + 1}月</div></div>`;
   }).join("");
   return `
     <section class="card chart-card">
-      <div class="chart-head"><div><div class="eyebrow">实际 / 已宣布 / 预测</div><div class="chart-total">被动收入曲线</div></div><span class="tag">净股息</span></div>
-      <div class="chart"><div class="goal-line" style="bottom:${goalBottom}%"></div>${bars}</div>
+      <div class="chart-head"><div><div class="eyebrow">${year} 年股息收入</div><div class="chart-total">${money(annualTotal)}</div></div><span class="chart-badge">年度总计</span></div>
+      <div class="chart-plot"><div class="chart-grid-lines"><i></i><i></i><i></i><i></i></div>${goalUsd > 0 ? `<div class="goal-line" style="bottom:${goalBottom + 23}px"><span>月目标</span></div>` : ""}<div class="chart-bars">${bars}</div></div>
       <div class="legend"><span class="l1">已收到</span><span class="l2">已宣布</span><span class="l3">预测</span></div>
     </section>
   `;
@@ -627,7 +684,7 @@ function renderAssetCard(item) {
         <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       </div>
       ${next ? `<div class="dividend-next"><span>下次分红</span><strong>${escapeHtml(nextText)}</strong></div>` : ""}
-      <div class="btn-row" style="margin-top:16px"><button class="btn yellow" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>动态更新</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑</button></div>
+      <div class="btn-row asset-actions"><button class="btn primary" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>动态更新</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑</button><button class="btn danger subtle-delete" data-action="delete-asset" data-id="${asset.id}">删除</button></div>
     </article>
   `;
 }
@@ -701,6 +758,17 @@ function renderSettings() {
       <div class="setting-row"><div><label>显示货币</label></div><select id="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div>
       <div class="setting-row"><div><label>备用汇率</label></div><input class="input" id="exchangeRate" type="number" step="0.0001" value="${state.settings.exchangeRate}" /></div>
       <div class="setting-row"><div><label>每月收入目标</label></div><input class="input" id="monthlyGoal" type="number" step="100" value="${state.settings.monthlyGoal}" /></div>
+    </section>
+
+    <div class="section-title"><h2>自由里程碑设置</h2><small>均按人民币/月</small></div>
+    <section class="card milestone-settings">
+      ${normalizeMilestones(state.settings.freedomMilestones).map((item, index) => `
+        <div class="milestone-setting-row" data-milestone-index="${index}">
+          <input class="input milestone-icon-input" data-milestone-field="icon" maxlength="8" value="${escapeHtml(item.icon)}" aria-label="里程碑图标" />
+          <input class="input" data-milestone-field="name" maxlength="24" value="${escapeHtml(item.name)}" aria-label="里程碑名称" />
+          <label><span>¥</span><input class="input" data-milestone-field="amountCny" type="number" min="1" step="1" value="${item.amountCny}" aria-label="里程碑金额" /></label>
+        </div>`).join("")}
+      <p class="settings-hint">判断始终使用人民币。切换美元显示时，会按上方汇率换算后再判断解锁状态。</p>
     </section>
     <button class="btn primary full" style="margin-top:14px" data-action="save-settings">保存设置</button>
 
@@ -984,6 +1052,15 @@ function captureSettingsForm() {
   if (monthlyGoal) state.settings.monthlyGoal = number(monthlyGoal.value, 1000);
   if (apiKey) state.settings.alphaVantageApiKey = String(apiKey.value || "").trim();
   if (autoRefresh) state.settings.autoRefresh = autoRefresh.value === "true";
+  const milestoneRows = [...document.querySelectorAll(".milestone-setting-row")];
+  if (milestoneRows.length) {
+    state.settings.freedomMilestones = normalizeMilestones(milestoneRows.map((row, index) => ({
+      id: defaultMilestones[index]?.id,
+      icon: row.querySelector('[data-milestone-field="icon"]')?.value,
+      name: row.querySelector('[data-milestone-field="name"]')?.value,
+      amountCny: row.querySelector('[data-milestone-field="amountCny"]')?.value,
+    })));
+  }
   saveState();
 }
 
@@ -1215,11 +1292,34 @@ function resetData() {
 }
 
 function deleteAsset(assetId) {
-  const hasTransactions = state.transactions.some((tx) => tx.assetId === assetId);
-  if (hasTransactions) return showToast("该标的已有记录，不能直接删除");
-  if (!confirm("确定删除这个标的？")) return;
+  const asset = getAsset(assetId);
+  if (!asset) return showToast("找不到这个标的");
+  const related = state.transactions.filter((tx) => tx.assetId === assetId);
+  const counts = related.reduce((result, tx) => {
+    if (tx.type === "buy") result.buy += 1;
+    if (tx.type === "sell") result.sell += 1;
+    if (tx.type === "dividend") result.dividend += 1;
+    return result;
+  }, { buy: 0, sell: 0, dividend: 0 });
+  const message = related.length
+    ? `${asset.ticker} 关联买入 ${counts.buy} 笔、卖出 ${counts.sell} 笔、股息 ${counts.dividend} 笔。\n\n继续将删除标的及全部 ${related.length} 笔相关记录。此操作会先自动备份，确定继续吗？`
+    : `确定删除 ${asset.ticker} 吗？此操作会先自动备份。`;
+  if (!confirm(message)) return;
+  try {
+    localStorage.setItem(DELETE_BACKUP_KEY, JSON.stringify({
+      createdAt: new Date().toISOString(),
+      deletedAssetId: assetId,
+      state,
+    }));
+  } catch {
+    return showToast("自动备份失败，已取消删除");
+  }
   state.assets = state.assets.filter((asset) => asset.id !== assetId);
-  saveState(); modal = null; showToast("标的已删除"); render();
+  state.transactions = state.transactions.filter((tx) => tx.assetId !== assetId);
+  saveState();
+  modal = null;
+  showToast(related.length ? `标的及 ${related.length} 笔相关记录已删除` : "标的已删除");
+  render();
 }
 
 function showToast(message) {
@@ -1233,9 +1333,26 @@ function showToast(message) {
 }
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let refreshingForUpdate = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    const refreshKey = `tangping-dividend.reloaded-${APP_VERSION}`;
+    if (!hadController || refreshingForUpdate || sessionStorage.getItem(refreshKey)) return;
+    refreshingForUpdate = true;
+    sessionStorage.setItem(refreshKey, "1");
+    window.location.reload();
+  });
+  window.addEventListener("load", async () => {
+    try {
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=6`);
+      await registration.update();
+    } catch {
+      // 离线启动时继续使用已缓存版本。
+    }
+  });
 }
 
+if (stateNeedsMigration) saveState();
 render();
 setTimeout(() => maybeAutoRefresh(), 350);
 window.addEventListener("online", () => {

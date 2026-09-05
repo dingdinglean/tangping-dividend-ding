@@ -1,12 +1,12 @@
-const CACHE_NAME = "tangping-dividend-v6";
-const APP_VERSION = "v6";
+const CACHE_NAME = "tangping-dividend-v7.1";
+const SNAPSHOT_CACHE = "tangping-market-snapshots-v1";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=6",
-  "./app.js?v=6",
-  "./market-data.js?v=6",
-  "./manifest.webmanifest?v=6",
+  "./styles.css?v=7.1",
+  "./app.js?v=7.1",
+  "./market-data.js?v=7.1",
+  "./manifest.webmanifest?v=7.1",
   "./icon.svg",
   "./icon-180.png",
   "./icon-192.png",
@@ -21,25 +21,38 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+    await Promise.all(keys.filter((key) => key.startsWith("tangping-dividend-") && key !== CACHE_NAME).map((key) => caches.delete(key)));
     await self.clients.claim();
-    const windows = await self.clients.matchAll({ type: "window" });
-    await Promise.all(windows.map((client) => {
-      const url = new URL(client.url);
-      if (url.searchParams.get("pwa-update") === APP_VERSION) return null;
-      url.searchParams.set("pwa-update", APP_VERSION);
-      return client.navigate(url.href).catch(() => null);
-    }));
+
   })());
 });
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  const snapshotUrl = new URL("./data/market.json", self.location.href).href;
+  const mirrorUrl = "https://raw.githubusercontent.com/dingdinglean/tangping-dividend-ding/main/data/market.json";
+  if (url.href === snapshotUrl || url.href === mirrorUrl) {
+    event.respondWith((async () => {
+      const cache = await caches.open(SNAPSHOT_CACHE);
+      try {
+        const response = await fetch(event.request, { cache: "no-store" });
+        if (!response.ok) throw new Error("snapshot unavailable");
+        const body = await response.clone().json();
+        if (body.schemaVersion !== 1 || !body.symbols || typeof body.symbols !== "object") throw new Error("invalid snapshot");
+        await cache.put(event.request, response.clone());
+        return response;
+      } catch {
+        return await cache.match(event.request) || Response.error();
+      }
+    })());
+    return;
+  }
 
   // 行情和汇率接口必须走网络，不能被 PWA 缓存成旧数据。
-  if (url.origin !== self.location.origin) {
-    event.respondWith(fetch(event.request));
+  const isStaticAsset = ASSETS.some((asset) => new URL(asset, self.location.href).href === url.href);
+  if (url.origin !== self.location.origin || (event.request.mode !== "navigate" && !isStaticAsset)) {
+    event.respondWith(fetch(event.request).catch(() => new Response("", { status: 503, statusText: "Offline" })));
     return;
   }
 
@@ -52,6 +65,6 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+      .catch(() => caches.match(event.request).then((cached) => cached || (event.request.mode === "navigate" ? caches.match("./index.html") : Response.error())))
   );
 });

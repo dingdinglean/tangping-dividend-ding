@@ -1,11 +1,13 @@
-import { fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=6";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.1";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v6";
+const APP_VERSION = "v7.1";
 const INCOME_YEAR = 2026;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
+const DIVIDEND_REFRESH_MS = 24 * 60 * 60 * 1000;
+const RETRY_MS = 30 * 60 * 1000;
 const AUTO_DIVIDEND_LOOKBACK_DAYS = 120;
 
 const defaultMilestones = [
@@ -27,6 +29,8 @@ const defaultState = {
     exchangeRateSource: "手动备用值",
     monthlyGoal: 1000,
     alphaVantageApiKey: "",
+    marketDataEndpoint: "",
+    marketDataMode: "snapshot",
     autoRefresh: true,
     lastMarketRefreshAt: null,
     lastMarketRefreshMessage: "尚未连接行情",
@@ -45,6 +49,7 @@ const defaultState = {
 };
 
 let stateNeedsMigration = false;
+let storageReadError = false;
 let state = loadState();
 let currentTab = "home";
 let modal = null;
@@ -53,13 +58,22 @@ let calendarCursor = new Date();
 let selectedDate = isoDate(new Date());
 let toastTimer = null;
 let refreshInProgress = false;
-let autoRefreshStarted = false;
+let lastAutoCheck = 0;
+
+// Never replace an in-progress form when a background request completes.
+function renderAfterSync() {
+  if (modal || currentTab === "settings") return;
+  render();
+}
 
 function loadState() {
+  storageReadError = false;
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!saved || saved.version !== 1) return structuredClone(defaultState);
-    stateNeedsMigration = !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return structuredClone(defaultState);
+    const saved = JSON.parse(raw);
+    if (!saved || saved.version !== 1 || !Array.isArray(saved.assets) || !Array.isArray(saved.transactions)) throw new Error("Unsupported data");
+    stateNeedsMigration = !saved.settings?.marketDataMode || !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
     const merged = { ...structuredClone(defaultState), ...saved, settings: { ...defaultState.settings, ...saved.settings } };
     merged.transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
     merged.settings.freedomMilestones = normalizeMilestones(saved.settings?.freedomMilestones);
@@ -81,6 +95,8 @@ function loadState() {
     }));
     return merged;
   } catch {
+    storageReadError = true;
+    stateNeedsMigration = false;
     return structuredClone(defaultState);
   }
 }
@@ -99,6 +115,7 @@ function normalizeMilestones(savedMilestones) {
 }
 
 function saveState() {
+  if (storageReadError) throw new Error("原有数据无法读取，已停止写入以保护原始数据；请先导出备份");
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -144,8 +161,17 @@ function resetApiCounterIfNeeded() {
 }
 
 function consumeApiRequest(count = 1) {
+  if (getMarketEndpoint()) return;
   resetApiCounterIfNeeded();
+  if (number(state.settings.apiUsageCount) + count > 25) throw new Error("今日 25 次请求预算已用完，明天自动重试");
   state.settings.apiUsageCount = number(state.settings.apiUsageCount) + count;
+  saveState();
+}
+
+function getMarketEndpoint() {
+  if (state.settings.marketDataMode === "direct") return "";
+  if (state.settings.marketDataMode === "proxy") return state.settings.marketDataEndpoint || "";
+  return "./data/market.json";
 }
 
 function getHistoricalRemoteDividends(asset) {
@@ -247,6 +273,7 @@ function getRemoteDividendKey(asset, row) {
 }
 
 function syncDeclaredDividendTransactions(asset) {
+  if (!getAsset(asset.id)) return { created: 0, updated: 0 };
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - AUTO_DIVIDEND_LOOKBACK_DAYS);
   const cutoffDate = isoDate(cutoff);
@@ -427,11 +454,13 @@ function calculatePortfolio() {
     acc.annualForecast += item.annualForecast;
     if (item.shares > 0) {
       acc.heldCount += 1;
+      if (number(item.asset.currentPrice) > 0) acc.priceCoveredCount += 1;
       if (item.hasDividendEstimate) acc.dividendCoveredCount += 1;
     }
     return acc;
-  }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0, heldCount: 0, dividendCoveredCount: 0 });
+  }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0, heldCount: 0, dividendCoveredCount: 0, priceCoveredCount: 0 });
   totals.dividendCoverageComplete = totals.heldCount > 0 && totals.dividendCoveredCount === totals.heldCount;
+  totals.priceCoverageComplete = totals.heldCount === totals.priceCoveredCount;
 
   return { positions, totals };
 }
@@ -464,12 +493,30 @@ function monthlyIncomeData(year) {
     if (tx.status === "announced") announced[month] += number(tx.netDividend);
     if (tx.status === "forecast") forecast[month] += number(tx.netDividend);
   });
+  // Derived projections are never written to the user's transaction ledger.
+  const now = new Date();
+  calculatePortfolio().positions.forEach((item) => {
+    if (item.shares <= 0 || item.annualForecast <= 0 || item.asset.frequency === "irregular") return;
+    const interval = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 }[item.asset.frequency];
+    if (!interval) return;
+    const dates = [...(item.asset.remoteDividends || []).map((row) => row.paymentDate || row.exDate),
+      ...item.dividendRecords.map((row) => row.date)].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date || "")).sort().reverse();
+    // Without payment history, don't invent a quarterly/annual schedule.
+    if (interval > 1 && !dates.length) return;
+    const anchor = dates.length ? Number(dates[0].slice(5, 7)) - 1 : 0;
+    for (let month = 0; month < 12; month += 1) {
+      if (year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth())) continue;
+      if (((month - anchor) % interval + interval) % interval !== 0) continue;
+      const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+      const hasRecord = state.transactions.some((tx) => tx.assetId === item.asset.id && tx.type === "dividend" && String(tx.date).startsWith(key) && ["received", "announced", "forecast"].includes(tx.status));
+      if (!hasRecord) forecast[month] += item.annualForecast * interval / 12;
+    }
+  });
   return { received, announced, forecast };
 }
 
-function getMonthlyPassiveIncomeUsd(totals, chart, monthIndex = new Date().getMonth()) {
-  const recorded = chart.received[monthIndex] + chart.announced[monthIndex] + chart.forecast[monthIndex];
-  return recorded > 0 ? recorded : Math.max(0, totals.annualForecast / 12);
+function getMonthlyPassiveIncomeUsd(totals) {
+  return Math.max(0, totals.annualForecast / 12);
 }
 
 function displayCnyAmount(amountCny) {
@@ -498,6 +545,7 @@ function render() {
   app.innerHTML = `
     <main class="app-shell">
       ${renderTopbar()}
+      ${storageReadError ? '<section class="card"><p>原有数据暂时无法读取，已停止写入，未清空原始内容。请先导出原始备份。</p><button class="btn" data-action="export-data">导出原始数据</button></section>' : ""}
       ${currentTab === "home" ? renderHome() : ""}
       ${currentTab === "portfolio" ? renderPortfolio() : ""}
       ${currentTab === "calendar" ? renderCalendar() : ""}
@@ -532,10 +580,12 @@ function renderDataStatusBar() {
   const fxText = state.settings.exchangeRateUpdatedAt
     ? `汇率 ${number(state.settings.exchangeRate).toFixed(4)} · ${formatUpdatedAt(state.settings.exchangeRateUpdatedAt)}`
     : `汇率使用备用值 ${number(state.settings.exchangeRate).toFixed(4)}`;
-  const marketText = state.settings.lastMarketRefreshAt
-    ? `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`
-    : "行情尚未连接";
-  const stale = isStale(state.settings.lastMarketRefreshAt, MARKET_REFRESH_MS);
+  const staleCount = state.assets.filter((asset) => isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS) || isStale(asset.dividendUpdatedAt, DIVIDEND_REFRESH_MS)).length;
+  const marketText = !navigator.onLine ? "离线浏览 · 保留上次数据"
+    : !state.settings.alphaVantageApiKey && !getMarketEndpoint() ? "请在高级设置连接备用行情"
+    : staleCount ? `${staleCount} 只标的数据待更新 · 旧数据仍保留`
+    : `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`;
+  const stale = staleCount > 0;
   return `<section class="sync-bar ${stale ? "stale" : "fresh"}"><div><strong>${refreshInProgress ? "正在同步动态数据…" : marketText}</strong><span>${fxText}</span></div><button class="btn compact" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "同步中" : "更新"}</button></section>`;
 }
 
@@ -544,38 +594,34 @@ function renderHome() {
   const pendingDividends = getPendingDividendTransactions();
   const year = INCOME_YEAR;
   const chart = monthlyIncomeData(year);
-  const currentMonth = new Date().getMonth();
-  const monthExpected = getMonthlyPassiveIncomeUsd(totals, chart, currentMonth);
+  const monthExpected = getMonthlyPassiveIncomeUsd(totals);
   const monthlyIncomeCny = monthExpected * number(state.settings.exchangeRate, 7.2);
   const monthlyGoalUsd = state.settings.monthlyGoal / number(state.settings.exchangeRate, 7.2);
-  const progress = monthlyGoalUsd > 0 ? Math.min(100, monthExpected / monthlyGoalUsd * 100) : 0;
   const currentYield = totals.marketValue > 0 ? totals.annualForecast / totals.marketValue : 0;
   const yieldOnCost = totals.cost > 0 ? totals.annualForecast / totals.cost : 0;
 
   return `
-    ${renderDataStatusBar()}
     <section class="card hero income-hero">
       <div class="hero-row">
         <div>
-          <div class="eyebrow">本月被动收入</div>
-          <div class="hero-value">${money(monthExpected)}</div>
-          <div class="hero-sub">已记录收入优先；无当月记录时按当前持仓年股息折算</div>
+          <div class="eyebrow">预计每月被动收入 · ${state.settings.displayCurrency}</div>
+          <div class="hero-value">${totals.heldCount > 0 && !totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div>
+          <div class="hero-sub">当前持仓预计年股息 ÷ 12${totals.heldCount && !totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div>
         </div>
         <div class="hero-goal"><div class="eyebrow">月目标</div><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div>
       </div>
-      <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
-      <div class="progress-note"><span>完成 ${progress.toFixed(1)}%</span><span>还差 ${money(Math.max(0, monthlyGoalUsd - monthExpected))}/月</span></div>
+      <div class="income-facts"><div><span>本月实际到账</span><strong>${money(state.transactions.filter((tx) => tx.type === "dividend" && tx.status === "received" && String(tx.date).startsWith(todayKey().slice(0, 7))).reduce((sum, tx) => sum + number(tx.netDividend), 0))}</strong></div><div><span>累计已收股息</span><strong>${money(totals.received)}</strong></div></div>
     </section>
 
     <div class="grid-2">
       <div class="metric-card">
         <div class="metric-label">价格股息率</div>
-        <div class="metric-value">${(currentYield * 100).toFixed(2)}%</div>
+        <div class="metric-value">${totals.marketValue > 0 && totals.dividendCoverageComplete && totals.priceCoverageComplete ? `${(currentYield * 100).toFixed(2)}%` : "待更新"}</div>
         <div class="metric-foot">按当前市值计算</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">成本股息率</div>
-        <div class="metric-value">${(yieldOnCost * 100).toFixed(2)}%</div>
+        <div class="metric-value">${totals.cost > 0 && totals.dividendCoverageComplete ? `${(yieldOnCost * 100).toFixed(2)}%` : "待更新"}</div>
         <div class="metric-foot">按持仓成本计算</div>
       </div>
     </div>
@@ -583,6 +629,7 @@ function renderHome() {
     ${renderFreedomMilestones(monthlyIncomeCny)}
     ${renderIncomeChart(chart, monthlyGoalUsd, year)}
     ${renderPendingDividends(pendingDividends)}
+    ${renderDataStatusBar()}
   `;
 }
 
@@ -593,7 +640,7 @@ function renderFreedomMilestones(monthlyIncomeCny) {
       <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? `${escapeHtml(current.icon)} ${escapeHtml(current.name)}` : "正在迈出第一步"}</h2></div><strong>${displayCnyAmount(monthlyIncomeCny)}<small>/月</small></strong></div>
       <div class="freedom-next">${next ? `下一等级：${escapeHtml(next.icon)} ${escapeHtml(next.name)}，还差 <strong>${displayCnyAmount(Math.max(0, next.amountCny - monthlyIncomeCny))}</strong>` : "六个里程碑已全部解锁"}</div>
       <div class="progress-track freedom-progress"><div class="progress-fill" style="width:${progress}%"></div></div>
-      <div class="milestone-grid">${milestones.map((item) => `<div class="milestone ${item.unlocked ? "unlocked" : "locked"}"><span class="milestone-icon">${escapeHtml(item.icon)}</span><div><strong>${escapeHtml(item.name)}</strong><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(item.amountCny)}/月</small></div><span class="milestone-state">${item.unlocked ? "已解锁" : "未解锁"}</span></div>`).join("")}</div>
+      <details class="milestone-details"><summary>查看全部六个里程碑</summary><div class="milestone-grid">${milestones.map((item) => `<div class="milestone ${item.unlocked ? "unlocked" : "locked"}"><span class="milestone-icon">${escapeHtml(item.icon)}</span><div><strong>${escapeHtml(item.name)}</strong><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(item.amountCny)}/月</small></div><span class="milestone-state">${item.unlocked ? "已解锁" : "未解锁"}</span></div>`).join("")}</div></details>
     </section>`;
 }
 
@@ -617,11 +664,11 @@ function renderPendingDividends(rows) {
 }
 
 function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
-  const plotHeight = 210;
+  const plotHeight = 180;
   const values = chart.received.map((v, i) => v + chart.announced[i] + chart.forecast[i]);
-  const max = Math.max(goalUsd, ...values, 1) * 1.12;
+  const max = Math.max(...values, 1) * 1.12;
   const annualTotal = values.reduce((sum, value) => sum + value, 0);
-  const goalBottom = Math.min(plotHeight, goalUsd / max * plotHeight);
+  const axisLabel = (value) => new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value * (state.settings.displayCurrency === "CNY" ? number(state.settings.exchangeRate, 7.2) : 1));
   const heightFor = (value) => value > 0 ? Math.max(3, value / max * plotHeight) : 0;
   const bars = values.map((_, i) => {
     const r = heightFor(chart.received[i]);
@@ -633,8 +680,9 @@ function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
   return `
     <section class="card chart-card">
       <div class="chart-head"><div><div class="eyebrow">${year} 年股息收入</div><div class="chart-total">${money(annualTotal)}</div></div><span class="chart-badge">年度总计</span></div>
-      <div class="chart-plot"><div class="chart-grid-lines"><i></i><i></i><i></i><i></i></div>${goalUsd > 0 ? `<div class="goal-line" style="bottom:${goalBottom + 23}px"><span>月目标</span></div>` : ""}<div class="chart-bars">${bars}</div></div>
+      <div class="chart-plot"><div class="chart-grid-lines">${[1, 2 / 3, 1 / 3, 0].map((ratio) => `<i><span>${axisLabel(max * ratio)}</span></i>`).join("")}</div><div class="chart-bars">${bars}</div></div>
       <div class="legend"><span class="l1">已收到</span><span class="l2">已宣布</span><span class="l3">预测</span></div>
+      <p class="chart-note">预测按当前持仓与历史派息推算，不代表已到账；未知派息月份不填充。</p>
     </section>
   `;
 }
@@ -644,7 +692,7 @@ function renderPortfolio() {
   return `
     ${renderDataStatusBar()}
     <div class="summary-strip">
-      <div class="summary-item"><strong>${money(totals.marketValue)}</strong><span>总市值</span></div>
+      <div class="summary-item"><strong>${totals.priceCoverageComplete ? money(totals.marketValue) : "待更新"}</strong><span>总市值</span></div>
       <div class="summary-item"><strong>${money(totals.received)}</strong><span>累计股息</span></div>
       <div class="summary-item"><strong>${money(totals.annualForecast / 12)}</strong><span>预计月均</span></div>
     </div>
@@ -656,7 +704,6 @@ function renderPortfolio() {
 function renderAssetCard(item) {
   const asset = item.asset;
   const priceFresh = !isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS * 2);
-  const dividendFresh = !isStale(asset.dividendUpdatedAt, 7 * 24 * 60 * 60 * 1000);
   const next = item.nextDividend;
   const nextText = next
     ? `${next.paymentDate || next.exDate} · $${number(next.amount).toFixed(4)}/股`
@@ -672,19 +719,20 @@ function renderAssetCard(item) {
     <article class="card asset-card" data-asset-card="${asset.id}">
       <div class="asset-head">
         <div class="asset-title"><h3>${escapeHtml(asset.name)}</h3><div class="ticker-row"><strong>${escapeHtml(asset.ticker)}</strong><span class="tag">${escapeHtml(asset.role)}</span></div></div>
-        <div class="asset-value"><strong>${money(item.marketValue)}</strong><span>${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div>
+        <div class="asset-value"><strong>${asset.currentPrice > 0 ? money(item.marketValue) : "待更新"}</strong><span>${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div>
       </div>
-      <div class="market-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${escapeHtml(dataStatus)}</span></div>
+      <div class="market-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${escapeHtml(asset.priceLastError ? `更新失败，保留旧值 · ${asset.priceLastError}` : dataStatus)}</span></div>
       <div class="asset-grid">
         <div><label>最新价格</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
-        <div><label>股息率${item.manualYield !== null ? "（手动）" : ""}</label><strong>${item.dividendYield !== null && item.dividendYield >= 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "—"}</strong></div>
+        <div><label>股息率${item.manualYield !== null ? "（手动）" : ""}</label><strong>${item.manualYield !== null || item.dividendYield > 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "待更新"}</strong></div>
         <div><label>持仓成本</label><strong>${money(item.cost)}</strong></div>
-        <div><label>浮动盈亏</label><strong class="${item.pnl >= 0 ? "positive" : "negative"}">${money(item.pnl)}</strong></div>
+        <div><label>浮动盈亏</label><strong class="${asset.currentPrice > 0 ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${asset.currentPrice > 0 ? money(item.pnl) : "待更新"}</strong></div>
         <div><label>已收净股息</label><strong>${money(item.receivedDividends)}</strong></div>
         <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       </div>
       ${next ? `<div class="dividend-next"><span>下次分红</span><strong>${escapeHtml(nextText)}</strong></div>` : ""}
-      <div class="btn-row asset-actions"><button class="btn primary" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>动态更新</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑</button><button class="btn danger subtle-delete" data-action="delete-asset" data-id="${asset.id}">删除</button></div>
+      <details class="asset-data-details"><summary>数据来源与更新</summary><p>${escapeHtml(dividendStatusText)}</p><p>平均成本价 ${item.shares > 0 ? money(item.cost / item.shares, "USD") : "—"}</p><div class="btn-row"><button class="btn" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>更新数据</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button></div></details>
+      <div class="btn-row asset-actions"><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑标的</button><button class="btn danger subtle-delete" data-action="delete-asset" data-id="${asset.id}">删除</button></div>
     </article>
   `;
 }
@@ -746,10 +794,14 @@ function renderSettings() {
   return `
     <div class="section-title"><h2>动态数据</h2></div>
     <section class="card settings-group">
+      <div class="setting-row stacked"><div><label>自动行情</label><small>行情由 GitHub Actions 自动更新。个人 API Key 仅作为备用直连方式。默认无需填写密钥或服务器地址。</small></div><select id="marketDataMode"><option value="snapshot" ${state.settings.marketDataMode === "snapshot" ? "selected" : ""}>GitHub Actions 静态快照（推荐）</option><option value="direct" ${state.settings.marketDataMode === "direct" ? "selected" : ""}>高级：个人 Key 直连</option><option value="proxy" ${state.settings.marketDataMode === "proxy" ? "selected" : ""}>高级：共享 Node 服务</option></select></div>
+      <details class="setting-row stacked"><summary>高级备用连接（普通使用无需填写）</summary>
+      <div><label>共享行情服务（仅高级模式使用）</label><input class="input wide" id="marketDataEndpoint" type="url" value="${escapeHtml(state.settings.marketDataEndpoint || "")}" placeholder="https://你的服务/api/market" /></div>
       <div class="setting-row stacked"><div><label>Alpha Vantage API Key</label></div><input class="input wide" id="alphaVantageApiKey" type="password" autocomplete="off" value="${escapeHtml(state.settings.alphaVantageApiKey || "")}" placeholder="粘贴免费 API Key" /></div>
+      </details>
       <div class="setting-row"><div><label>自动更新</label></div><select id="autoRefresh"><option value="true" ${state.settings.autoRefresh ? "selected" : ""}>开启</option><option value="false" ${!state.settings.autoRefresh ? "selected" : ""}>关闭</option></select></div>
       <div class="setting-row"><div><label>美元兑人民币</label><small>${escapeHtml(fxStatus)}</small></div><strong>${number(state.settings.exchangeRate).toFixed(4)}</strong></div>
-      <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${number(state.settings.apiUsageCount)}/25 次</span></div>
+      <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${getMarketEndpoint() === "./data/market.json" ? "Actions 快照" : getMarketEndpoint() ? "共享服务" : `${number(state.settings.apiUsageCount)}/25 次`}</span></div>
       <div class="btn-row setting-actions"><button class="btn yellow" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "正在更新" : "更新全部"}</button><button class="btn" data-action="refresh-fx" ${refreshInProgress ? "disabled" : ""}>只更新汇率</button></div>
     </section>
 
@@ -901,7 +953,7 @@ function bindEvents() {
   document.querySelectorAll("[data-action]").forEach((element) => element.addEventListener("click", (event) => {
     const action = element.dataset.action;
     if (action === "close-modal" && element.classList.contains("modal-backdrop") && event.target !== element) return;
-    handleAction(action, element, event);
+    handleAction(action, element, event).catch((error) => showToast(error.message || "操作失败，请重试"));
   }));
 
   const txForm = document.querySelector("#transactionForm");
@@ -1042,6 +1094,16 @@ function submitPrice(event) {
 }
 
 function captureSettingsForm() {
+  const mode = document.querySelector("#marketDataMode");
+  const endpoint = document.querySelector("#marketDataEndpoint");
+  if (mode?.value === "proxy") {
+    if (!endpoint?.value.trim()) throw new Error("共享服务模式需要填写 URL；普通使用请选择 Actions 静态快照");
+    configureMarketEndpoint(endpoint.value.trim());
+  }
+  if (mode) state.settings.marketDataMode = mode.value;
+  if (endpoint) {
+    state.settings.marketDataEndpoint = endpoint.value.trim();
+  }
   const displayCurrency = document.querySelector("#displayCurrency");
   const exchangeRate = document.querySelector("#exchangeRate");
   const monthlyGoal = document.querySelector("#monthlyGoal");
@@ -1065,7 +1127,7 @@ function captureSettingsForm() {
 }
 
 function saveSettings() {
-  captureSettingsForm();
+  try { captureSettingsForm(); } catch (error) { showToast(error.message); return; }
   showToast("设置已保存");
   render();
 }
@@ -1079,75 +1141,75 @@ async function updateFxData() {
   return result;
 }
 
-async function updateAssetMarketData(asset) {
+function resourceDue(asset, resource) {
+  const maxAge = resource === "price" ? MARKET_REFRESH_MS : DIVIDEND_REFRESH_MS;
+  return isStale(asset[`${resource}UpdatedAt`], maxAge) && isStale(asset[`${resource}AttemptAt`], RETRY_MS);
+}
+
+async function updateAssetMarketData(asset, options = {}) {
   const apiKey = String(state.settings.alphaVantageApiKey || "").trim();
-  if (!apiKey) throw new Error("请先在设置中填写 Alpha Vantage API Key");
+  configureMarketEndpoint(getMarketEndpoint());
+  if (!apiKey && !getMarketEndpoint()) throw new Error("备用直连模式需要个人 API Key；也可切回默认 Actions 快照");
+  const updatePrice = !options.automatic || resourceDue(asset, "price");
+  const updateDividend = !options.automatic || resourceDue(asset, "dividend");
+  if (!updatePrice && !updateDividend) return { skipped: true };
   const symbol = asset.apiSymbol || asset.ticker;
   let quoteOk = false;
   let dividendOk = false;
   let dividendSync = { created: 0, updated: 0 };
   let lastError = null;
+  const cannotRetry = (error) => /额度|预算|429|API Key/.test(error.message);
 
-  try {
-    consumeApiRequest();
-    const quote = await fetchAlphaQuote(symbol, apiKey);
-    asset.currentPrice = quote.price;
-    asset.priceTradingDay = quote.tradingDay;
-    asset.priceUpdatedAt = new Date().toISOString();
-    asset.priceSource = quote.source;
-    asset.changePercent = quote.changePercent;
-    quoteOk = true;
-  } catch (error) {
-    lastError = error;
-  }
-
-  await wait(350);
-
-  try {
-    consumeApiRequest();
-    const result = await fetchAlphaDividends(symbol, apiKey);
-    if (!result.dividends.length) throw new Error(`${symbol} 精确股息接口返回空记录`);
-    asset.remoteDividends = result.dividends;
-    asset.dividendUpdatedAt = new Date().toISOString();
-    asset.dividendSource = result.source;
-    asset.dividendDataQuality = result.quality || "exact";
-    asset.dividendLastError = null;
-    asset.snapshotAnnualDividendPerShare = 0;
-    asset.snapshotDividendYield = 0;
-    dividendSync = syncDeclaredDividendTransactions(asset);
-    dividendOk = true;
-  } catch (exactError) {
-    asset.dividendLastError = exactError.message;
-    lastError = lastError || exactError;
-    await wait(350);
+  if (updatePrice) {
+    asset.priceAttemptAt = new Date().toISOString();
     try {
       consumeApiRequest();
-      const fallback = await fetchAlphaMonthlyAdjustedDividends(symbol, apiKey);
-      asset.remoteDividends = mergeDividendRows(asset.remoteDividends, fallback.dividends);
-      asset.dividendUpdatedAt = new Date().toISOString();
-      asset.dividendSource = fallback.source;
-      asset.dividendDataQuality = fallback.quality || "monthly";
-      asset.dividendLastError = `精确日期接口失败，已用月度历史：${exactError.message}`;
-      dividendOk = true;
-    } catch (monthlyError) {
-      await wait(350);
-      try {
-        consumeApiRequest();
-        const snapshot = await fetchAlphaOverviewDividend(symbol, apiKey);
-        asset.snapshotAnnualDividendPerShare = snapshot.annualDividendPerShare;
-        asset.snapshotDividendYield = snapshot.dividendYield;
-        asset.dividendUpdatedAt = new Date().toISOString();
-        asset.dividendSource = snapshot.source;
-        asset.dividendDataQuality = snapshot.quality || "snapshot";
-        asset.dividendLastError = `精确与月度接口失败，已用年度快照：${monthlyError.message}`;
-        dividendOk = true;
-      } catch (snapshotError) {
-        asset.dividendLastError = snapshotError.message;
-        lastError = lastError || snapshotError;
-      }
+      const quote = await fetchAlphaQuote(symbol, apiKey);
+      if (getAsset(asset.id) !== asset) return { skipped: true };
+      Object.assign(asset, { currentPrice: quote.price, priceTradingDay: quote.tradingDay,
+        priceUpdatedAt: quote.fetchedAt || new Date().toISOString(), priceSource: quote.source,
+        changePercent: quote.changePercent, priceLastError: quote.refreshWarning || null });
+      quoteOk = true;
+    } catch (error) {
+      lastError = error;
+      asset.priceLastError = error.message;
     }
   }
 
+  if (updateDividend && !(lastError && cannotRetry(lastError))) {
+    asset.dividendAttemptAt = new Date().toISOString();
+    const sources = [fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend];
+    for (let index = 0; index < sources.length; index += 1) {
+      await wait(350);
+      try {
+        consumeApiRequest();
+        const result = await sources[index](symbol, apiKey);
+        if (getAsset(asset.id) !== asset) return { skipped: true };
+        if (index < 2 && !result.dividends.length) throw new Error("接口没有返回有效股息记录");
+        if (index === 0) {
+          asset.remoteDividends = result.dividends;
+          asset.snapshotAnnualDividendPerShare = 0;
+          asset.snapshotDividendYield = 0;
+          dividendSync = syncDeclaredDividendTransactions(asset);
+        } else if (index === 1) {
+          asset.remoteDividends = mergeDividendRows(asset.remoteDividends, result.dividends);
+        } else {
+          asset.snapshotAnnualDividendPerShare = result.annualDividendPerShare;
+          asset.snapshotDividendYield = result.dividendYield;
+        }
+        asset.dividendUpdatedAt = result.fetchedAt || new Date().toISOString();
+        asset.dividendSource = result.source;
+        asset.dividendDataQuality = result.quality || ["exact", "monthly", "snapshot"][index];
+        asset.dividendLastError = result.refreshWarning || (index ? "精确日期暂不可用，已使用估算数据" : null);
+        dividendOk = true;
+        break;
+      } catch (error) {
+        asset.dividendLastError = error.message;
+        lastError ||= error;
+        if (cannotRetry(error)) break;
+      }
+    }
+  }
   if (!quoteOk && !dividendOk) throw lastError || new Error(`${symbol} 更新失败`);
   return { quoteOk, dividendOk, dividendSync, partialError: lastError };
 }
@@ -1155,7 +1217,7 @@ async function updateAssetMarketData(asset) {
 async function refreshFxOnly(options = {}) {
   if (refreshInProgress) return;
   refreshInProgress = true;
-  render();
+  renderAfterSync();
   try {
     await updateFxData();
     saveState();
@@ -1165,7 +1227,7 @@ async function refreshFxOnly(options = {}) {
   } finally {
     refreshInProgress = false;
     saveState();
-    render();
+    renderAfterSync();
   }
 }
 
@@ -1174,7 +1236,7 @@ async function refreshSingleAsset(assetId) {
   const asset = getAsset(assetId);
   if (!asset) return;
   refreshInProgress = true;
-  render();
+  renderAfterSync();
   try {
     const result = await updateAssetMarketData(asset);
     state.settings.lastMarketRefreshAt = new Date().toISOString();
@@ -1188,34 +1250,36 @@ async function refreshSingleAsset(assetId) {
     showToast(state.settings.lastMarketRefreshMessage);
   } finally {
     refreshInProgress = false;
-    render();
+    renderAfterSync();
   }
 }
 
 async function refreshAllData(options = {}) {
   if (refreshInProgress) return;
   refreshInProgress = true;
-  render();
+  renderAfterSync();
   const errors = [];
   let marketSuccess = 0;
   let createdDividendCount = 0;
   try {
     try {
-      await updateFxData();
+      if (!options.automatic || isStale(state.settings.exchangeRateUpdatedAt, FX_REFRESH_MS)) await updateFxData();
     } catch (error) {
       errors.push(`汇率：${error.message}`);
     }
 
     const apiKey = String(state.settings.alphaVantageApiKey || "").trim();
-    if (!apiKey) {
+    if (!apiKey && !getMarketEndpoint()) {
       errors.push("行情：尚未填写 Alpha Vantage API Key");
     } else {
-      for (const asset of state.assets) {
+      for (const asset of [...state.assets]) {
+        if (!getAsset(asset.id)) continue;
         try {
-          const result = await updateAssetMarketData(asset);
+          const result = await updateAssetMarketData(asset, options);
+          if (result.skipped) continue;
           if (result.quoteOk || result.dividendOk) marketSuccess += 1;
           createdDividendCount += number(result.dividendSync?.created);
-          if (result.partialError) errors.push(`${asset.ticker}：精确股息日期未完整，已尝试回退`);
+          if (result.partialError) errors.push(`${asset.ticker}：${result.partialError.message}`);
         } catch (error) {
           errors.push(`${asset.ticker}：${error.message}`);
         }
@@ -1233,24 +1297,25 @@ async function refreshAllData(options = {}) {
   } finally {
     refreshInProgress = false;
     saveState();
-    render();
+    renderAfterSync();
   }
 }
 
 async function maybeAutoRefresh() {
-  if (autoRefreshStarted) return;
-  autoRefreshStarted = true;
-  if (!state.settings.autoRefresh || !navigator.onLine) return;
+  if (storageReadError || !state.settings.autoRefresh || !navigator.onLine || document.visibilityState === "hidden" || refreshInProgress || modal || currentTab === "settings") return;
+  if (Date.now() - lastAutoCheck < 60000) return;
+  lastAutoCheck = Date.now();
   const fxStale = isStale(state.settings.exchangeRateUpdatedAt, FX_REFRESH_MS);
-  const marketStale = isStale(state.settings.lastMarketRefreshAt, MARKET_REFRESH_MS);
-  if (marketStale && state.settings.alphaVantageApiKey) await refreshAllData({ automatic: true });
-  else if (fxStale) await refreshFxOnly({ automatic: true });
+  const marketStale = state.assets.some((asset) => resourceDue(asset, "price") || resourceDue(asset, "dividend"));
+  try {
+    if (marketStale && (state.settings.alphaVantageApiKey || getMarketEndpoint())) await refreshAllData({ automatic: true });
+    else if (fxStale) await refreshFxOnly({ automatic: true });
+  } catch { showToast("自动更新未完成，原有数据仍保留"); }
 }
 
 function exportData() {
-  state.settings.lastBackupAt = new Date().toISOString();
-  saveState();
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  if (!storageReadError) { state.settings.lastBackupAt = new Date().toISOString(); saveState(); }
+  const blob = new Blob([storageReadError ? localStorage.getItem(STORAGE_KEY) : JSON.stringify(state, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -1338,13 +1403,14 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     const refreshKey = `tangping-dividend.reloaded-${APP_VERSION}`;
     if (!hadController || refreshingForUpdate || sessionStorage.getItem(refreshKey)) return;
+    if (modal || currentTab === "settings") { showToast("新版已就绪，完成编辑后重新打开即可更新"); return; }
     refreshingForUpdate = true;
     sessionStorage.setItem(refreshKey, "1");
     window.location.reload();
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=6`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.1`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。
@@ -1354,7 +1420,11 @@ if ("serviceWorker" in navigator) {
 
 if (stateNeedsMigration) saveState();
 render();
+if (storageReadError) showToast("原有数据无法读取，已保护原始内容；请在设置导出备份");
 setTimeout(() => maybeAutoRefresh(), 350);
-window.addEventListener("online", () => {
-  if (state.settings.autoRefresh && isStale(state.settings.exchangeRateUpdatedAt, FX_REFRESH_MS)) refreshFxOnly({ automatic: true });
+window.addEventListener("online", () => { lastAutoCheck = 0; maybeAutoRefresh(); });
+window.addEventListener("focus", () => maybeAutoRefresh());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") maybeAutoRefresh();
 });
+setInterval(() => maybeAutoRefresh(), 60000);

@@ -4,6 +4,8 @@
 
 **本 PR 已继续升级为 V7.1：默认使用 GitHub Pages + GitHub Actions 静态行情，不再要求常驻 Node 后台。仍是 PR #2 / agent/automatic-income-v7。**
 
+最终架构：**GitHub Actions → Alpha Vantage → data/market.json → GitHub Pages → 手机 PWA**。`server/` 仅保留为高级备用。
+
 ### 修改文件
 
 - `app.js`：启动/前台/联网检查、逐标的逐资源新鲜度、重试退避、25 次预算、预测月份派生、稳定月均收入口径、紧凑里程碑与组合、数据损坏写保护。

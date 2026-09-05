@@ -25,6 +25,8 @@ Node.js 22+：`node server/server.mjs`，访问 http://127.0.0.1:4173。前端�
 
 ## 自动行情：只需配置一个 Secret
 
+默认架构：**GitHub Actions → Alpha Vantage → data/market.json → GitHub Pages → 手机 PWA**。`server/` 仅为高级备用，不参与默认部署。
+
 PR #2 合并到 `main` 后，唯一人工配置步骤是：
 
 GitHub → **Settings → Secrets and variables → Actions → New repository secret**

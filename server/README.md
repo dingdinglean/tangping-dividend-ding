@@ -1,5 +1,7 @@
 # 可选共享行情后台
 
+这是高级可选方案。**默认方案已改为 GitHub Pages + GitHub Actions 静态快照，不需要部署本目录。** 只需按根目录 README 配置一个 Actions Secret。
+
 Node.js 22+，零第三方运行依赖。`npm start` 可直接运行本地 PWA（http://127.0.0.1:4173）；没有服务端密钥时仍可使用手机原有 API Key，后台接口明确返回不可用。
 
 ## 部署
@@ -8,7 +10,7 @@ Node.js 22+，零第三方运行依赖。`npm start` 可直接运行本地 PWA�
 2. 参考 `.env.example` 设置环境变量；API Key 只配置在服务器，不能写进仓库。可以使用 `node --env-file=server/.env server/server.mjs`。不要提交 `.env`。
 3. 用 HTTPS 反向代理转发到 127.0.0.1:4173。若平台需要监听所有接口，设置 `HOST=0.0.0.0`。配置准确的 `ALLOWED_ORIGIN`（协议+域名，无路径），限制浏览器跨域访问。
 4. 为 `MARKET_CACHE_FILE` 配置持久化磁盘。单实例运行，避免多实例分别消费预算。损坏缓存会停止启动而非重置预算。
-5. 手机设置中填写 `https://你的域名/api/market` 并保存。原有个人 API Key 保留但不会发送给后台；清空共享服务地址即可切回直连。
+5. 手机设置中选择“高级：共享 Node 服务”，填写 `https://你的域名/api/market` 并保存。原有个人 API Key 保留但不会发送给后台；要切回请显式选择 Actions 快照或个人 Key 直连模式。
 
 ## 更新与边界
 

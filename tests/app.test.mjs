@@ -20,7 +20,7 @@ function app(saved) {
   return { run: (code) => vm.runInContext(code, context), context, storage };
 }
 function fixture() {
-  return { version: 1, settings: { alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
+  return { version: 1, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
     assets: [{ id: "a", ticker: "TEST", frequency: "monthly", currentPrice: 100, manualDividendYieldPercent: 12, remoteDividends: [] }],
     transactions: [{ id: "b", assetId: "a", type: "buy", date: "2026-01-01", shares: 100, price: 90 }] };
 }
@@ -92,7 +92,7 @@ test("requests have a durable 25/day budget; proxy does not consume personal bud
   const a=app(fixture()); a.run('state.settings.apiUsageDate=todayKey();state.settings.apiUsageCount=24;consumeApiRequest()');
   assert.throws(()=>a.run('consumeApiRequest()'),/预算/);
   assert.equal(JSON.parse(a.storage.get("tangping-dividend.v1")).settings.apiUsageCount,25);
-  a.run('state.settings.marketDataEndpoint="https://example.com/api/market";consumeApiRequest()');
+  a.run('state.settings.marketDataMode="proxy";state.settings.marketDataEndpoint="https://example.com/api/market";consumeApiRequest()');
   assert.equal(a.run('state.settings.apiUsageCount'),25);
 });
 test("resource freshness ignores global success; failures back off independently", () => {
@@ -139,4 +139,15 @@ test("quota failure stops fallback waterfall and missing price doesn't create a 
   assert.equal(calls,1);
   a.run("state.assets[0].currentPrice=0");
   assert.equal(a.run("calculatePortfolio().totals.priceCoverageComplete"),false);
+});
+
+test("legacy settings migrate to Actions default without deleting personal key or endpoint",()=>{
+  const saved=fixture(); delete saved.settings.marketDataMode;
+  saved.settings.marketDataEndpoint="https://example.com/api/market";
+  const a=app(saved);a.run("saveState()");
+  assert.equal(a.run("getMarketEndpoint()"),"./data/market.json");
+  const stored=JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(stored.settings.alphaVantageApiKey,"TEST-ONLY");
+  assert.equal(stored.settings.marketDataEndpoint,saved.settings.marketDataEndpoint);
+  assert.deepEqual(stored.transactions,saved.transactions);
 });

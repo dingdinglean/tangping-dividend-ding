@@ -1,8 +1,8 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.1";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v7";
+const APP_VERSION = "v7.1";
 const INCOME_YEAR = 2026;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
@@ -30,6 +30,7 @@ const defaultState = {
     monthlyGoal: 1000,
     alphaVantageApiKey: "",
     marketDataEndpoint: "",
+    marketDataMode: "snapshot",
     autoRefresh: true,
     lastMarketRefreshAt: null,
     lastMarketRefreshMessage: "尚未连接行情",
@@ -72,7 +73,7 @@ function loadState() {
     if (raw === null) return structuredClone(defaultState);
     const saved = JSON.parse(raw);
     if (!saved || saved.version !== 1 || !Array.isArray(saved.assets) || !Array.isArray(saved.transactions)) throw new Error("Unsupported data");
-    stateNeedsMigration = !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
+    stateNeedsMigration = !saved.settings?.marketDataMode || !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
     const merged = { ...structuredClone(defaultState), ...saved, settings: { ...defaultState.settings, ...saved.settings } };
     merged.transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
     merged.settings.freedomMilestones = normalizeMilestones(saved.settings?.freedomMilestones);
@@ -160,11 +161,17 @@ function resetApiCounterIfNeeded() {
 }
 
 function consumeApiRequest(count = 1) {
-  if (state.settings.marketDataEndpoint) return;
+  if (getMarketEndpoint()) return;
   resetApiCounterIfNeeded();
   if (number(state.settings.apiUsageCount) + count > 25) throw new Error("今日 25 次请求预算已用完，明天自动重试");
   state.settings.apiUsageCount = number(state.settings.apiUsageCount) + count;
   saveState();
+}
+
+function getMarketEndpoint() {
+  if (state.settings.marketDataMode === "direct") return "";
+  if (state.settings.marketDataMode === "proxy") return state.settings.marketDataEndpoint || "";
+  return "./data/market.json";
 }
 
 function getHistoricalRemoteDividends(asset) {
@@ -575,7 +582,7 @@ function renderDataStatusBar() {
     : `汇率使用备用值 ${number(state.settings.exchangeRate).toFixed(4)}`;
   const staleCount = state.assets.filter((asset) => isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS) || isStale(asset.dividendUpdatedAt, DIVIDEND_REFRESH_MS)).length;
   const marketText = !navigator.onLine ? "离线浏览 · 保留上次数据"
-    : !state.settings.alphaVantageApiKey && !state.settings.marketDataEndpoint ? "请在设置连接行情服务"
+    : !state.settings.alphaVantageApiKey && !getMarketEndpoint() ? "请在高级设置连接备用行情"
     : staleCount ? `${staleCount} 只标的数据待更新 · 旧数据仍保留`
     : `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`;
   const stale = staleCount > 0;
@@ -787,11 +794,14 @@ function renderSettings() {
   return `
     <div class="section-title"><h2>动态数据</h2></div>
     <section class="card settings-group">
-      <div class="setting-row stacked"><div><label>共享行情服务（可选）</label><small>部署后台后填写 HTTPS 接口地址，无需在手机保存 API Key。只发送股票代码，不上传持仓和交易。</small></div><input class="input wide" id="marketDataEndpoint" type="url" value="${escapeHtml(state.settings.marketDataEndpoint || "")}" placeholder="https://你的服务/api/market" /></div>
+      <div class="setting-row stacked"><div><label>自动行情</label><small>行情由 GitHub Actions 自动更新。个人 API Key 仅作为备用直连方式。默认无需填写密钥或服务器地址。</small></div><select id="marketDataMode"><option value="snapshot" ${state.settings.marketDataMode === "snapshot" ? "selected" : ""}>GitHub Actions 静态快照（推荐）</option><option value="direct" ${state.settings.marketDataMode === "direct" ? "selected" : ""}>高级：个人 Key 直连</option><option value="proxy" ${state.settings.marketDataMode === "proxy" ? "selected" : ""}>高级：共享 Node 服务</option></select></div>
+      <details class="setting-row stacked"><summary>高级备用连接（普通使用无需填写）</summary>
+      <div><label>共享行情服务（仅高级模式使用）</label><input class="input wide" id="marketDataEndpoint" type="url" value="${escapeHtml(state.settings.marketDataEndpoint || "")}" placeholder="https://你的服务/api/market" /></div>
       <div class="setting-row stacked"><div><label>Alpha Vantage API Key</label></div><input class="input wide" id="alphaVantageApiKey" type="password" autocomplete="off" value="${escapeHtml(state.settings.alphaVantageApiKey || "")}" placeholder="粘贴免费 API Key" /></div>
+      </details>
       <div class="setting-row"><div><label>自动更新</label></div><select id="autoRefresh"><option value="true" ${state.settings.autoRefresh ? "selected" : ""}>开启</option><option value="false" ${!state.settings.autoRefresh ? "selected" : ""}>关闭</option></select></div>
       <div class="setting-row"><div><label>美元兑人民币</label><small>${escapeHtml(fxStatus)}</small></div><strong>${number(state.settings.exchangeRate).toFixed(4)}</strong></div>
-      <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${number(state.settings.apiUsageCount)}/25 次</span></div>
+      <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${getMarketEndpoint() === "./data/market.json" ? "Actions 快照" : getMarketEndpoint() ? "共享服务" : `${number(state.settings.apiUsageCount)}/25 次`}</span></div>
       <div class="btn-row setting-actions"><button class="btn yellow" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "正在更新" : "更新全部"}</button><button class="btn" data-action="refresh-fx" ${refreshInProgress ? "disabled" : ""}>只更新汇率</button></div>
     </section>
 
@@ -1084,9 +1094,14 @@ function submitPrice(event) {
 }
 
 function captureSettingsForm() {
+  const mode = document.querySelector("#marketDataMode");
   const endpoint = document.querySelector("#marketDataEndpoint");
-  if (endpoint) {
+  if (mode?.value === "proxy") {
+    if (!endpoint?.value.trim()) throw new Error("共享服务模式需要填写 URL；普通使用请选择 Actions 静态快照");
     configureMarketEndpoint(endpoint.value.trim());
+  }
+  if (mode) state.settings.marketDataMode = mode.value;
+  if (endpoint) {
     state.settings.marketDataEndpoint = endpoint.value.trim();
   }
   const displayCurrency = document.querySelector("#displayCurrency");
@@ -1133,8 +1148,8 @@ function resourceDue(asset, resource) {
 
 async function updateAssetMarketData(asset, options = {}) {
   const apiKey = String(state.settings.alphaVantageApiKey || "").trim();
-  configureMarketEndpoint(state.settings.marketDataEndpoint || "");
-  if (!apiKey && !state.settings.marketDataEndpoint) throw new Error("请先配置共享行情服务或 Alpha Vantage API Key");
+  configureMarketEndpoint(getMarketEndpoint());
+  if (!apiKey && !getMarketEndpoint()) throw new Error("备用直连模式需要个人 API Key；也可切回默认 Actions 快照");
   const updatePrice = !options.automatic || resourceDue(asset, "price");
   const updateDividend = !options.automatic || resourceDue(asset, "dividend");
   if (!updatePrice && !updateDividend) return { skipped: true };
@@ -1153,7 +1168,7 @@ async function updateAssetMarketData(asset, options = {}) {
       if (getAsset(asset.id) !== asset) return { skipped: true };
       Object.assign(asset, { currentPrice: quote.price, priceTradingDay: quote.tradingDay,
         priceUpdatedAt: quote.fetchedAt || new Date().toISOString(), priceSource: quote.source,
-        changePercent: quote.changePercent, priceLastError: null });
+        changePercent: quote.changePercent, priceLastError: quote.refreshWarning || null });
       quoteOk = true;
     } catch (error) {
       lastError = error;
@@ -1185,7 +1200,7 @@ async function updateAssetMarketData(asset, options = {}) {
         asset.dividendUpdatedAt = result.fetchedAt || new Date().toISOString();
         asset.dividendSource = result.source;
         asset.dividendDataQuality = result.quality || ["exact", "monthly", "snapshot"][index];
-        asset.dividendLastError = index ? "精确日期暂不可用，已使用估算数据" : null;
+        asset.dividendLastError = result.refreshWarning || (index ? "精确日期暂不可用，已使用估算数据" : null);
         dividendOk = true;
         break;
       } catch (error) {
@@ -1254,7 +1269,7 @@ async function refreshAllData(options = {}) {
     }
 
     const apiKey = String(state.settings.alphaVantageApiKey || "").trim();
-    if (!apiKey && !state.settings.marketDataEndpoint) {
+    if (!apiKey && !getMarketEndpoint()) {
       errors.push("行情：尚未填写 Alpha Vantage API Key");
     } else {
       for (const asset of [...state.assets]) {
@@ -1293,7 +1308,7 @@ async function maybeAutoRefresh() {
   const fxStale = isStale(state.settings.exchangeRateUpdatedAt, FX_REFRESH_MS);
   const marketStale = state.assets.some((asset) => resourceDue(asset, "price") || resourceDue(asset, "dividend"));
   try {
-    if (marketStale && (state.settings.alphaVantageApiKey || state.settings.marketDataEndpoint)) await refreshAllData({ automatic: true });
+    if (marketStale && (state.settings.alphaVantageApiKey || getMarketEndpoint())) await refreshAllData({ automatic: true });
     else if (fxStale) await refreshFxOnly({ automatic: true });
   } catch { showToast("自动更新未完成，原有数据仍保留"); }
 }
@@ -1395,7 +1410,7 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=7`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.1`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。

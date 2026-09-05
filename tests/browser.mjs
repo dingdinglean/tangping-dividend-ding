@@ -13,6 +13,47 @@ const fixture={version:1,settings:{displayCurrency:"CNY",exchangeRate:7,autoRefr
  assets:[{id:"demo",ticker:"DEMO",name:"测试专用 · 月度股息 ETF",frequency:"monthly",type:"ETF",role:"测试数据",currentPrice:100,manualDividendYieldPercent:12,remoteDividends:[]}],
  transactions:[{id:"buy",assetId:"demo",type:"buy",date:"2026-01-01",shares:100,price:90},
  ...[4,5,6,7,8].map(m=>({id:`d${m}`,assetId:"demo",type:"dividend",status:"received",date:`2026-${String(m).padStart(2,"0")}-01`,netDividend:m*10,shareCount:100}))]};
+
+async function testStaticSnapshots(browser, engine) {
+  let price=101;let requests=0;let fail=false;
+  const snapshotServer=http.createServer(async(req,res)=>{
+    const url=new URL(req.url,base);
+    if(url.pathname==="/data/market.json") {
+      requests++;res.writeHead(fail?503:200,{"Content-Type":"application/json","Cache-Control":"no-store"});
+      res.end(JSON.stringify({schemaVersion:1,generatedAt:new Date().toISOString(),symbols:{QQQI:{
+        GLOBAL_QUOTE:{"Global Quote":{"05. price":price},_fetchedAt:new Date().toISOString(),_status:"ok"},
+        DIVIDENDS:{data:[{ex_dividend_date:"2026-09-01",payment_date:"2026-09-10",amount:1}],_fetchedAt:new Date().toISOString(),_status:"ok"},
+      }}}));return;
+    }
+    const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
+  });
+  await new Promise(r=>snapshotServer.listen(0,"127.0.0.1",r));
+  const context=await browser.newContext({viewport:{width:390,height:844}});
+  try {
+    await context.route("https://api.frankfurter.dev/**",r=>r.fulfill({json:{rate:7,date:"2026-09-05"}}));
+    const page=await context.newPage();const errors=[];page.on("pageerror",e=>errors.push(e.message));
+    await page.goto(`http://127.0.0.1:${snapshotServer.address().port}`);
+    await page.evaluate(()=>localStorage.setItem("tangping-dividend.v1",JSON.stringify({version:1,settings:{autoRefresh:true},assets:[{id:"test",ticker:"QQQI",frequency:"monthly",currentPrice:0}],transactions:[]})));
+    await page.reload();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===101);
+    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.alphaVantageApiKey),"");
+    price=105;await page.reload();
+    await page.locator('[data-action="refresh-all"]').click();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===105);
+    assert.ok(requests>=2);
+    await page.evaluate(()=>navigator.serviceWorker.ready);
+    await context.setOffline(true);
+    // Windows WebKit reports an internal error for offline top-level navigation.
+    // Still test an actual uncached module request through its service worker.
+    if(engine==="Chromium") await page.reload();
+    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.1");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
+    assert.equal(cached,105);
+    await context.setOffline(false);fail=true;await page.reload();
+    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.1");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
+    assert.deepEqual(errors,[]);
+    console.log(`PASS ${engine} snapshot: no personal key, new network snapshot, offline/503 last-good fallback`);
+  } finally {await context.close();await new Promise(r=>snapshotServer.close(r));}
+}
 let browser;
 try {
   browser=await chromium.launch({headless:true, ...(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {})});
@@ -65,7 +106,7 @@ try {
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.freedomMilestones[0].name),"咖啡自由");
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await context.setOffline(true); await page.reload(); await page.waitForSelector(".chart-bars");
-  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v7"));
+  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.1"));
   await context.setOffline(false);
   assert.deepEqual(errors,[]);
   console.log("PASS Chromium: 390/430/1280 layout, light/dark screenshots, chart, CRUD, migration, settings persistence, offline cache, no page errors");
@@ -89,12 +130,13 @@ try {
     let navigations=0; updatePage.on("framenavigated",frame=>{if(frame===updatePage.mainFrame())navigations++;});
     legacy=false;
     await updatePage.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration.update();});
-    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v7")==="1");
+    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v7.1")==="1");
     await updatePage.waitForSelector(".chart-bars");
     assert.equal(navigations,1);
-    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v7"));
-    console.log("PASS PWA upgrade: v6 cache -> v7, exactly one automatic reload");
+    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.1"));
+    console.log("PASS PWA upgrade: old cache -> v7.1, exactly one automatic reload");
   } finally {await updateContext.close(); await new Promise(r=>upgradeServer.close(r));}
+  await testStaticSnapshots(browser,"Chromium");
   await browser.close(); browser=null;
   try { browser=await webkit.launch({headless:true}); }
   catch(error) { if(process.env.REQUIRE_WEBKIT) throw error; console.log("SKIP WebKit: browser binary unavailable (not a real iPhone verification)"); }
@@ -104,5 +146,6 @@ try {
     assert.ok(await page.locator(".bar.received").evaluateAll(bars=>bars.some(el=>el.getBoundingClientRect().height>10)));
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     console.log("PASS WebKit: 390px nonzero chart bars and no overflow");
+    await testStaticSnapshots(browser,"WebKit");
   }
 } finally { if(browser) await browser.close(); await new Promise(r=>server.close(r)); }

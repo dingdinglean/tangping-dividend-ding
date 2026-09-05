@@ -1,8 +1,8 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.2";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.3";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v7.2";
+const APP_VERSION = "v7.3";
 const INCOME_YEAR = 2026;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
@@ -77,7 +77,7 @@ function loadState() {
     const merged = { ...structuredClone(defaultState), ...saved, settings: { ...defaultState.settings, ...saved.settings } };
     merged.transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
     merged.settings.freedomMilestones = normalizeMilestones(saved.settings?.freedomMilestones);
-    // V7.2 keeps automatic public snapshots as the only in-app data mode.
+    // V7.3 keeps automatic public snapshots as the only in-app data mode.
     // Old advanced values stay stored for backwards-compatible exports, but are never sent.
     merged.settings.marketDataMode = "snapshot";
     merged.settings.autoRefresh = true;
@@ -173,7 +173,7 @@ function consumeApiRequest(count = 1) {
 }
 
 function getMarketEndpoint() {
-  // V7.2's UI always persists snapshot mode. These branches only retain
+  // V7.3's UI always persists snapshot mode. These branches only retain
   // backward-compatible import/export behavior for older saved settings.
   if (state.settings.marketDataMode === "direct") return "";
   if (state.settings.marketDataMode === "proxy") return state.settings.marketDataEndpoint || "";
@@ -551,11 +551,13 @@ function render() {
   app.innerHTML = `
     <main class="app-shell">
       ${renderTopbar()}
-      ${storageReadError ? '<section class="card"><p>原有数据暂时无法读取，已停止写入，未清空原始内容。请先导出原始备份。</p><button class="btn" data-action="export-data">导出原始数据</button></section>' : ""}
-      ${currentTab === "home" ? renderHome() : ""}
-      ${currentTab === "portfolio" ? renderPortfolio() : ""}
-      ${currentTab === "calendar" ? renderCalendar() : ""}
-      ${currentTab === "settings" ? renderSettings() : ""}
+      <section class="tab-page ${currentTab}-page">
+        ${storageReadError ? '<section class="card storage-warning"><p>原有数据暂时无法读取，已停止写入，未清空原始内容。</p><button class="btn" data-action="export-data">导出原始备份</button></section>' : ""}
+        ${currentTab === "home" ? renderHome() : ""}
+        ${currentTab === "portfolio" ? renderPortfolio() : ""}
+        ${currentTab === "calendar" ? renderCalendar() : ""}
+        ${currentTab === "settings" ? renderSettings() : ""}
+      </section>
     </main>
     ${renderBottomNav()}
     ${["home", "portfolio", "calendar"].includes(currentTab) ? '<button class="floating-add" data-action="open-add" aria-label="新增记录">＋</button>' : ""}
@@ -701,48 +703,33 @@ function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
 function renderPortfolio() {
   const { positions, totals } = calculatePortfolio();
   return `
-    <div class="summary-strip">
+    <section class="portfolio-summary summary-strip">
       <div class="summary-item"><strong>${totals.priceCoverageComplete ? money(totals.marketValue) : "待更新"}</strong><span>总市值</span></div>
       <div class="summary-item"><strong>${money(totals.received)}</strong><span>累计股息</span></div>
       <div class="summary-item"><strong>${money(totals.annualForecast / 12)}</strong><span>预计月均</span></div>
-    </div>
-    <div class="section-title"><h2>我的标的</h2><button class="btn" data-action="open-asset">添加标的</button></div>
-    ${positions.length ? positions.map(renderAssetCard).join("") : '<section class="card empty"><div class="big">☕</div><strong>暂无持仓</strong><p>添加第一笔持仓，开始记录你的股息计划。</p><button class="btn primary" data-action="open-asset">添加第一笔持仓</button></section>'}
+    </section>
+    <div class="section-title page-section-title"><h2>我的标的</h2><small>${positions.length} 只 · 点按查看详情</small></div>
+    <section class="portfolio-list" aria-label="持仓列表">
+      ${positions.length ? positions.map(renderAssetCard).join("") : '<section class="card empty"><div class="big">☕</div><strong>暂无持仓</strong><p>添加第一笔持仓，开始记录你的股息计划。</p><button class="btn primary" data-action="open-asset">添加第一笔持仓</button></section>'}
+    </section>
   `;
 }
 
 function renderAssetCard(item) {
   const asset = item.asset;
   const priceFresh = !isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS * 2);
-  const next = item.nextDividend;
-  const nextText = next
-    ? `${next.paymentDate || next.exDate} · $${number(next.amount).toFixed(4)}/股`
-    : "暂无已宣布记录";
-  const dataStatus = asset.currentPrice > 0
-    ? `${asset.priceSource || "手动"} · ${asset.priceTradingDay || formatUpdatedAt(asset.priceUpdatedAt)}`
-    : "尚无价格";
-  const qualityText = asset.dividendDataQuality === "exact" ? "精确日期" : asset.dividendDataQuality === "monthly" ? "月度历史回退" : asset.dividendDataQuality === "snapshot" ? "年度快照" : "";
-  const dividendStatusText = asset.dividendUpdatedAt
-    ? `${asset.dividendSource || "动态数据"}${qualityText ? ` · ${qualityText}` : ""} · ${formatUpdatedAt(asset.dividendUpdatedAt)}`
-    : asset.dividendLastError ? `更新失败：${asset.dividendLastError}` : "尚未更新";
   return `
-    <article class="card asset-card" data-asset-card="${asset.id}">
+    <article class="card asset-card asset-card-compact" data-asset-card="${asset.id}" data-action="asset-detail" data-id="${asset.id}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(asset.ticker)} 详情">
       <div class="asset-head">
         <div class="asset-title"><h3>${escapeHtml(asset.name)}</h3><div class="ticker-row"><strong>${escapeHtml(asset.ticker)}</strong><span class="tag">${escapeHtml(asset.role)}</span></div></div>
         <div class="asset-value"><strong>${asset.currentPrice > 0 ? money(item.marketValue) : "待更新"}</strong><span>${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div>
       </div>
-      <div class="market-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${escapeHtml(asset.priceLastError ? `更新失败，保留旧值 · ${asset.priceLastError}` : dataStatus)}</span></div>
-      <div class="asset-grid">
-        <div><label>最新价格</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
-        <div><label>股息率${item.manualYield !== null ? "（手动）" : ""}</label><strong>${item.manualYield !== null || item.dividendYield > 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "待更新"}</strong></div>
-        <div><label>持仓成本</label><strong>${money(item.cost)}</strong></div>
-        <div><label>浮动盈亏</label><strong class="${asset.currentPrice > 0 ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${asset.currentPrice > 0 ? money(item.pnl) : "待更新"}</strong></div>
-        <div><label>已收净股息</label><strong>${money(item.receivedDividends)}</strong></div>
+      <div class="asset-compact-grid">
+        <div><label>价格</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
+        <div><label>股息率</label><strong>${item.manualYield !== null || item.dividendYield > 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "待更新"}</strong></div>
         <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       </div>
-      ${next ? `<div class="dividend-next"><span>下次分红</span><strong>${escapeHtml(nextText)}</strong></div>` : ""}
-      <details class="asset-data-details"><summary>数据来源与更新</summary><p>${escapeHtml(dividendStatusText)}</p><p>平均成本价 ${item.shares > 0 ? money(item.cost / item.shares, "USD") : "—"}</p><div class="btn-row"><button class="btn" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>更新数据</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button></div></details>
-      <div class="btn-row asset-actions"><button class="btn" data-action="asset-detail" data-id="${asset.id}">编辑标的</button><button class="btn danger subtle-delete" data-action="delete-asset" data-id="${asset.id}">删除</button></div>
+      <div class="asset-card-foot"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${asset.priceLastError ? "行情暂不可用，保留旧值" : "点按查看持仓、收益与分红详情"}</span><b>›</b></div>
     </article>
   `;
 }
@@ -760,16 +747,20 @@ function renderCalendar() {
   const events = state.transactions.filter((tx) => tx.date === selectedDate);
 
   return `
-    <section class="calendar-head">
-      <div><div class="year">${year}</div><div class="month">${month + 1}月</div></div>
-      <div class="calendar-actions"><button class="icon-btn" data-action="prev-month">‹</button><button class="icon-btn" data-action="next-month">›</button></div>
+    <section class="calendar-month card">
+      <div class="calendar-head">
+        <div><div class="year">${year}</div><div class="month">${month + 1}月</div></div>
+        <div class="calendar-actions"><button class="icon-btn" data-action="prev-month" aria-label="上个月">‹</button><button class="icon-btn" data-action="next-month" aria-label="下个月">›</button></div>
+      </div>
+      <section class="calendar-grid">
+        ${["周日","周一","周二","周三","周四","周五","周六"].map((w) => `<div class="weekday">${w}</div>`).join("")}
+        ${days.map((date) => renderDay(date, month)).join("")}
+      </section>
     </section>
-    <section class="calendar-grid">
-      ${["周日","周一","周二","周三","周四","周五","周六"].map((w) => `<div class="weekday">${w}</div>`).join("")}
-      ${days.map((date) => renderDay(date, month)).join("")}
+    <section class="calendar-events-panel card">
+      <div class="calendar-events-head"><div><span class="eyebrow">所选日期事件</span><h2>${selectedDate}</h2></div><small>${events.length} 条记录</small></div>
+      <div class="calendar-events-scroll">${events.length ? events.map(renderEvent).join("") : `<div class="empty calendar-empty">这一天没有交易或股息记录</div>`}</div>
     </section>
-    <div class="section-title"><h2>${selectedDate}</h2><small>${events.length} 条记录</small></div>
-    <section class="card">${events.length ? events.map(renderEvent).join("") : `<div class="empty"><div class="big">☕</div>这一天没有交易或股息记录</div>`}</section>
   `;
 }
 
@@ -795,41 +786,19 @@ function renderEvent(tx) {
 function renderSettings() {
   const backupText = state.settings.lastBackupAt ? new Date(state.settings.lastBackupAt).toLocaleString("zh-CN") : "尚未备份";
   return `
-    <div class="section-title"><h2>显示</h2></div>
-    <section class="card settings-group">
-      <div class="setting-row"><div><label>显示货币</label></div><select id="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div>
-      <div class="setting-row"><div><label>备用汇率</label></div><input class="input" id="exchangeRate" type="number" step="0.0001" value="${state.settings.exchangeRate}" /></div>
-    </section>
-
-    <div class="section-title"><h2>目标</h2></div>
-    <section class="card settings-group">
-      <div class="setting-row"><div><label>每月收入目标</label></div><input class="input" id="monthlyGoal" type="number" step="100" value="${state.settings.monthlyGoal}" /></div>
-    </section>
-
-    <div class="section-title"><h2>自由里程碑设置</h2><small>均按人民币/月</small></div>
-    <section class="card milestone-settings">
-      ${normalizeMilestones(state.settings.freedomMilestones).map((item, index) => `
-        <div class="milestone-setting-row" data-milestone-index="${index}">
-          <input class="input milestone-icon-input" data-milestone-field="icon" maxlength="8" value="${escapeHtml(item.icon)}" aria-label="里程碑图标" />
-          <input class="input" data-milestone-field="name" maxlength="24" value="${escapeHtml(item.name)}" aria-label="里程碑名称" />
-          <label><span>¥</span><input class="input" data-milestone-field="amountCny" type="number" min="1" step="1" value="${item.amountCny}" aria-label="里程碑金额" /></label>
-        </div>`).join("")}
-      <p class="settings-hint">判断始终使用人民币。切换美元显示时，会按上方汇率换算后再判断解锁状态。</p>
-    </section>
-    <button class="btn primary full" style="margin-top:14px" data-action="save-settings">保存设置</button>
-
-    <div class="section-title"><h2>数据备份</h2><small>${backupText}</small></div>
-    <section class="card settings-group">
-      <div class="setting-row"><div><label>导出备份</label></div><button class="btn yellow" data-action="export-data">导出</button></div>
-      <div class="setting-row"><div><label>导入备份</label></div><button class="btn" data-action="import-data">导入</button></div>
-      <div class="setting-row"><div><label>清空全部数据</label></div><button class="btn danger" data-action="reset-data">清空</button></div>
+    <section class="card settings-menu">
+      <button class="settings-menu-row" data-action="open-display-settings"><span><b>显示货币</b><small>${state.settings.displayCurrency === "CNY" ? "人民币 CNY" : "美元 USD"}</small></span><em>›</em></button>
+      <button class="settings-menu-row" data-action="open-goal-settings"><span><b>月收入目标</b><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}/月</small></span><em>›</em></button>
+      <button class="settings-menu-row" data-action="open-milestone-settings"><span><b>自由里程碑</b><small>6 个等级 · 人民币/月</small></span><em>›</em></button>
+      <button class="settings-menu-row" data-action="export-data"><span><b>导出备份</b><small>${backupText}</small></span><em>›</em></button>
+      <button class="settings-menu-row" data-action="import-data"><span><b>导入备份</b><small>从 JSON 恢复本机数据</small></span><em>›</em></button>
+      <button class="settings-menu-row danger-row" data-action="reset-data"><span><b>清空数据</b><small>仅清空当前设备数据</small></span><em>›</em></button>
     </section>
     <input class="file-input" id="importFile" type="file" accept="application/json" />
 
-    <div class="section-title"><h2>关于</h2></div>
-    <section class="card settings-group about-settings">
-      <div class="setting-row"><div><label>躺平股息 V7.2</label><small>行情自动更新，实际到账需本人确认</small></div></div>
-      <div class="setting-row"><div><label>最近行情更新时间</label><small>${escapeHtml(marketStatusText())}</small></div></div>
+    <section class="card settings-about">
+      <div><b>躺平股息 V7.3</b><small>行情自动更新，实际到账需本人确认</small></div>
+      <small>${escapeHtml(marketStatusText())}</small>
     </section>
   `;
 }
@@ -849,6 +818,9 @@ function renderModal() {
   if (modal.type === "asset") return renderAssetModal(modal.assetId);
   if (modal.type === "price") return renderPriceModal(modal.assetId);
   if (modal.type === "confirm-dividend") return renderConfirmDividendModal(modal.transactionId);
+  if (modal.type === "display-settings") return renderDisplaySettingsModal();
+  if (modal.type === "goal-settings") return renderGoalSettingsModal();
+  if (modal.type === "milestone-settings") return renderMilestoneSettingsModal();
   return "";
 }
 
@@ -890,7 +862,20 @@ function renderDividendFields(asset) {
 
 function renderAssetModal(assetId) {
   const asset = assetId ? getAsset(assetId) : null;
+  const item = asset ? calculatePortfolio().positions.find((position) => position.asset.id === asset.id) : null;
+  const next = item?.nextDividend;
+  const detail = item ? `
+    <section class="asset-detail-summary">
+      <div><span>市值</span><strong>${asset.currentPrice > 0 ? money(item.marketValue) : "待更新"}</strong></div>
+      <div><span>成本</span><strong>${money(item.cost)}</strong></div>
+      <div><span>浮动盈亏</span><strong class="${asset.currentPrice > 0 ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${asset.currentPrice > 0 ? money(item.pnl) : "待更新"}</strong></div>
+      <div><span>已收股息</span><strong>${money(item.receivedDividends)}</strong></div>
+      <div><span>预计年股息</span><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
+      <div><span>下次分红</span><strong>${next ? escapeHtml(next.paymentDate || next.exDate) : "暂无已宣布记录"}</strong></div>
+    </section>
+    <div class="btn-row modal-quick-actions"><button class="btn" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>更新行情</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button></div>` : "";
   return `<div class="modal-backdrop" data-action="close-modal"><div class="modal" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>${asset ? "编辑标的" : "添加标的"}</h3><button class="icon-btn" data-action="close-modal">×</button></div>
+    ${detail}
     <form id="assetForm" class="form-grid">
       <input type="hidden" name="assetId" value="${asset?.id || ""}" />
       <div class="form-row"><label>股票代码</label><input class="input" name="ticker" maxlength="12" value="${escapeHtml(asset?.ticker || "")}" placeholder="例如 QNDX" required /></div>
@@ -909,6 +894,24 @@ function renderAssetModal(assetId) {
       <button class="btn primary full" type="submit">保存标的</button>
       ${asset ? `<button class="btn danger full" type="button" data-action="delete-asset" data-id="${asset.id}">删除标的</button>` : ""}
     </form>
+  </div></div>`;
+}
+
+function renderDisplaySettingsModal() {
+  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal modal-compact" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>显示</h3><button class="icon-btn" data-action="close-modal">×</button></div>
+    <form id="displaySettingsForm" class="form-grid"><div class="form-row"><label>显示货币</label><select name="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div><div class="form-row"><label>备用汇率（USD/CNY）</label><input class="input" name="exchangeRate" type="number" step="0.0001" min="0.0001" value="${state.settings.exchangeRate}" /></div><button class="btn primary full" type="submit">保存</button></form>
+  </div></div>`;
+}
+
+function renderGoalSettingsModal() {
+  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal modal-compact" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>月收入目标</h3><button class="icon-btn" data-action="close-modal">×</button></div>
+    <form id="goalSettingsForm" class="form-grid"><div class="form-row"><label>目标金额（人民币/月）</label><input class="input" name="monthlyGoal" type="number" step="100" min="0" value="${state.settings.monthlyGoal}" required /></div><button class="btn primary full" type="submit">保存目标</button></form>
+  </div></div>`;
+}
+
+function renderMilestoneSettingsModal() {
+  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>自由里程碑</h3><button class="icon-btn" data-action="close-modal">×</button></div>
+    <form id="milestoneSettingsForm" class="form-grid">${normalizeMilestones(state.settings.freedomMilestones).map((item, index) => `<div class="milestone-setting-row" data-milestone-index="${index}"><input class="input milestone-icon-input" data-milestone-field="icon" maxlength="8" value="${escapeHtml(item.icon)}" aria-label="里程碑图标" /><input class="input" data-milestone-field="name" maxlength="24" value="${escapeHtml(item.name)}" aria-label="里程碑名称" /><label><span>¥</span><input class="input" data-milestone-field="amountCny" type="number" min="1" step="1" value="${item.amountCny}" aria-label="里程碑金额" /></label></div>`).join("")}<p class="settings-hint">始终按人民币月均收入判断解锁。</p><button class="btn primary full" type="submit">保存里程碑</button></form>
   </div></div>`;
 }
 
@@ -947,6 +950,7 @@ function renderConfirmDividendModal(transactionId) {
 function bindEvents() {
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
     currentTab = button.dataset.tab;
+    window.scrollTo(0, 0);
     render();
   }));
 
@@ -964,6 +968,12 @@ function bindEvents() {
   if (priceForm) priceForm.addEventListener("submit", submitPrice);
   const confirmDividendForm = document.querySelector("#confirmDividendForm");
   if (confirmDividendForm) confirmDividendForm.addEventListener("submit", submitConfirmDividend);
+  const displaySettingsForm = document.querySelector("#displaySettingsForm");
+  if (displaySettingsForm) displaySettingsForm.addEventListener("submit", submitDisplaySettings);
+  const goalSettingsForm = document.querySelector("#goalSettingsForm");
+  if (goalSettingsForm) goalSettingsForm.addEventListener("submit", submitGoalSettings);
+  const milestoneSettingsForm = document.querySelector("#milestoneSettingsForm");
+  if (milestoneSettingsForm) milestoneSettingsForm.addEventListener("submit", submitMilestoneSettings);
 
   const txAsset = document.querySelector("#txAsset");
   if (txAsset && transactionType === "dividend") txAsset.addEventListener("change", () => {
@@ -990,6 +1000,9 @@ async function handleAction(action, element) {
   if (action === "prev-month") { calendarCursor.setMonth(calendarCursor.getMonth() - 1); render(); }
   if (action === "next-month") { calendarCursor.setMonth(calendarCursor.getMonth() + 1); render(); }
   if (action === "select-date") { selectedDate = element.dataset.date; render(); }
+  if (action === "open-display-settings") { modal = { type: "display-settings" }; render(); }
+  if (action === "open-goal-settings") { modal = { type: "goal-settings" }; render(); }
+  if (action === "open-milestone-settings") { modal = { type: "milestone-settings" }; render(); }
   if (action === "save-settings") { saveSettings(); }
   if (action === "refresh-all") { captureSettingsForm(); await refreshAllData(); }
   if (action === "refresh-fx") { captureSettingsForm(); await refreshFxOnly(); }
@@ -1062,6 +1075,33 @@ function submitConfirmDividend(event) {
   modal = null;
   showToast("股息到账已确认");
   render();
+}
+
+function submitDisplaySettings(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  state.settings.displayCurrency = data.displayCurrency === "USD" ? "USD" : "CNY";
+  state.settings.exchangeRate = Math.max(0.0001, number(data.exchangeRate, 7.2));
+  saveState(); modal = null; showToast("显示设置已保存"); render();
+}
+
+function submitGoalSettings(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  state.settings.monthlyGoal = Math.max(0, number(data.monthlyGoal, 1000));
+  saveState(); modal = null; showToast("月目标已保存"); render();
+}
+
+function submitMilestoneSettings(event) {
+  event.preventDefault();
+  const rows = [...event.currentTarget.querySelectorAll(".milestone-setting-row")];
+  state.settings.freedomMilestones = normalizeMilestones(rows.map((row, index) => ({
+    id: defaultMilestones[index]?.id,
+    icon: row.querySelector('[data-milestone-field="icon"]')?.value,
+    name: row.querySelector('[data-milestone-field="name"]')?.value,
+    amountCny: row.querySelector('[data-milestone-field="amountCny"]')?.value,
+  })));
+  saveState(); modal = null; showToast("自由里程碑已保存"); render();
 }
 
 function submitAsset(event) {
@@ -1396,7 +1436,7 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.2`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.3`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。

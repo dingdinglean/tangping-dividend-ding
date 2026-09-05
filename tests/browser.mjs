@@ -45,10 +45,10 @@ async function testStaticSnapshots(browser, engine) {
     // Windows WebKit reports an internal error for offline top-level navigation.
     // Still test an actual uncached module request through its service worker.
     if(engine==="Chromium") await page.reload();
-    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.2");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
+    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.3");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
     assert.equal(cached,105);
     await context.setOffline(false);fail=true;await page.reload();
-    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.2");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
+    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.3");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
     assert.deepEqual(errors,[]);
     console.log(`PASS ${engine} snapshot: no personal key, new network snapshot, offline/503 last-good fallback`);
   } finally {await context.close();await new Promise(r=>snapshotServer.close(r));}
@@ -77,30 +77,46 @@ try {
   for(const width of [390,430,1280]) {
     await page.setViewportSize({width,height:844});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`home overflow at ${width}`);
+    assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight),`document scroll at home ${width}`);
+    assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}),`home fixed header at ${width}`);
   }
-  assert.ok(await page.evaluate(()=>document.querySelector(".chart-card").getBoundingClientRect().bottom < innerHeight * 1.5),"home core exceeds 1.5 screens");
+  assert.ok(await page.evaluate(()=>document.querySelector(".chart-card").getBoundingClientRect().bottom < document.querySelector(".bottom-nav").getBoundingClientRect().top),"home exceeds app viewport");
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:"docs/screenshots/home-mobile-v7.png",fullPage:true});
-  await page.locator(".chart-card").evaluate(el=>el.scrollIntoView({block:"start"}));
   await page.locator(".chart-card").screenshot({path:"docs/screenshots/chart-mobile-v7.png"});
-  await page.evaluate(()=>scrollTo(0,0));
   await page.emulateMedia({colorScheme:"dark"});
   await page.screenshot({path:"docs/screenshots/home-dark-v7.png",fullPage:true});
   await page.emulateMedia({colorScheme:"light"});
   await page.locator('[data-tab="portfolio"]').click();
-  assert.ok(await page.locator('[data-action="delete-asset"]').isVisible());
+  assert.equal(await page.locator('[data-action="delete-asset"]').count(),0);
+  assert.ok(await page.locator(".asset-card-compact").isVisible());
   assert.ok(await page.locator(".floating-add").isVisible());
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight));
+  assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
   await page.screenshot({path:"docs/screenshots/portfolio-mobile-v7.png",fullPage:true});
+  await page.locator(".asset-card-compact").click();
+  assert.ok(await page.locator(".asset-detail-summary").isVisible());
+  assert.ok(await page.locator('[data-action="delete-asset"]').isVisible());
+  await page.locator('[data-action="close-modal"]').last().click();
+  await page.locator('[data-tab="calendar"]').click();
+  assert.ok(await page.locator(".calendar-month,.calendar-events-panel").count()===2);
+  assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight));
+  assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
+  await page.locator('[data-action="next-month"]').click();
+  await page.locator(".day").nth(10).click();
+  assert.ok(await page.locator(".calendar-events-scroll").isVisible());
+  await page.locator('[data-tab="portfolio"]').click();
   await page.locator('[data-action="open-asset"]').click();
   await page.locator('[name="ticker"]').fill("EMPTY");
   await page.locator('[name="name"]').fill("测试空标的");
   await page.locator('#assetForm [type="submit"]').click();
   assert.equal(await page.locator(".asset-card").count(),2);
   page.once("dialog",d=>d.accept());
-  await page.locator('.asset-card').filter({hasText:"测试空标的"}).locator('[data-action="delete-asset"]').click();
+  await page.locator('.asset-card').filter({hasText:"测试空标的"}).click();
+  await page.locator('[data-action="delete-asset"]').click();
   assert.equal(await page.locator(".asset-card").count(),1);
-  page.once("dialog",d=>d.dismiss()); await page.locator('[data-action="delete-asset"]').click();
+  await page.locator('.asset-card').click(); page.once("dialog",d=>d.dismiss()); await page.locator('[data-action="delete-asset"]').click();
   assert.equal(await page.locator(".asset-card").count(),1);
   page.once("dialog",async d=>{assert.match(d.message(),/股息 5 笔/);await d.accept();});
   await page.locator('[data-action="delete-asset"]').click();
@@ -117,24 +133,39 @@ try {
   assert.equal(await page.locator(".floating-add").count(),0);
   assert.equal(await page.locator("#marketDataMode,#marketDataEndpoint,#alphaVantageApiKey,#autoRefresh").count(),0);
   assert.equal(await page.getByText("动态数据").count(),0);
-  assert.ok(await page.getByText("躺平股息 V7.2").isVisible());
+  assert.ok(await page.getByText("躺平股息 V7.3").isVisible());
+  assert.equal(await page.locator(".settings-menu-row").count(),6);
+  assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight));
+  assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
+  await page.locator('[data-action="open-milestone-settings"]').click();
+  assert.ok(await page.locator("#milestoneSettingsForm").isVisible());
   await page.locator('[data-milestone-field="name"]').first().fill("咖啡自由");
-  await page.locator('[data-action="save-settings"]').click();
+  await page.locator("#milestoneSettingsForm [type=submit]").click();
   await page.reload();
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.freedomMilestones[0].name),"咖啡自由");
+  for(const width of [390,430]) {
+    await page.setViewportSize({width,height:844});
+    for(const tab of ["home","portfolio","calendar","settings"]) {
+      await page.locator(`[data-tab="${tab}"]`).click();
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${tab} horizontal overflow at ${width}`);
+      assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight),`${tab} document scroll at ${width}`);
+      assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top&&nav.bottom<=innerHeight;}),`${tab} fixed chrome at ${width}`);
+    }
+  }
+  await page.locator('[data-tab="home"]').click();
   await page.evaluate(()=>navigator.serviceWorker.ready);
-  await context.setOffline(true); await page.reload(); await page.waitForSelector(".chart-bars");
-  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.2"));
+  await context.setOffline(true); await page.reload(); await page.waitForSelector(".empty-home");
+  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.3"));
   await context.setOffline(false);
   assert.deepEqual(errors,[]);
-  console.log("PASS Chromium: 390/430/1280 layout, light/dark screenshots, chart, CRUD, migration, settings persistence, offline cache, no page errors");
+  console.log("PASS Chromium: V7.3 single-viewport home/portfolio/calendar/settings, internal lists, sheets, CRUD, migration, offline cache, no page errors");
   await context.close();
   // Upgrade a controlled v6 cache to v7 and count real page navigations.
   let legacy=true;
   const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");
   const upgradeServer=http.createServer(async(req,res)=>{
     const url=new URL(req.url,base);
-    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v7.2","v7.1"):sw);return;}
+    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v7.3","v7.2"):sw);return;}
     const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
   });
   await new Promise(r=>upgradeServer.listen(0,"127.0.0.1",r));
@@ -148,11 +179,11 @@ try {
     let navigations=0; updatePage.on("framenavigated",frame=>{if(frame===updatePage.mainFrame())navigations++;});
     legacy=false;
     await updatePage.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration.update();});
-    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v7.2")==="1");
+    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v7.3")==="1");
     await updatePage.waitForSelector(".chart-bars");
     assert.equal(navigations,1);
-    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.2"));
-    console.log("PASS PWA upgrade: old cache -> v7.2, exactly one automatic reload");
+    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.3"));
+    console.log("PASS PWA upgrade: old cache -> v7.3, exactly one automatic reload");
   } finally {await updateContext.close(); await new Promise(r=>upgradeServer.close(r));}
   await testStaticSnapshots(browser,"Chromium");
   await browser.close(); browser=null;
@@ -163,7 +194,8 @@ try {
     await page.goto(base); await page.evaluate(data=>localStorage.setItem("tangping-dividend.v1",JSON.stringify(data)),fixture); await page.reload();
     assert.ok(await page.locator(".bar.received").evaluateAll(bars=>bars.some(el=>el.getBoundingClientRect().height>10)));
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-    console.log("PASS WebKit: 390px nonzero chart bars and no overflow");
+    for(const tab of ["home","portfolio","calendar","settings"]) { await page.locator(`[data-tab="${tab}"]`).click(); assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight),`WebKit document scroll ${tab}`); }
+    console.log("PASS WebKit: V7.3 four contained 390px tabs, nonzero chart bars and no overflow");
     await testStaticSnapshots(browser,"WebKit");
   }
 } finally { if(browser) await browser.close(); await new Promise(r=>server.close(r)); }

@@ -301,3 +301,136 @@ textarea { min-height: 78px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* V7.3: every tab is a contained app page; only dedicated list regions scroll. */
+html, body, #app { width: 100%; height: 100%; overflow: hidden; }
+body { min-height: 100dvh; height: 100dvh; }
+.app-shell {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: calc(env(safe-area-inset-top) + 10px) 18px calc(env(safe-area-inset-bottom) + 76px);
+}
+.topbar { position: relative; z-index: 2; margin-bottom: 10px; }
+.tab-page { min-height: 0; overflow: hidden; }
+
+/* Home: deliberately compact enough to read as one dashboard, not a web feed. */
+.home-page { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; }
+.home-page .hero, .home-page .freedom-card, .home-page .chart-card { margin: 0; }
+.home-page .hero { padding: 12px 14px; }
+.home-page .hero-value { margin: 4px 0; font-size: clamp(29px, 7.8vw, 38px); }
+.home-page .hero-sub { font-size: 10px; }
+.home-page .hero-goal strong { margin-top: 3px; font-size: 14px; }
+.home-page .income-facts { gap: 8px; margin-top: 8px; padding-top: 8px; }
+.home-page .income-facts strong { margin-top: 3px; font-size: 16px; }
+.home-page .grid-2 { gap: 8px; margin-top: 0; }
+.home-page .metric-card { padding: 9px 11px; border-radius: 15px; }
+.home-page .metric-label { font-size: 11px; }
+.home-page .metric-value { margin-top: 2px; font-size: clamp(20px, 5.8vw, 27px); }
+.home-page .metric-foot { display: none; }
+.home-page .freedom-card { padding: 10px 13px; }
+.home-page .card-heading h2 { margin-top: 1px; font-size: 16px; }
+.home-page .card-heading > strong { font-size: 17px; }
+.home-page .freedom-next { margin-top: 4px; font-size: 10px; }
+.home-page .freedom-progress { height: 7px; margin-top: 7px; }
+.home-page .chart-card { padding: 9px 13px; }
+.home-page .chart-head strong { font-size: 15px; }
+.home-page .chart-plot { height: 98px; margin-top: 4px; }
+.home-page .chart-grid-lines { inset-bottom: 17px; }
+.home-page .bar-group { grid-template-rows: 80px 17px; }
+.home-page .bar-stack { max-height: 80px; }
+.home-page .month-label { font-size: 8px; }
+.home-page .legend { gap: 8px; margin-top: 1px; font-size: 9px; }
+.home-page .market-caption { margin: 0 3px; font-size: 9px; }
+.home-page .empty-home { min-height: 180px; justify-content: center; }
+
+/* Portfolio: the summary stays put while the compact card list owns the scroll. */
+.portfolio-page { display: flex; min-height: 0; flex-direction: column; gap: 9px; }
+.portfolio-summary { flex: 0 0 auto; }
+.portfolio-page .summary-item { padding: 10px 5px; border-radius: 14px; }
+.portfolio-page .summary-item strong { margin-bottom: 3px; font-size: 13px; }
+.page-section-title { flex: 0 0 auto; align-items: center; margin: 0 3px; }
+.page-section-title h2 { font-size: 16px; }
+.portfolio-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 1px 2px 4px; scrollbar-width: thin; }
+.portfolio-list .card + .card { margin-top: 8px; }
+.asset-card-compact { padding: 11px 12px; cursor: pointer; }
+.asset-card-compact:focus-visible { outline: 3px solid rgba(91, 169, 149, .35); outline-offset: 2px; }
+.asset-card-compact .asset-title h3 { font-size: 15px; }
+.asset-card-compact .ticker-row { margin-top: 3px; font-size: 11px; }
+.asset-card-compact .asset-value strong { font-size: 15px; }
+.asset-compact-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.asset-compact-grid div { min-width: 0; }
+.asset-compact-grid label { display: block; overflow: hidden; color: var(--muted); font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+.asset-compact-grid strong { display: block; overflow: hidden; margin-top: 2px; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.asset-card-foot { display: flex; align-items: center; gap: 5px; margin-top: 8px; color: var(--muted); font-size: 9px; }
+.asset-card-foot b { margin-left: auto; color: var(--primary-strong); font-size: 17px; font-weight: 500; line-height: .5; }
+
+/* Calendar: fixed month card plus an independently scrolling event panel. */
+.calendar-page { display: flex; min-height: 0; flex-direction: column; gap: 10px; }
+.calendar-month { flex: 0 0 auto; margin: 0; padding: 12px; }
+.calendar-head { margin-bottom: 7px; }
+.calendar-head .year { font-size: 12px; }
+.calendar-head .month { margin-top: 0; font-size: 25px; }
+.calendar-actions .icon-btn { width: 36px; height: 36px; border-radius: 11px; }
+.calendar-grid { gap: 2px; }
+.weekday { padding: 3px 0; font-size: 9px; }
+.day { border-radius: 10px; font-size: 12px; }
+.dots { bottom: 3px; }
+.calendar-events-panel { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; margin: 0; padding: 11px 13px; overflow: hidden; }
+.calendar-events-head { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.calendar-events-head h2 { margin: 2px 0 0; font-size: 15px; }
+.calendar-events-head small { color: var(--muted); font-size: 10px; }
+.calendar-events-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.calendar-events-scroll .empty { min-height: 100%; padding: 18px 8px; display: grid; place-items: center; }
+.calendar-empty { font-size: 12px; }
+.event-item { padding: 10px 0; }
+
+/* Settings: a short menu opens focused sheets instead of a wall of fields. */
+.settings-page { display: flex; flex-direction: column; gap: 10px; }
+.settings-menu { margin: 0; padding: 0; overflow: hidden; }
+.settings-menu-row { width: 100%; min-height: 53px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border: 0; border-bottom: 1px solid var(--line); color: var(--text); background: transparent; text-align: left; cursor: pointer; }
+.settings-menu-row:last-child { border-bottom: 0; }
+.settings-menu-row span { min-width: 0; display: grid; gap: 2px; }
+.settings-menu-row b { font-size: 13px; }
+.settings-menu-row small, .settings-about small { overflow: hidden; color: var(--muted); font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+.settings-menu-row em { color: var(--muted); font-size: 21px; font-style: normal; }
+.danger-row b, .danger-row em { color: var(--red); }
+.settings-about { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; padding: 11px 14px; }
+.settings-about div { min-width: 0; display: grid; gap: 3px; }
+.settings-about b { font-size: 12px; }
+.settings-about > small { max-width: 45%; text-align: right; }
+
+/* Sheets float above the navigation and reserve the iPhone home indicator. */
+.modal-backdrop { padding-top: calc(env(safe-area-inset-top) + 8px); }
+.modal { max-height: calc(100dvh - env(safe-area-inset-top) - 8px); padding-bottom: calc(env(safe-area-inset-bottom) + 18px); overscroll-behavior: contain; }
+.modal-compact { max-width: min(100%, 560px); }
+.asset-detail-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 10px; margin: 0 0 11px; border-radius: 14px; background: var(--panel-2); }
+.asset-detail-summary div { min-width: 0; padding: 5px; }
+.asset-detail-summary span { display: block; color: var(--muted); font-size: 9px; }
+.asset-detail-summary strong { display: block; overflow: hidden; margin-top: 3px; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.modal-quick-actions { margin: 0 0 14px; }
+.modal-quick-actions .btn { flex: 1; }
+
+@media (max-height: 720px) {
+  .app-shell { padding-top: calc(env(safe-area-inset-top) + 7px); padding-bottom: calc(env(safe-area-inset-bottom) + 70px); }
+  .topbar { margin-bottom: 6px; }
+  .logo, .icon-btn { width: 38px; height: 38px; }
+  .brand h1 { font-size: 20px; }
+  .brand p { font-size: 10px; }
+  .home-page { gap: 6px; }
+  .home-page .hero { padding: 10px 12px; }
+  .home-page .hero-value { font-size: 28px; }
+  .home-page .chart-plot { height: 84px; }
+  .home-page .bar-group { grid-template-rows: 68px 16px; }
+  .home-page .bar-stack { max-height: 68px; }
+  .calendar-month { padding: 9px; }
+  .settings-menu-row { min-height: 48px; }
+}
+
+@media (max-width: 420px) {
+  .app-shell { padding-right: 14px; padding-left: 14px; }
+  .home-page .chart-card { padding-right: 10px; padding-left: 10px; }
+  .asset-card-compact { padding-right: 10px; padding-left: 10px; }
+}

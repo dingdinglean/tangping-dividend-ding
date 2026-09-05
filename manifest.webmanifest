@@ -2,7 +2,7 @@
   "name": "躺平股息",
   "short_name": "躺平股息",
   "description": "记录少量美股持仓与被动股息收入",
-  "start_url": "./?v=7.1",
+  "start_url": "./?v=7.2",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f6f5",

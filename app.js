@@ -1,8 +1,8 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.1";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.2";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v7.1";
+const APP_VERSION = "v7.2";
 const INCOME_YEAR = 2026;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
@@ -73,10 +73,14 @@ function loadState() {
     if (raw === null) return structuredClone(defaultState);
     const saved = JSON.parse(raw);
     if (!saved || saved.version !== 1 || !Array.isArray(saved.assets) || !Array.isArray(saved.transactions)) throw new Error("Unsupported data");
-    stateNeedsMigration = !saved.settings?.marketDataMode || !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
+    stateNeedsMigration = saved.settings?.marketDataMode !== "snapshot" || saved.settings?.autoRefresh !== true || !Array.isArray(saved.settings?.freedomMilestones) || saved.settings.freedomMilestones.length !== defaultMilestones.length;
     const merged = { ...structuredClone(defaultState), ...saved, settings: { ...defaultState.settings, ...saved.settings } };
     merged.transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
     merged.settings.freedomMilestones = normalizeMilestones(saved.settings?.freedomMilestones);
+    // V7.2 keeps automatic public snapshots as the only in-app data mode.
+    // Old advanced values stay stored for backwards-compatible exports, but are never sent.
+    merged.settings.marketDataMode = "snapshot";
+    merged.settings.autoRefresh = true;
     merged.assets = (saved.assets || defaultState.assets).map((asset) => ({
       apiSymbol: asset.ticker,
       priceUpdatedAt: null,
@@ -169,6 +173,8 @@ function consumeApiRequest(count = 1) {
 }
 
 function getMarketEndpoint() {
+  // V7.2's UI always persists snapshot mode. These branches only retain
+  // backward-compatible import/export behavior for older saved settings.
   if (state.settings.marketDataMode === "direct") return "";
   if (state.settings.marketDataMode === "proxy") return state.settings.marketDataEndpoint || "";
   return "./data/market.json";
@@ -552,6 +558,7 @@ function render() {
       ${currentTab === "settings" ? renderSettings() : ""}
     </main>
     ${renderBottomNav()}
+    ${["home", "portfolio", "calendar"].includes(currentTab) ? '<button class="floating-add" data-action="open-add" aria-label="新增记录">＋</button>' : ""}
     ${modal ? renderModal() : ""}
   `;
   bindEvents();
@@ -562,7 +569,7 @@ function renderTopbar() {
     home: ["躺平股息", "今天离海边咖啡又近一点"],
     portfolio: ["投资组合", "只记真正长期持有的几只"],
     calendar: ["股息日历", "到账日比上班日更值得记"],
-    settings: ["设置", "数据只保存在当前设备"],
+    settings: ["设置", "偏好与本机数据"],
   };
   const [title, sub] = titles[currentTab];
   return `
@@ -576,22 +583,19 @@ function renderTopbar() {
   `;
 }
 
-function renderDataStatusBar() {
-  const fxText = state.settings.exchangeRateUpdatedAt
-    ? `汇率 ${number(state.settings.exchangeRate).toFixed(4)} · ${formatUpdatedAt(state.settings.exchangeRateUpdatedAt)}`
-    : `汇率使用备用值 ${number(state.settings.exchangeRate).toFixed(4)}`;
+function marketStatusText() {
   const staleCount = state.assets.filter((asset) => isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS) || isStale(asset.dividendUpdatedAt, DIVIDEND_REFRESH_MS)).length;
-  const marketText = !navigator.onLine ? "离线浏览 · 保留上次数据"
-    : !state.settings.alphaVantageApiKey && !getMarketEndpoint() ? "请在高级设置连接备用行情"
-    : staleCount ? `${staleCount} 只标的数据待更新 · 旧数据仍保留`
+  return !navigator.onLine ? "行情离线，继续使用上次数据"
+    : staleCount ? "行情暂未更新，继续使用上次数据"
     : `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`;
-  const stale = staleCount > 0;
-  return `<section class="sync-bar ${stale ? "stale" : "fresh"}"><div><strong>${refreshInProgress ? "正在同步动态数据…" : marketText}</strong><span>${fxText}</span></div><button class="btn compact" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "同步中" : "更新"}</button></section>`;
+}
+
+function renderMarketCaption() {
+  return `<p class="market-caption">${escapeHtml(marketStatusText())}</p>`;
 }
 
 function renderHome() {
   const { totals } = calculatePortfolio();
-  const pendingDividends = getPendingDividendTransactions();
   const year = INCOME_YEAR;
   const chart = monthlyIncomeData(year);
   const monthExpected = getMonthlyPassiveIncomeUsd(totals);
@@ -600,13 +604,23 @@ function renderHome() {
   const currentYield = totals.marketValue > 0 ? totals.annualForecast / totals.marketValue : 0;
   const yieldOnCost = totals.cost > 0 ? totals.annualForecast / totals.cost : 0;
 
+  if (!totals.heldCount) return `
+    <section class="card hero income-hero empty-home">
+      <div class="eyebrow">预计每月被动收入</div>
+      <div class="hero-value">暂无持仓</div>
+      <p>从第一笔持仓开始，自动汇总收益、里程碑和年度趋势。</p>
+      <button class="btn primary" data-action="open-asset">添加第一笔持仓</button>
+    </section>
+    ${renderMarketCaption()}
+  `;
+
   return `
     <section class="card hero income-hero">
       <div class="hero-row">
         <div>
           <div class="eyebrow">预计每月被动收入 · ${state.settings.displayCurrency}</div>
-          <div class="hero-value">${totals.heldCount > 0 && !totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div>
-          <div class="hero-sub">当前持仓预计年股息 ÷ 12${totals.heldCount && !totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div>
+          <div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div>
+          <div class="hero-sub">当前持仓预计年股息 ÷ 12${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div>
         </div>
         <div class="hero-goal"><div class="eyebrow">月目标</div><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div>
       </div>
@@ -628,8 +642,7 @@ function renderHome() {
 
     ${renderFreedomMilestones(monthlyIncomeCny)}
     ${renderIncomeChart(chart, monthlyGoalUsd, year)}
-    ${renderPendingDividends(pendingDividends)}
-    ${renderDataStatusBar()}
+    ${renderMarketCaption()}
   `;
 }
 
@@ -637,10 +650,9 @@ function renderFreedomMilestones(monthlyIncomeCny) {
   const { milestones, current, next, progress } = getFreedomStatus(monthlyIncomeCny);
   return `
     <section class="card freedom-card">
-      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? `${escapeHtml(current.icon)} ${escapeHtml(current.name)}` : "正在迈出第一步"}</h2></div><strong>${displayCnyAmount(monthlyIncomeCny)}<small>/月</small></strong></div>
-      <div class="freedom-next">${next ? `下一等级：${escapeHtml(next.icon)} ${escapeHtml(next.name)}，还差 <strong>${displayCnyAmount(Math.max(0, next.amountCny - monthlyIncomeCny))}</strong>` : "六个里程碑已全部解锁"}</div>
+      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? `${escapeHtml(current.icon)} ${escapeHtml(current.name)}` : "从第一步开始"}</h2></div><strong>${displayCnyAmount(monthlyIncomeCny)}<small>/月</small></strong></div>
+      <div class="freedom-next">${next ? `${escapeHtml(next.icon)} ${escapeHtml(next.name)} · ${displayCnyAmount(monthlyIncomeCny)} / ${displayCnyAmount(next.amountCny)}` : "六个里程碑已全部解锁"}</div>
       <div class="progress-track freedom-progress"><div class="progress-fill" style="width:${progress}%"></div></div>
-      <details class="milestone-details"><summary>查看全部六个里程碑</summary><div class="milestone-grid">${milestones.map((item) => `<div class="milestone ${item.unlocked ? "unlocked" : "locked"}"><span class="milestone-icon">${escapeHtml(item.icon)}</span><div><strong>${escapeHtml(item.name)}</strong><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(item.amountCny)}/月</small></div><span class="milestone-state">${item.unlocked ? "已解锁" : "未解锁"}</span></div>`).join("")}</div></details>
     </section>`;
 }
 
@@ -664,7 +676,7 @@ function renderPendingDividends(rows) {
 }
 
 function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
-  const plotHeight = 180;
+  const plotHeight = 96;
   const values = chart.received.map((v, i) => v + chart.announced[i] + chart.forecast[i]);
   const max = Math.max(...values, 1) * 1.12;
   const annualTotal = values.reduce((sum, value) => sum + value, 0);
@@ -679,10 +691,9 @@ function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
   }).join("");
   return `
     <section class="card chart-card">
-      <div class="chart-head"><div><div class="eyebrow">${year} 年股息收入</div><div class="chart-total">${money(annualTotal)}</div></div><span class="chart-badge">年度总计</span></div>
+      <div class="chart-head"><div class="eyebrow">${year} 年股息趋势</div><strong>${money(annualTotal)}</strong></div>
       <div class="chart-plot"><div class="chart-grid-lines">${[1, 2 / 3, 1 / 3, 0].map((ratio) => `<i><span>${axisLabel(max * ratio)}</span></i>`).join("")}</div><div class="chart-bars">${bars}</div></div>
       <div class="legend"><span class="l1">已收到</span><span class="l2">已宣布</span><span class="l3">预测</span></div>
-      <p class="chart-note">预测按当前持仓与历史派息推算，不代表已到账；未知派息月份不填充。</p>
     </section>
   `;
 }
@@ -690,14 +701,13 @@ function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
 function renderPortfolio() {
   const { positions, totals } = calculatePortfolio();
   return `
-    ${renderDataStatusBar()}
     <div class="summary-strip">
       <div class="summary-item"><strong>${totals.priceCoverageComplete ? money(totals.marketValue) : "待更新"}</strong><span>总市值</span></div>
       <div class="summary-item"><strong>${money(totals.received)}</strong><span>累计股息</span></div>
       <div class="summary-item"><strong>${money(totals.annualForecast / 12)}</strong><span>预计月均</span></div>
     </div>
     <div class="section-title"><h2>我的标的</h2><button class="btn" data-action="open-asset">添加标的</button></div>
-    ${positions.map(renderAssetCard).join("")}
+    ${positions.length ? positions.map(renderAssetCard).join("") : '<section class="card empty"><div class="big">☕</div><strong>暂无持仓</strong><p>添加第一笔持仓，开始记录你的股息计划。</p><button class="btn primary" data-action="open-asset">添加第一笔持仓</button></section>'}
   `;
 }
 
@@ -783,32 +793,16 @@ function renderEvent(tx) {
 }
 
 function renderSettings() {
-  resetApiCounterIfNeeded();
   const backupText = state.settings.lastBackupAt ? new Date(state.settings.lastBackupAt).toLocaleString("zh-CN") : "尚未备份";
-  const fxStatus = state.settings.exchangeRateUpdatedAt
-    ? `${state.settings.exchangeRateSource || "Frankfurter"} · ${state.settings.exchangeRateDate || ""} · ${formatUpdatedAt(state.settings.exchangeRateUpdatedAt)}`
-    : "尚未联网更新，当前使用备用值";
-  const marketStatus = state.settings.lastMarketRefreshAt
-    ? `${formatUpdatedAt(state.settings.lastMarketRefreshAt)} · ${state.settings.lastMarketRefreshMessage || "更新完成"}`
-    : state.settings.lastMarketRefreshMessage || "尚未连接行情";
   return `
-    <div class="section-title"><h2>动态数据</h2></div>
-    <section class="card settings-group">
-      <div class="setting-row stacked"><div><label>自动行情</label><small>行情由 GitHub Actions 自动更新。个人 API Key 仅作为备用直连方式。默认无需填写密钥或服务器地址。</small></div><select id="marketDataMode"><option value="snapshot" ${state.settings.marketDataMode === "snapshot" ? "selected" : ""}>GitHub Actions 静态快照（推荐）</option><option value="direct" ${state.settings.marketDataMode === "direct" ? "selected" : ""}>高级：个人 Key 直连</option><option value="proxy" ${state.settings.marketDataMode === "proxy" ? "selected" : ""}>高级：共享 Node 服务</option></select></div>
-      <details class="setting-row stacked"><summary>高级备用连接（普通使用无需填写）</summary>
-      <div><label>共享行情服务（仅高级模式使用）</label><input class="input wide" id="marketDataEndpoint" type="url" value="${escapeHtml(state.settings.marketDataEndpoint || "")}" placeholder="https://你的服务/api/market" /></div>
-      <div class="setting-row stacked"><div><label>Alpha Vantage API Key</label></div><input class="input wide" id="alphaVantageApiKey" type="password" autocomplete="off" value="${escapeHtml(state.settings.alphaVantageApiKey || "")}" placeholder="粘贴免费 API Key" /></div>
-      </details>
-      <div class="setting-row"><div><label>自动更新</label></div><select id="autoRefresh"><option value="true" ${state.settings.autoRefresh ? "selected" : ""}>开启</option><option value="false" ${!state.settings.autoRefresh ? "selected" : ""}>关闭</option></select></div>
-      <div class="setting-row"><div><label>美元兑人民币</label><small>${escapeHtml(fxStatus)}</small></div><strong>${number(state.settings.exchangeRate).toFixed(4)}</strong></div>
-      <div class="setting-row"><div><label>行情状态</label><small>${escapeHtml(marketStatus)}</small></div><span class="data-pill ${state.settings.lastMarketRefreshAt ? "ok" : "warn"}">${getMarketEndpoint() === "./data/market.json" ? "Actions 快照" : getMarketEndpoint() ? "共享服务" : `${number(state.settings.apiUsageCount)}/25 次`}</span></div>
-      <div class="btn-row setting-actions"><button class="btn yellow" data-action="refresh-all" ${refreshInProgress ? "disabled" : ""}>${refreshInProgress ? "正在更新" : "更新全部"}</button><button class="btn" data-action="refresh-fx" ${refreshInProgress ? "disabled" : ""}>只更新汇率</button></div>
-    </section>
-
-    <div class="section-title"><h2>显示与目标</h2></div>
+    <div class="section-title"><h2>显示</h2></div>
     <section class="card settings-group">
       <div class="setting-row"><div><label>显示货币</label></div><select id="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div>
       <div class="setting-row"><div><label>备用汇率</label></div><input class="input" id="exchangeRate" type="number" step="0.0001" value="${state.settings.exchangeRate}" /></div>
+    </section>
+
+    <div class="section-title"><h2>目标</h2></div>
+    <section class="card settings-group">
       <div class="setting-row"><div><label>每月收入目标</label></div><input class="input" id="monthlyGoal" type="number" step="100" value="${state.settings.monthlyGoal}" /></div>
     </section>
 
@@ -831,6 +825,12 @@ function renderSettings() {
       <div class="setting-row"><div><label>清空全部数据</label></div><button class="btn danger" data-action="reset-data">清空</button></div>
     </section>
     <input class="file-input" id="importFile" type="file" accept="application/json" />
+
+    <div class="section-title"><h2>关于</h2></div>
+    <section class="card settings-group about-settings">
+      <div class="setting-row"><div><label>躺平股息 V7.2</label><small>行情自动更新，实际到账需本人确认</small></div></div>
+      <div class="setting-row"><div><label>最近行情更新时间</label><small>${escapeHtml(marketStatusText())}</small></div></div>
+    </section>
   `;
 }
 
@@ -841,7 +841,7 @@ function renderBottomNav() {
     ["calendar", "▦", "日历"],
     ["settings", "⚙", "设置"],
   ];
-  return `<nav class="bottom-nav">${items.map(([tab, icon, label]) => `<button class="nav-btn ${currentTab === tab ? "active" : ""}" data-tab="${tab}"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join("")}<button class="add-btn" data-action="open-add">＋</button></nav>`;
+  return `<nav class="bottom-nav" aria-label="主导航">${items.map(([tab, icon, label]) => `<button class="nav-btn ${currentTab === tab ? "active" : ""}" data-tab="${tab}"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join("")}</nav>`;
 }
 
 function renderModal() {
@@ -1094,26 +1094,12 @@ function submitPrice(event) {
 }
 
 function captureSettingsForm() {
-  const mode = document.querySelector("#marketDataMode");
-  const endpoint = document.querySelector("#marketDataEndpoint");
-  if (mode?.value === "proxy") {
-    if (!endpoint?.value.trim()) throw new Error("共享服务模式需要填写 URL；普通使用请选择 Actions 静态快照");
-    configureMarketEndpoint(endpoint.value.trim());
-  }
-  if (mode) state.settings.marketDataMode = mode.value;
-  if (endpoint) {
-    state.settings.marketDataEndpoint = endpoint.value.trim();
-  }
   const displayCurrency = document.querySelector("#displayCurrency");
   const exchangeRate = document.querySelector("#exchangeRate");
   const monthlyGoal = document.querySelector("#monthlyGoal");
-  const apiKey = document.querySelector("#alphaVantageApiKey");
-  const autoRefresh = document.querySelector("#autoRefresh");
   if (displayCurrency) state.settings.displayCurrency = displayCurrency.value;
   if (exchangeRate) state.settings.exchangeRate = number(exchangeRate.value, 7.2);
   if (monthlyGoal) state.settings.monthlyGoal = number(monthlyGoal.value, 1000);
-  if (apiKey) state.settings.alphaVantageApiKey = String(apiKey.value || "").trim();
-  if (autoRefresh) state.settings.autoRefresh = autoRefresh.value === "true";
   const milestoneRows = [...document.querySelectorAll(".milestone-setting-row")];
   if (milestoneRows.length) {
     state.settings.freedomMilestones = normalizeMilestones(milestoneRows.map((row, index) => ({
@@ -1410,7 +1396,7 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.1`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.2`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。

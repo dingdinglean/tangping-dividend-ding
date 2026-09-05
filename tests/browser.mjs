@@ -38,7 +38,6 @@ async function testStaticSnapshots(browser, engine) {
     await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===101);
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.alphaVantageApiKey),"");
     price=105;await page.reload();
-    await page.locator('[data-action="refresh-all"]').click();
     await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===105);
     assert.ok(requests>=2);
     await page.evaluate(()=>navigator.serviceWorker.ready);
@@ -46,10 +45,10 @@ async function testStaticSnapshots(browser, engine) {
     // Windows WebKit reports an internal error for offline top-level navigation.
     // Still test an actual uncached module request through its service worker.
     if(engine==="Chromium") await page.reload();
-    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.1");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
+    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.2");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
     assert.equal(cached,105);
     await context.setOffline(false);fail=true;await page.reload();
-    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.1");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
+    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=7.2");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
     assert.deepEqual(errors,[]);
     console.log(`PASS ${engine} snapshot: no personal key, new network snapshot, offline/503 last-good fallback`);
   } finally {await context.close();await new Promise(r=>snapshotServer.close(r));}
@@ -65,11 +64,21 @@ try {
   await page.reload(); await page.waitForSelector(".chart-bars");
   assert.equal(await page.locator(".bar-group").count(),12);
   assert.ok(await page.locator(".bar.received").evaluateAll(bars=>bars.some(el=>el.getBoundingClientRect().height>10)));
-  assert.equal(await page.locator(".milestone").count(),6);
+  assert.equal(await page.locator(".milestone").count(),0);
+  assert.equal(await page.locator(".milestone-details").count(),0);
+  assert.equal(await page.locator(".sync-bar").count(),0);
+  assert.equal(await page.locator(".bottom-nav .nav-btn").count(),4);
+  assert.equal(await page.locator(".add-btn").count(),0);
+  assert.ok(await page.locator(".floating-add").isVisible());
+  assert.ok(await page.evaluate(()=>{const fab=document.querySelector(".floating-add").getBoundingClientRect();const nav=document.querySelector(".bottom-nav").getBoundingClientRect();return fab.bottom <= nav.top + 1;}));
+  await page.locator(".floating-add").click();
+  assert.ok(await page.locator("#transactionForm").isVisible());
+  await page.locator('[data-action="close-modal"]').last().click();
   for(const width of [390,430,1280]) {
     await page.setViewportSize({width,height:844});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`home overflow at ${width}`);
   }
+  assert.ok(await page.evaluate(()=>document.querySelector(".chart-card").getBoundingClientRect().bottom < innerHeight * 1.5),"home core exceeds 1.5 screens");
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:"docs/screenshots/home-mobile-v7.png",fullPage:true});
   await page.locator(".chart-card").evaluate(el=>el.scrollIntoView({block:"start"}));
@@ -80,6 +89,7 @@ try {
   await page.emulateMedia({colorScheme:"light"});
   await page.locator('[data-tab="portfolio"]').click();
   assert.ok(await page.locator('[data-action="delete-asset"]').isVisible());
+  assert.ok(await page.locator(".floating-add").isVisible());
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.screenshot({path:"docs/screenshots/portfolio-mobile-v7.png",fullPage:true});
   await page.locator('[data-action="open-asset"]').click();
@@ -99,14 +109,22 @@ try {
   assert.equal(deleted.transactions.length,0);
   assert.ok(await page.evaluate(()=>Boolean(localStorage.getItem("tangping-dividend.backup-before-delete"))));
   await page.reload(); assert.equal((await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")))).assets.length,0);
+  await page.locator('[data-tab="home"]').click();
+  assert.ok(await page.getByText("暂无持仓").isVisible());
+  assert.equal(await page.locator(".metric-card").count(),0);
+  assert.ok(await page.getByText("添加第一笔持仓").isVisible());
   await page.locator('[data-tab="settings"]').click();
+  assert.equal(await page.locator(".floating-add").count(),0);
+  assert.equal(await page.locator("#marketDataMode,#marketDataEndpoint,#alphaVantageApiKey,#autoRefresh").count(),0);
+  assert.equal(await page.getByText("动态数据").count(),0);
+  assert.ok(await page.getByText("躺平股息 V7.2").isVisible());
   await page.locator('[data-milestone-field="name"]').first().fill("咖啡自由");
   await page.locator('[data-action="save-settings"]').click();
   await page.reload();
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.freedomMilestones[0].name),"咖啡自由");
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await context.setOffline(true); await page.reload(); await page.waitForSelector(".chart-bars");
-  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.1"));
+  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.2"));
   await context.setOffline(false);
   assert.deepEqual(errors,[]);
   console.log("PASS Chromium: 390/430/1280 layout, light/dark screenshots, chart, CRUD, migration, settings persistence, offline cache, no page errors");
@@ -116,7 +134,7 @@ try {
   const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");
   const upgradeServer=http.createServer(async(req,res)=>{
     const url=new URL(req.url,base);
-    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v7","v6"):sw);return;}
+    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v7.2","v7.1"):sw);return;}
     const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
   });
   await new Promise(r=>upgradeServer.listen(0,"127.0.0.1",r));
@@ -130,11 +148,11 @@ try {
     let navigations=0; updatePage.on("framenavigated",frame=>{if(frame===updatePage.mainFrame())navigations++;});
     legacy=false;
     await updatePage.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration.update();});
-    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v7.1")==="1");
+    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v7.2")==="1");
     await updatePage.waitForSelector(".chart-bars");
     assert.equal(navigations,1);
-    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.1"));
-    console.log("PASS PWA upgrade: old cache -> v7.1, exactly one automatic reload");
+    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v7.2"));
+    console.log("PASS PWA upgrade: old cache -> v7.2, exactly one automatic reload");
   } finally {await updateContext.close(); await new Promise(r=>upgradeServer.close(r));}
   await testStaticSnapshots(browser,"Chromium");
   await browser.close(); browser=null;

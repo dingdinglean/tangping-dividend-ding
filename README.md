@@ -1,4 +1,4 @@
-# 躺平股息 V7.1
+# 躺平股息 V7.2
 
 移动端美股股息记录 PWA。
 
@@ -8,7 +8,8 @@
 - 股息到账由用户确认
 - 标的编辑中可填写“手动股息率”；留空则使用动态数据
 - 首页区分预计月均和实际到账；2026 年图表自动推算未来派息月份，不把预测写进真实账本
-- 可自定义六个自由里程碑，始终按人民币月均收入判断，默认紧凑展示，可展开全部等级
+- 首页采用四项原生式导航与悬浮新增按钮；自由里程碑和年度趋势均为紧凑摘要
+- 可在设置中自定义六个自由里程碑，始终按人民币月均收入判断
 - 投资组合卡片支持备份后级联删除标的及相关记录
 - 数据保存在当前浏览器，可导出 JSON 备份
 
@@ -41,7 +42,7 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 1. 进入仓库 **Actions**。
 2. 左侧选择 **Update market data**。
 3. 点击 **Run workflow**，选择 `main`，再点击绿色 **Run workflow**。
-4. 等待完成后检查 `data/market.json`；手机重新打开 App 或点击“更新”。缺 Secret 会明确失败，不覆盖旧快照。
+4. 等待完成后检查 `data/market.json`；手机重新打开 App 即会读取新快照。缺 Secret 会明确失败，不覆盖旧快照。
 
 工作流使用 Node 22，每天 **22:37 UTC / 北京时间次日 06:37** 运行（美股夏令时和冬令时正常收盘后）。GitHub 调度可能延迟；定时任务只在默认分支生效，因此需要先合并 PR。
 
@@ -59,6 +60,6 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 
 **GitHub 默认令牌提交不会自动触发传统 Pages 重建。** 为避免 Pages 持续返回旧文件，正式站点同时读取同仓库 `main/data/market.json` 的公开 raw 副本，选择 `generatedAt` 更新的一份；两份都在 GitHub 托管，不增加服务器、Secret 或工作流权限。raw CDN 可能有短暂传播延迟。[GitHub 官方说明](https://docs.github.com/en/actions/concepts/security/github_token)
 
-设置保留三种模式：默认 Actions 快照、高级个人 Key 直连、高级 [Node 共享服务](server/README.md)。旧个人 Key 与服务器 URL 保留但默认不发送；可在设置显式切换。市场公告仍然只生成待确认股息，不冒充实际到账。
+App 固定使用 Actions 静态快照，不向普通用户展示 API Key、服务地址或行情模式。旧版本地数据中的个人 Key、服务 URL、持仓、交易和到账记录会被保留，以保证导入导出兼容；市场公告仍然只生成待确认股息，不冒充实际到账。
 
 已验证：[测试记录](docs/TESTING-V7.md)。移动截图使用合成测试数据：[首页](docs/screenshots/home-mobile-v7.png)、[图表](docs/screenshots/chart-mobile-v7.png)、[组合](docs/screenshots/portfolio-mobile-v7.png)、[深色](docs/screenshots/home-dark-v7.png)。

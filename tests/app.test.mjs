@@ -89,7 +89,7 @@ test("actual received amounts never overwritten by remote announcements; deleted
   assert.equal(a.run("state.transactions.length"),0);
 });
 test("requests have a durable 25/day budget; proxy does not consume personal budget", () => {
-  const a=app(fixture()); a.run('state.settings.apiUsageDate=todayKey();state.settings.apiUsageCount=24;consumeApiRequest()');
+  const a=app(fixture()); a.run('state.settings.marketDataMode="direct";state.settings.apiUsageDate=todayKey();state.settings.apiUsageCount=24;consumeApiRequest()');
   assert.throws(()=>a.run('consumeApiRequest()'),/预算/);
   assert.equal(JSON.parse(a.storage.get("tangping-dividend.v1")).settings.apiUsageCount,25);
   a.run('state.settings.marketDataMode="proxy";state.settings.marketDataEndpoint="https://example.com/api/market";consumeApiRequest()');
@@ -122,7 +122,7 @@ test("background completion preserves modal/settings forms", () => {
 test("chart uses pixel heights and doesn't squash bars to an enormous goal", () => {
   const a=app(fixture()); const html=a.run('renderIncomeChart(monthlyIncomeData(2026),99999999)');
   assert.equal((html.match(/class="bar-group"/g)||[]).length,12);
-  assert.match(html,/height:160\.714/);
+  assert.match(html,/height:85\.714/);
 });
 
 test("unreadable stored data is never overwritten by fallback defaults", () => {

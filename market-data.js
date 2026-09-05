@@ -1,5 +1,24 @@
 const ALPHA_BASE = "https://www.alphavantage.co/query";
 const FX_URL = "https://api.frankfurter.dev/v2/rate/USD/CNY";
+let marketEndpoint = "";
+
+export function configureMarketEndpoint(value = "") {
+  if (!value) { marketEndpoint = ""; return; }
+  const url = new URL(value);
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) || url.username || url.password || url.search || url.hash) {
+    throw new Error("共享服务请填写无参数的 HTTPS 地址（本机测试允许 HTTP）");
+  }
+  marketEndpoint = url.href;
+}
+
+function alphaUrl(kind, symbol, apiKey) {
+  const url = new URL(marketEndpoint || ALPHA_BASE);
+  url.searchParams.set("function", kind);
+  url.searchParams.set("symbol", symbol);
+  // Never send a personal API key to a configured proxy.
+  if (!marketEndpoint) url.searchParams.set("apikey", apiKey);
+  return url.href;
+}
 
 async function fetchJson(url, timeoutMs = 18000) {
   const controller = new AbortController();
@@ -10,7 +29,7 @@ async function fetchJson(url, timeoutMs = 18000) {
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw new Error(response.status === 429 ? "行情请求额度已用完，请稍后重试" : `HTTP ${response.status}`);
     return await response.json();
   } catch (error) {
     if (error?.name === "AbortError") throw new Error("请求超时");
@@ -43,7 +62,7 @@ export async function fetchUsdCnyRate() {
 }
 
 export async function fetchAlphaQuote(symbol, apiKey) {
-  const url = `${ALPHA_BASE}?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`;
+  const url = alphaUrl("GLOBAL_QUOTE", symbol, apiKey);
   const data = await fetchJson(url);
   assertAlphaResponse(data);
   const quote = data?.["Global Quote"] || {};
@@ -51,6 +70,7 @@ export async function fetchAlphaQuote(symbol, apiKey) {
   if (!Number.isFinite(price) || price <= 0) throw new Error(`${symbol} 未返回有效价格`);
   return {
     price,
+    fetchedAt: data._fetchedAt || null,
     tradingDay: quote["07. latest trading day"] || null,
     changePercent: Number.parseFloat(String(quote["10. change percent"] || "0").replace("%", "")) || 0,
     source: "Alpha Vantage EOD",
@@ -58,7 +78,7 @@ export async function fetchAlphaQuote(symbol, apiKey) {
 }
 
 export async function fetchAlphaDividends(symbol, apiKey) {
-  const url = `${ALPHA_BASE}?function=DIVIDENDS&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`;
+  const url = alphaUrl("DIVIDENDS", symbol, apiKey);
   const data = await fetchJson(url);
   assertAlphaResponse(data);
   const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data?.dividends) ? data.dividends : [];
@@ -70,11 +90,11 @@ export async function fetchAlphaDividends(symbol, apiKey) {
     amount: Number(row.amount),
   })).filter((row) => row.exDate && Number.isFinite(row.amount) && row.amount >= 0)
     .sort((a, b) => b.exDate.localeCompare(a.exDate));
-  return { dividends, source: "Alpha Vantage Dividends", quality: "exact" };
+  return { dividends, source: "Alpha Vantage Dividends", quality: "exact", fetchedAt: data._fetchedAt || null };
 }
 
 export async function fetchAlphaMonthlyAdjustedDividends(symbol, apiKey) {
-  const url = `${ALPHA_BASE}?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`;
+  const url = alphaUrl("TIME_SERIES_MONTHLY_ADJUSTED", symbol, apiKey);
   const data = await fetchJson(url);
   assertAlphaResponse(data);
   const series = data?.["Monthly Adjusted Time Series"] || data?.["Monthly Time Series"] || {};
@@ -92,13 +112,14 @@ export async function fetchAlphaMonthlyAdjustedDividends(symbol, apiKey) {
   if (!dividends.length) throw new Error(`${symbol} 月度序列未返回股息记录`);
   return {
     dividends,
+    fetchedAt: data._fetchedAt || null,
     source: "Alpha Vantage Monthly Adjusted",
     quality: "monthly",
   };
 }
 
 export async function fetchAlphaOverviewDividend(symbol, apiKey) {
-  const url = `${ALPHA_BASE}?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`;
+  const url = alphaUrl("OVERVIEW", symbol, apiKey);
   const data = await fetchJson(url);
   assertAlphaResponse(data);
   const annualDividendPerShare = Number(data?.DividendPerShare);
@@ -108,6 +129,7 @@ export async function fetchAlphaOverviewDividend(symbol, apiKey) {
   }
   return {
     annualDividendPerShare: Number.isFinite(annualDividendPerShare) && annualDividendPerShare > 0 ? annualDividendPerShare : 0,
+    fetchedAt: data._fetchedAt || null,
     dividendYield: Number.isFinite(dividendYield) && dividendYield > 0 ? dividendYield : 0,
     exDate: data?.ExDividendDate || "",
     paymentDate: data?.DividendDate || "",

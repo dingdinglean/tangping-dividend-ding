@@ -125,6 +125,17 @@ test("chart uses pixel heights and doesn't squash bars to an enormous goal", () 
   assert.match(html,/height:85\.714/);
 });
 
+test("unavailable dividend data is a known zero, not a pending portfolio estimate", () => {
+  const saved = fixture();
+  saved.assets[0].manualDividendYieldPercent = null;
+  saved.assets[0].dividendLastError = "静态行情未提供有效股息";
+  const a = app(saved);
+  assert.equal(a.run("calculatePortfolio().positions[0].dividendKnownZero"), true);
+  assert.equal(a.run("calculatePortfolio().positions[0].annualForecast"), 0);
+  assert.equal(a.run("calculatePortfolio().totals.dividendCoverageComplete"), true);
+  assert.match(a.run("renderPortfolio()"), /0\.00%/);
+});
+
 test("unreadable stored data is never overwritten by fallback defaults", () => {
   const a=app(fixture()); a.storage.set("tangping-dividend.v1","{broken-json");
   a.run("state=loadState()");

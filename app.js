@@ -91,6 +91,7 @@ function loadState() {
       dividendSource: null,
       dividendDataQuality: null,
       dividendLastError: null,
+      dividendNoData: false,
       snapshotAnnualDividendPerShare: 0,
       snapshotDividendYield: 0,
       ...asset,
@@ -431,6 +432,9 @@ function calculatePortfolio() {
     const forwardYield = currentPrice > 0 ? forwardPerShare / currentPrice : 0;
     const manualYield = getManualDividendYield(item.asset);
     const dividendYield = manualYield !== null ? manualYield : (forwardYield > 0 ? forwardYield : ttmYield);
+    // A completed lookup with no usable dividend data is a valid 0 forecast,
+    // not an indefinitely pending estimate. Existing confirmed records still win.
+    const dividendKnownZero = item.asset.dividendNoData === true || (Boolean(item.asset.dividendLastError) && manualYield === null && forwardPerShare <= 0 && ttmPerShare <= 0 && !item.dividendRecords.length);
     const annualForecast = manualYield !== null
       ? marketValue * manualYield * getObservedNetFactor(item)
       : estimateAnnualDividend(item, forwardPerShare || ttmPerShare);
@@ -445,10 +449,11 @@ function calculatePortfolio() {
       forwardYield,
       manualYield,
       dividendYield,
+      dividendKnownZero,
       currentYield: marketValue > 0 ? annualForecast / marketValue : 0,
       yieldOnCost: item.cost > 0 ? annualForecast / item.cost : 0,
       nextDividend: getNextDeclaredDividend(item.asset),
-      hasDividendEstimate: item.shares <= 0 || manualYield !== null || forwardPerShare > 0 || ttmPerShare > 0 || item.dividendRecords.length > 0,
+      hasDividendEstimate: item.shares <= 0 || manualYield !== null || forwardPerShare > 0 || ttmPerShare > 0 || item.dividendRecords.length > 0 || dividendKnownZero,
     };
   });
 
@@ -726,7 +731,7 @@ function renderAssetCard(item) {
       </div>
       <div class="asset-compact-grid">
         <div><label>价格</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
-        <div><label>股息率</label><strong>${item.manualYield !== null || item.dividendYield > 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "待更新"}</strong></div>
+        <div><label>股息率</label><strong>${item.manualYield !== null || item.dividendYield > 0 || item.dividendKnownZero ? `${(item.dividendYield * 100).toFixed(2)}%` : "待更新"}</strong></div>
         <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       </div>
       <div class="asset-card-foot"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${asset.priceLastError ? "行情暂不可用，保留旧值" : "点按查看持仓、收益与分红详情"}</span><b>›</b></div>
@@ -1216,12 +1221,14 @@ async function updateAssetMarketData(asset, options = {}) {
           asset.remoteDividends = result.dividends;
           asset.snapshotAnnualDividendPerShare = 0;
           asset.snapshotDividendYield = 0;
+          asset.dividendNoData = false;
           dividendSync = syncDeclaredDividendTransactions(asset);
         } else if (index === 1) {
           asset.remoteDividends = mergeDividendRows(asset.remoteDividends, result.dividends);
         } else {
           asset.snapshotAnnualDividendPerShare = result.annualDividendPerShare;
           asset.snapshotDividendYield = result.dividendYield;
+          asset.dividendNoData = false;
         }
         asset.dividendUpdatedAt = result.fetchedAt || new Date().toISOString();
         asset.dividendSource = result.source;
@@ -1235,6 +1242,13 @@ async function updateAssetMarketData(asset, options = {}) {
         if (cannotRetry(error)) break;
       }
     }
+  }
+  // All available public dividend sources completed without usable data.
+  // Treat this as a verified 0 forecast while preserving the error message.
+  if (!dividendOk && !asset.remoteDividends?.length && !asset.snapshotAnnualDividendPerShare && !asset.snapshotDividendYield && !getManualDividendYield(asset)) {
+    asset.dividendNoData = true;
+    asset.dividendDataQuality = "none";
+    asset.dividendSource = "未提供股息";
   }
   if (!quoteOk && !dividendOk) throw lastError || new Error(`${symbol} 更新失败`);
   return { quoteOk, dividendOk, dividendSync, partialError: lastError };

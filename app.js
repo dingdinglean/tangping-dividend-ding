@@ -797,7 +797,7 @@ function renderSettings() {
     <input class="file-input" id="importFile" type="file" accept="application/json" />
 
     <section class="card settings-about">
-      <div><b>躺平股息 V7.3</b><small>行情自动更新，实际到账需本人确认</small></div>
+      <div><b>躺平股息</b><small>行情自动更新，实际到账需本人确认</small></div>
       <small>${escapeHtml(marketStatusText())}</small>
     </section>
   `;

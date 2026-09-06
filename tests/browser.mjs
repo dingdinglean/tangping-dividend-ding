@@ -133,7 +133,7 @@ try {
   assert.equal(await page.locator(".floating-add").count(),0);
   assert.equal(await page.locator("#marketDataMode,#marketDataEndpoint,#alphaVantageApiKey,#autoRefresh").count(),0);
   assert.equal(await page.getByText("动态数据").count(),0);
-  assert.ok(await page.getByText("躺平股息 V7.3").isVisible());
+  assert.ok(await page.getByText("躺平股息", { exact: true }).isVisible());
   assert.equal(await page.locator(".settings-menu-row").count(),6);
   assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight<=innerHeight));
   assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));

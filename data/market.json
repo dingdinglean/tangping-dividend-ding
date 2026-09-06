@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-05T13:04:47.033Z",
+  "generatedAt": "2026-09-06T00:11:02.498Z",
   "refresh": {
-    "day": "2026-09-05",
-    "requests": 10
+    "day": "2026-09-06",
+    "requests": 3
   },
   "symbols": {
     "QQQI": {
@@ -613,19 +613,19 @@
       },
       "DIVIDENDS": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-05T13:04:47.033Z",
+        "_lastAttemptAt": "2026-09-06T00:11:02.498Z",
         "_status": "error",
         "_error": "invalid_data"
       },
       "TIME_SERIES_MONTHLY_ADJUSTED": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-05T13:04:47.033Z",
+        "_lastAttemptAt": "2026-09-06T00:11:02.498Z",
         "_status": "error",
         "_error": "invalid_data"
       },
       "OVERVIEW": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-05T13:04:47.033Z",
+        "_lastAttemptAt": "2026-09-06T00:11:02.498Z",
         "_status": "error",
         "_error": "invalid_data"
       }

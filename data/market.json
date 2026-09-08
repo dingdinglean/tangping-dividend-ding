@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-07T00:18:42.187Z",
+  "generatedAt": "2026-09-08T00:39:08.696Z",
   "refresh": {
-    "day": "2026-09-07",
+    "day": "2026-09-08",
     "requests": 10
   },
   "symbols": {
@@ -14,8 +14,8 @@
           "07. latest trading day": "2026-09-04",
           "10. change percent": "0.183%"
         },
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
@@ -238,8 +238,8 @@
             "amount": 0.5939
           }
         ],
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       }
     },
@@ -251,8 +251,8 @@
           "07. latest trading day": "2026-09-04",
           "10. change percent": "-0.2408%"
         },
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
@@ -594,8 +594,8 @@
             "amount": 0.4853
           }
         ],
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       }
     },
@@ -607,25 +607,25 @@
           "07. latest trading day": "2026-09-04",
           "10. change percent": "0.2056%"
         },
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "error",
         "_error": "invalid_data"
       },
       "TIME_SERIES_MONTHLY_ADJUSTED": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "error",
         "_error": "invalid_data"
       },
       "OVERVIEW": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "error",
         "_error": "invalid_data"
       }
@@ -638,8 +638,8 @@
           "07. latest trading day": "2026-09-04",
           "10. change percent": "-0.7982%"
         },
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
@@ -1058,8 +1058,8 @@
             "amount": 0.1217
           }
         ],
-        "_fetchedAt": "2026-09-07T00:18:42.187Z",
-        "_lastAttemptAt": "2026-09-07T00:18:42.187Z",
+        "_fetchedAt": "2026-09-08T00:39:08.696Z",
+        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
         "_status": "ok"
       }
     }

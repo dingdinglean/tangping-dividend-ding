@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-09T00:32:22.156Z",
+  "generatedAt": "2026-09-10T00:32:46.928Z",
   "refresh": {
-    "day": "2026-09-09",
-    "requests": 7
+    "day": "2026-09-10",
+    "requests": 10
   },
   "symbols": {
     "QQQI": {
       "GLOBAL_QUOTE": {
         "Global Quote": {
           "01. symbol": "QQQI",
-          "05. price": 54.7,
-          "07. latest trading day": "2026-09-08",
-          "10. change percent": "-0.0913%"
+          "05. price": 54.57,
+          "07. latest trading day": "2026-09-09",
+          "10. change percent": "-0.2377%"
         },
-        "_fetchedAt": "2026-09-09T00:32:22.156Z",
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
@@ -238,8 +238,8 @@
             "amount": 0.5939
           }
         ],
-        "_fetchedAt": "2026-09-08T00:39:08.696Z",
-        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       }
     },
@@ -247,12 +247,12 @@
       "GLOBAL_QUOTE": {
         "Global Quote": {
           "01. symbol": "SPYI",
-          "05. price": 53.65,
-          "07. latest trading day": "2026-09-08",
-          "10. change percent": "-0.3899%"
+          "05. price": 53.44,
+          "07. latest trading day": "2026-09-09",
+          "10. change percent": "-0.3914%"
         },
-        "_fetchedAt": "2026-09-09T00:32:22.156Z",
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
@@ -594,8 +594,8 @@
             "amount": 0.4853
           }
         ],
-        "_fetchedAt": "2026-09-08T00:39:08.696Z",
-        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       }
     },
@@ -603,29 +603,29 @@
       "GLOBAL_QUOTE": {
         "Global Quote": {
           "01. symbol": "QNDX",
-          "05. price": 24.34,
-          "07. latest trading day": "2026-09-08",
-          "10. change percent": "-0.1231%"
+          "05. price": 24.26,
+          "07. latest trading day": "2026-09-09",
+          "10. change percent": "-0.3287%"
         },
-        "_fetchedAt": "2026-09-09T00:32:22.156Z",
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "error",
         "_error": "invalid_data"
       },
       "TIME_SERIES_MONTHLY_ADJUSTED": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "error",
         "_error": "invalid_data"
       },
       "OVERVIEW": {
         "_fetchedAt": null,
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "error",
         "_error": "invalid_data"
       }
@@ -634,12 +634,12 @@
       "GLOBAL_QUOTE": {
         "Global Quote": {
           "01. symbol": "SCHD",
-          "05. price": 34.41,
-          "07. latest trading day": "2026-09-08",
-          "10. change percent": "-1.1207%"
+          "05. price": 34.09,
+          "07. latest trading day": "2026-09-09",
+          "10. change percent": "-0.93%"
         },
-        "_fetchedAt": "2026-09-09T00:32:22.156Z",
-        "_lastAttemptAt": "2026-09-09T00:32:22.156Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       },
       "DIVIDENDS": {
@@ -1058,8 +1058,8 @@
             "amount": 0.1217
           }
         ],
-        "_fetchedAt": "2026-09-08T00:39:08.696Z",
-        "_lastAttemptAt": "2026-09-08T00:39:08.696Z",
+        "_fetchedAt": "2026-09-10T00:32:46.928Z",
+        "_lastAttemptAt": "2026-09-10T00:32:46.928Z",
         "_status": "ok"
       }
     }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-11T00:30:07.782Z",
+  "generatedAt": "2026-09-12T00:35:20.268Z",
   "refresh": {
-    "day": "2026-09-11",
-    "requests": 7
+    "day": "2026-09-12",
+    "requests": 25
   },
   "symbols": {
     "QQQI": {
@@ -15,8 +15,9 @@
           "10. change percent": "-0.8979%"
         },
         "_fetchedAt": "2026-09-11T00:30:07.782Z",
-        "_lastAttemptAt": "2026-09-11T00:30:07.782Z",
-        "_status": "ok"
+        "_lastAttemptAt": "2026-09-12T00:35:20.268Z",
+        "_status": "error",
+        "_error": "quota_exhausted"
       },
       "DIVIDENDS": {
         "data": [

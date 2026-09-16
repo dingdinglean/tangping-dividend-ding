@@ -608,7 +608,7 @@ function renderTopbar() {
   return `
     <header class="topbar">
       <div class="brand">
-        <div class="logo">☕</div>
+        <div class="logo" aria-hidden="true">◔</div>
         <div><h1>${title}</h1><p>${sub}</p></div>
       </div>
       <button class="icon-btn" data-action="toggle-currency" title="切换人民币/美元">${state.settings.displayCurrency === "CNY" ? "¥" : "$"}</button>

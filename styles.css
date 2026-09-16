@@ -150,7 +150,8 @@ button, .btn, .nav-btn, .floating-add { touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 
 /* Final mobile polish keeps the shared token scale while refining visual priority. */
-.summary-item { min-height: 88px; padding-right: var(--space-3); padding-left: var(--space-3); }
-.summary-item strong { font-size: var(--font-title); }
+.summary-item { min-height: 88px; padding-right: var(--space-2); padding-left: var(--space-2); }
+.summary-item strong { font-size: clamp(13px, 3.75vw, 16px); letter-spacing: -.045em; }
 .asset-price-line, .asset-price-line small { color: var(--text-tertiary); font-size: var(--font-micro); }
 .nav-btn { min-height: calc(var(--nav-height) - var(--space-4)); }
+.market-caption { padding-bottom: var(--space-5); }

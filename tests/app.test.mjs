@@ -4,7 +4,7 @@ import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
 
-const source = (await readFile(new URL("../app.js", import.meta.url), "utf8")).replace(/^(?:import .*\n)+/, "").split('if ("serviceWorker" in navigator)')[0];
+const source = (await readFile(new URL("../app.js", import.meta.url), "utf8")).replace(/^(?:import[^\r\n]*\r?\n)+/, "").split('if ("serviceWorker" in navigator)')[0];
 class FixedDate extends Date {
   constructor(...args) { super(...(args.length ? args : ["2026-09-05T12:00:00Z"])); }
   static now() { return new Date("2026-09-05T12:00:00Z").getTime(); }

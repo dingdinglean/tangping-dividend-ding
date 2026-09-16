@@ -58,6 +58,14 @@ test("primary rate limit and a single-symbol data failure do not poison other ET
   assert.equal(snapshot.symbols.SPYI.price_error, "upstream_unavailable");
 });
 
+test("a failed retry retains a same-session close as valid instead of falsely marking it stale", async () => {
+  const previous = { schemaVersion: 2, symbols: { QQQI: { price: { symbol: "QQQI", price: 100, price_date: "2026-09-15", source: "Nasdaq official close", fetched_at: "2026-09-15T22:00:00.000Z" } } } };
+  const snapshot = await updateSnapshot({ previous, apiKey: "test", now: NOW, fetcher: fetcher({ alphaFails: ["QQQI"], yahooFails: ["QQQI"] }) });
+  assert.equal(snapshot.symbols.QQQI.price_status, "valid");
+  assert.equal(snapshot.symbols.QQQI.price.price_date, "2026-09-15");
+  assert.equal(snapshot.symbols.QQQI.price_error, undefined);
+});
+
 test("FX has a dated secondary source and preserves an explicit stale status when both fail", async () => {
   const secondary = await updateSnapshot({ apiKey: "", now: NOW, fetcher: fetcher({ fxPrimaryFails: true }) });
   assert.deepEqual(secondary.fx, { rate: 7.21, fx_date: "2026-09-15", source: "Open Exchange Rates", fetched_at: new Date(NOW).toISOString() });

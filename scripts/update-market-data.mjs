@@ -89,7 +89,12 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     try { const row = await fetchAlphaPrice(symbol, apiKey, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { priceError = errorCode(e); }
     if (!price) try { const row = await fetchNasdaqPrice(symbol, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { if (priceError !== "price_date_stale") priceError = errorCode(e); }
     if (!price) try { const row = await fetchYahooPrice(symbol, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { if (priceError !== "price_date_stale") priceError = errorCode(e); }
-    snapshot.symbols[symbol] = { ...old, ...(price ? { price } : {}), price_status: price ? "valid" : "stale", expected_price_date: session.date }; if (!price) snapshot.symbols[symbol].price_error = priceError; else delete snapshot.symbols[symbol].price_error;
+    // A failed retry must not invalidate an already verified close for this same
+    // completed session. Only a record whose date lags the target is stale.
+    const retainedCurrentPrice = !price && old.price?.price_date === session.date ? old.price : null;
+    const validSessionPrice = price || retainedCurrentPrice;
+    snapshot.symbols[symbol] = { ...old, ...(price ? { price } : {}), price_status: validSessionPrice ? "valid" : "stale", expected_price_date: session.date };
+    if (!validSessionPrice) snapshot.symbols[symbol].price_error = priceError; else delete snapshot.symbols[symbol].price_error;
     let dividends; try { dividends = await fetchAlphaDividends(symbol, apiKey, fetcher, fetched_at); } catch { try { dividends = await fetchYahooDividends(symbol, fetcher, fetched_at); } catch { dividends = old.dividends; } } if (dividends) snapshot.symbols[symbol].dividends = dividends;
     if (NEOS.has(symbol)) { try { snapshot.symbols[symbol].dividend_rate = await fetchNeosDistributionRate(symbol, fetcher, fetched_at); } catch { if (!old.dividend_rate) snapshot.symbols[symbol].dividend_rate = { coverage: "insufficient", source: "NEOS official Distribution Rate" }; } }
     else if (snapshot.symbols[symbol].dividends && (price || old.price)) snapshot.symbols[symbol].dividend_rate = ttm(snapshot.symbols[symbol].dividends, price || old.price, session.date, fetched_at);

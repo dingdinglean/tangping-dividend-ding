@@ -591,7 +591,6 @@ function render() {
       </section>
     </main>
     ${renderBottomNav()}
-    ${["home", "portfolio", "calendar"].includes(currentTab) ? '<button class="floating-add" data-action="open-add" aria-label="新增记录">＋</button>' : ""}
     ${modal ? renderModal() : ""}
   `;
   bindEvents();
@@ -843,7 +842,10 @@ function renderBottomNav() {
     ["calendar", "▦", "日历"],
     ["settings", "⚙", "设置"],
   ];
-  return `<nav class="bottom-nav" aria-label="主导航">${items.map(([tab, icon, label]) => `<button class="nav-btn ${currentTab === tab ? "active" : ""}" data-tab="${tab}"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join("")}</nav>`;
+  const addButton = ["home", "portfolio", "calendar"].includes(currentTab)
+    ? '<button class="floating-add" data-action="open-add" aria-label="新增记录">＋</button>'
+    : "";
+  return `<div class="navigation-dock"><nav class="bottom-nav" aria-label="主导航">${items.map(([tab, icon, label]) => `<button class="nav-btn ${currentTab === tab ? "active" : ""}" data-tab="${tab}"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join("")}</nav>${addButton}</div>`;
 }
 
 function renderModal() {

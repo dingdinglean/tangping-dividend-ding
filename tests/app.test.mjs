@@ -120,7 +120,7 @@ test("background completion preserves modal/settings forms", () => {
   a.run('modal=null;currentTab="settings";renderAfterSync()'); assert.equal(renders,0);
   a.run('currentTab="home";renderAfterSync()'); assert.equal(renders,1);
 });
-test("chart uses pixel heights and doesn't squash bars to an enormous goal", () => {
+test("chart uses the proportional visual pixel height and doesn't squash bars to an enormous goal", () => {
   const a=app(fixture()); const html=a.run('renderIncomeChart(monthlyIncomeData(2026),99999999)');
   assert.equal((html.match(/class="bar-group"/g)||[]).length,12);
   assert.match(html,/height:85\.714/);

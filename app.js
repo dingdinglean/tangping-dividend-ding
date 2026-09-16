@@ -5,6 +5,7 @@ const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
 const APP_VERSION = "v8.0";
 const INCOME_YEAR = 2026;
+const INCOME_CHART_PLOT_HEIGHT = 96;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
 const DIVIDEND_REFRESH_MS = 24 * 60 * 60 * 1000;
@@ -648,15 +649,8 @@ function renderHome() {
 
   return `
     <section class="card hero income-hero">
-      <div class="hero-row">
-        <div>
-          <div class="eyebrow">预计每月被动收入 · ${state.settings.displayCurrency}</div>
-          <div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div>
-          <div class="hero-sub">当前持仓预计年股息 ÷ 12${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div>
-        </div>
-        <div class="hero-goal"><div class="eyebrow">月目标</div><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div>
-      </div>
-      <div class="income-facts"><div><span>本月实际到账</span><strong>${money(state.transactions.filter((tx) => tx.type === "dividend" && tx.status === "received" && String(tx.date).startsWith(todayKey().slice(0, 7))).reduce((sum, tx) => sum + number(tx.netDividend), 0))}</strong></div><div><span>累计已收股息</span><strong>${money(totals.received)}</strong></div></div>
+      <div class="hero-row"><div><div class="eyebrow">被动收入 / 每月 · ${state.settings.displayCurrency}</div><div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div><div class="hero-sub">当前持仓预计年股息 ÷ 12${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div></div><div class="hero-goal"><span>月目标</span><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div></div>
+      <div class="income-facts"><div><span>累计股息</span><strong>${money(totals.received)}</strong></div><div><span>预计年股息</span><strong>${money(totals.annualForecast)}</strong></div></div>
     </section>
 
     <div class="grid-2">
@@ -708,7 +702,7 @@ function renderPendingDividends(rows) {
 }
 
 function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
-  const plotHeight = 96;
+  const plotHeight = INCOME_CHART_PLOT_HEIGHT;
   const values = chart.received.map((v, i) => v + chart.announced[i] + chart.forecast[i]);
   const max = Math.max(...values, 1) * 1.12;
   const annualTotal = values.reduce((sum, value) => sum + value, 0);
@@ -749,19 +743,18 @@ function renderAssetCard(item) {
   const asset = item.asset;
   const priceFresh = item.priceValid;
   const priceDate = asset.priceDate || asset.priceTradingDay;
-  const rateLabel = asset.dividendRateKind === "distribution_rate" ? `Distribution Rate · ${shortDataDate(asset.dividendRateDate)}` : `股息率 · ${shortDataDate(asset.dividendRateDate)}`;
+  const hasDividendRate = item.manualYield !== null || item.dividendYield > 0;
+  const dividendRate = hasDividendRate ? `${(item.dividendYield * 100).toFixed(2)}%` : "—";
+  const avgCost = item.shares > 0 ? item.cost / item.shares : 0;
+  const pnlText = item.priceValid ? money(item.pnl, "USD") : "待更新";
   return `
     <article class="card asset-card asset-card-compact" data-asset-card="${asset.id}" data-action="asset-detail" data-id="${asset.id}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(asset.ticker)} 详情">
       <div class="asset-head">
-        <div class="asset-title"><h3>${escapeHtml(asset.name)}</h3><div class="ticker-row"><strong>${escapeHtml(asset.ticker)}</strong><span class="tag">${escapeHtml(asset.role)}</span></div></div>
-        <div class="asset-value"><strong>${item.priceValid && hasFreshFx() ? money(item.marketValue) : "待更新"}</strong><span>${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div>
+        <div class="asset-title"><h3 title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</h3><div class="ticker-row"><span>🇺🇸</span><strong>${escapeHtml(asset.ticker)}</strong><span>· USD · ${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div></div>
+        <div class="asset-yield"><span>股息率</span><strong class="${hasDividendRate ? "" : "insufficient"}">${dividendRate}</strong></div>
       </div>
-      <div class="asset-compact-grid">
-        <div><label>收盘价 · ${shortDataDate(priceDate)}</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
-        <div><label>${rateLabel}</label><strong>${item.manualYield !== null || item.dividendYield > 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "数据不足"}</strong></div>
-        <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
-      </div>
-      <div class="asset-card-foot"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${priceFresh ? "点按查看持仓、收益与分红详情" : `数据截至 ${priceDate || "—"}`}</span><b>›</b></div>
+      <div class="asset-price-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${priceFresh ? `收盘价 · ${shortDataDate(priceDate)} · ${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}` : `数据截至 ${priceDate || "—"}`}</span><small>${hasDividendRate && asset.dividendRateDate ? `${asset.dividendRateKind === "distribution_rate" ? "Distribution Rate" : "股息率"} · ${shortDataDate(asset.dividendRateDate)}` : "数据不足"}</small></div>
+      <div class="asset-stat-grid"><div><label>已收分红</label><strong>${money(item.receivedDividends, "USD")}</strong></div><div><label>成本</label><strong>${item.shares > 0 ? money(avgCost, "USD") : "—"}</strong></div><div><label>净收益</label><strong class="${item.priceValid ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${pnlText}</strong></div></div>
     </article>
   `;
 }

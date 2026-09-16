@@ -1,8 +1,9 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.3";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=8.0";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=8.0";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v7.3";
+const APP_VERSION = "v8.0";
 const INCOME_YEAR = 2026;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
@@ -40,10 +41,10 @@ const defaultState = {
     freedomMilestones: defaultMilestones,
   },
   assets: [
-    { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "高现金流" },
-    { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "高现金流" },
-    { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "资产增长" },
-    { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, manualDividendYieldPercent: null, role: "股息增长" },
+    { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "资产增长" },
+    { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "股息增长" },
   ],
   transactions: [],
 };
@@ -85,6 +86,7 @@ function loadState() {
       apiSymbol: asset.ticker,
       priceUpdatedAt: null,
       priceTradingDay: null,
+      priceDate: null,
       priceSource: null,
       remoteDividends: [],
       dividendUpdatedAt: null,
@@ -94,6 +96,10 @@ function loadState() {
       dividendNoData: false,
       snapshotAnnualDividendPerShare: 0,
       snapshotDividendYield: 0,
+      dividendRate: null,
+      dividendRateDate: null,
+      dividendRateKind: null,
+      dividendCoverage: null,
       ...asset,
       apiSymbol: asset.apiSymbol || asset.ticker,
       remoteDividends: Array.isArray(asset.remoteDividends) ? asset.remoteDividends : [],
@@ -143,6 +149,22 @@ function isStale(timestamp, maxAgeMs) {
   if (!timestamp) return true;
   const value = new Date(timestamp).getTime();
   return !Number.isFinite(value) || Date.now() - value > maxAgeMs;
+}
+
+function latestSessionDate() {
+  return latestCompletedUsTradingSession().date;
+}
+
+function hasLatestValidPrice(asset) {
+  return number(asset?.currentPrice) > 0 && (asset.priceDate || asset.priceTradingDay) === latestSessionDate();
+}
+
+function hasFreshFx() {
+  return number(state.settings.exchangeRate) > 0 && !isStale(state.settings.exchangeRateUpdatedAt, 36 * 60 * 60 * 1000);
+}
+
+function shortDataDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? value.slice(5).replace("-", "/") : "—";
 }
 
 function formatUpdatedAt(timestamp, fallback = "尚未更新") {
@@ -423,7 +445,8 @@ function calculatePortfolio() {
     });
 
   const positions = [...map.values()].map((item) => {
-    const marketValue = item.shares * number(item.asset.currentPrice);
+    const priceValid = hasLatestValidPrice(item.asset);
+    const marketValue = priceValid ? item.shares * number(item.asset.currentPrice) : 0;
     const pnl = marketValue - item.cost;
     const ttmPerShare = getTtmDividendPerShare(item.asset);
     const forwardPerShare = getForwardDividendPerShare(item.asset);
@@ -431,13 +454,14 @@ function calculatePortfolio() {
     const ttmYield = currentPrice > 0 ? ttmPerShare / currentPrice : 0;
     const forwardYield = currentPrice > 0 ? forwardPerShare / currentPrice : 0;
     const manualYield = getManualDividendYield(item.asset);
-    const dividendYield = manualYield !== null ? manualYield : (forwardYield > 0 ? forwardYield : ttmYield);
-    // A completed lookup with no usable dividend data is a valid 0 forecast,
-    // not an indefinitely pending estimate. Existing confirmed records still win.
-    const dividendKnownZero = item.asset.dividendNoData === true || (Boolean(item.asset.dividendLastError) && manualYield === null && forwardPerShare <= 0 && ttmPerShare <= 0 && !item.dividendRecords.length);
+    const publishedRate = number(item.asset.dividendRate);
+    const dividendYield = manualYield !== null ? manualYield : (publishedRate > 0 ? publishedRate : (forwardYield > 0 ? forwardYield : ttmYield));
+    // Missing distributions are insufficient data, never evidence of a 0% long-term yield.
+    const dividendKnownZero = false;
     const annualForecast = manualYield !== null
       ? marketValue * manualYield * getObservedNetFactor(item)
-      : estimateAnnualDividend(item, forwardPerShare || ttmPerShare);
+      : publishedRate > 0 ? marketValue * publishedRate * getObservedNetFactor(item)
+        : estimateAnnualDividend(item, forwardPerShare || ttmPerShare);
     return {
       ...item,
       marketValue,
@@ -450,10 +474,11 @@ function calculatePortfolio() {
       manualYield,
       dividendYield,
       dividendKnownZero,
+      priceValid,
       currentYield: marketValue > 0 ? annualForecast / marketValue : 0,
       yieldOnCost: item.cost > 0 ? annualForecast / item.cost : 0,
       nextDividend: getNextDeclaredDividend(item.asset),
-      hasDividendEstimate: item.shares <= 0 || manualYield !== null || forwardPerShare > 0 || ttmPerShare > 0 || item.dividendRecords.length > 0 || dividendKnownZero,
+      hasDividendEstimate: item.shares <= 0 || manualYield !== null || publishedRate > 0 || forwardPerShare > 0 || ttmPerShare > 0 || item.dividendRecords.length > 0,
     };
   });
 
@@ -465,13 +490,14 @@ function calculatePortfolio() {
     acc.annualForecast += item.annualForecast;
     if (item.shares > 0) {
       acc.heldCount += 1;
-      if (number(item.asset.currentPrice) > 0) acc.priceCoveredCount += 1;
+      if (item.priceValid) acc.priceCoveredCount += 1;
       if (item.hasDividendEstimate) acc.dividendCoveredCount += 1;
     }
     return acc;
   }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0, heldCount: 0, dividendCoveredCount: 0, priceCoveredCount: 0 });
   totals.dividendCoverageComplete = totals.heldCount > 0 && totals.dividendCoveredCount === totals.heldCount;
   totals.priceCoverageComplete = totals.heldCount === totals.priceCoveredCount;
+  totals.fxValid = hasFreshFx();
 
   return { positions, totals };
 }
@@ -709,7 +735,7 @@ function renderPortfolio() {
   const { positions, totals } = calculatePortfolio();
   return `
     <section class="portfolio-summary summary-strip">
-      <div class="summary-item"><strong>${totals.priceCoverageComplete ? money(totals.marketValue) : "待更新"}</strong><span>总市值</span></div>
+      <div class="summary-item"><strong>${totals.priceCoverageComplete && totals.fxValid ? money(totals.marketValue) : "待更新"}</strong><span>总市值</span></div>
       <div class="summary-item"><strong>${money(totals.received)}</strong><span>累计股息</span></div>
       <div class="summary-item"><strong>${money(totals.annualForecast / 12)}</strong><span>预计月均</span></div>
     </section>
@@ -722,19 +748,21 @@ function renderPortfolio() {
 
 function renderAssetCard(item) {
   const asset = item.asset;
-  const priceFresh = !isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS * 2);
+  const priceFresh = item.priceValid;
+  const priceDate = asset.priceDate || asset.priceTradingDay;
+  const rateLabel = asset.dividendRateKind === "distribution_rate" ? `Distribution Rate · ${shortDataDate(asset.dividendRateDate)}` : `股息率 · ${shortDataDate(asset.dividendRateDate)}`;
   return `
     <article class="card asset-card asset-card-compact" data-asset-card="${asset.id}" data-action="asset-detail" data-id="${asset.id}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(asset.ticker)} 详情">
       <div class="asset-head">
         <div class="asset-title"><h3>${escapeHtml(asset.name)}</h3><div class="ticker-row"><strong>${escapeHtml(asset.ticker)}</strong><span class="tag">${escapeHtml(asset.role)}</span></div></div>
-        <div class="asset-value"><strong>${asset.currentPrice > 0 ? money(item.marketValue) : "待更新"}</strong><span>${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div>
+        <div class="asset-value"><strong>${item.priceValid && hasFreshFx() ? money(item.marketValue) : "待更新"}</strong><span>${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div>
       </div>
       <div class="asset-compact-grid">
-        <div><label>价格</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
-        <div><label>股息率</label><strong>${item.manualYield !== null || item.dividendYield > 0 || item.dividendKnownZero ? `${(item.dividendYield * 100).toFixed(2)}%` : "待更新"}</strong></div>
+        <div><label>收盘价 · ${shortDataDate(priceDate)}</label><strong>${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}</strong></div>
+        <div><label>${rateLabel}</label><strong>${item.manualYield !== null || item.dividendYield > 0 ? `${(item.dividendYield * 100).toFixed(2)}%` : "数据不足"}</strong></div>
         <div><label>预计年股息</label><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       </div>
-      <div class="asset-card-foot"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${asset.priceLastError ? "行情暂不可用，保留旧值" : "点按查看持仓、收益与分红详情"}</span><b>›</b></div>
+      <div class="asset-card-foot"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${priceFresh ? "点按查看持仓、收益与分红详情" : `数据截至 ${priceDate || "—"}`}</span><b>›</b></div>
     </article>
   `;
 }
@@ -871,9 +899,9 @@ function renderAssetModal(assetId) {
   const next = item?.nextDividend;
   const detail = item ? `
     <section class="asset-detail-summary">
-      <div><span>市值</span><strong>${asset.currentPrice > 0 ? money(item.marketValue) : "待更新"}</strong></div>
+      <div><span>市值</span><strong>${item.priceValid && hasFreshFx() ? money(item.marketValue) : "待更新"}</strong></div>
       <div><span>成本</span><strong>${money(item.cost)}</strong></div>
-      <div><span>浮动盈亏</span><strong class="${asset.currentPrice > 0 ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${asset.currentPrice > 0 ? money(item.pnl) : "待更新"}</strong></div>
+      <div><span>浮动盈亏</span><strong class="${item.priceValid && hasFreshFx() ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${item.priceValid && hasFreshFx() ? money(item.pnl) : "待更新"}</strong></div>
       <div><span>已收股息</span><strong>${money(item.receivedDividends)}</strong></div>
       <div><span>预计年股息</span><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
       <div><span>下次分红</span><strong>${next ? escapeHtml(next.paymentDate || next.exDate) : "暂无已宣布记录"}</strong></div>
@@ -1167,7 +1195,7 @@ async function updateFxData() {
   const result = await fetchUsdCnyRate();
   state.settings.exchangeRate = result.rate;
   state.settings.exchangeRateDate = result.date;
-  state.settings.exchangeRateUpdatedAt = new Date().toISOString();
+  state.settings.exchangeRateUpdatedAt = result.fetchedAt || new Date().toISOString();
   state.settings.exchangeRateSource = result.source;
   return result;
 }
@@ -1197,10 +1225,11 @@ async function updateAssetMarketData(asset, options = {}) {
       consumeApiRequest();
       const quote = await fetchAlphaQuote(symbol, apiKey);
       if (getAsset(asset.id) !== asset) return { skipped: true };
-      Object.assign(asset, { currentPrice: quote.price, priceTradingDay: quote.tradingDay,
+      Object.assign(asset, { currentPrice: quote.price, priceTradingDay: quote.tradingDay, priceDate: quote.priceDate || quote.tradingDay,
         priceUpdatedAt: quote.fetchedAt || new Date().toISOString(), priceSource: quote.source,
         changePercent: quote.changePercent, priceLastError: quote.refreshWarning || null });
-      quoteOk = true;
+      quoteOk = (quote.priceDate || quote.tradingDay) === latestSessionDate();
+      if (!quoteOk) asset.priceLastError = `数据截至 ${quote.priceDate || quote.tradingDay || "—"}`;
     } catch (error) {
       lastError = error;
       asset.priceLastError = error.message;
@@ -1243,12 +1272,24 @@ async function updateAssetMarketData(asset, options = {}) {
       }
     }
   }
-  // All available public dividend sources completed without usable data.
-  // Treat this as a verified 0 forecast while preserving the error message.
+  // Rate metadata is separate from distribution history. NEOS is an official
+  // Distribution Rate; ordinary ETFs use the verified trailing distributions.
+  try {
+    const rate = await fetchAlphaOverviewDividend(symbol, apiKey);
+    asset.dividendRate = rate.dividendYield;
+    asset.dividendRateDate = rate.dataDate || null;
+    asset.dividendRateKind = rate.quality || null;
+    asset.dividendCoverage = rate.coverage || "complete";
+    asset.dividendSource = rate.source || asset.dividendSource;
+  } catch {
+    asset.dividendRate = null;
+    asset.dividendCoverage = "insufficient";
+  }
+  // A missing source is insufficient data, not a verified 0% long-term yield.
   if (!dividendOk && !asset.remoteDividends?.length && !asset.snapshotAnnualDividendPerShare && !asset.snapshotDividendYield && !getManualDividendYield(asset)) {
-    asset.dividendNoData = true;
+    asset.dividendNoData = false;
     asset.dividendDataQuality = "none";
-    asset.dividendSource = "未提供股息";
+    asset.dividendSource = "股息数据不足";
   }
   if (!quoteOk && !dividendOk) throw lastError || new Error(`${symbol} 更新失败`);
   return { quoteOk, dividendOk, dividendSync, partialError: lastError };
@@ -1345,8 +1386,8 @@ async function maybeAutoRefresh() {
   if (storageReadError || !state.settings.autoRefresh || !navigator.onLine || document.visibilityState === "hidden" || refreshInProgress || modal || currentTab === "settings") return;
   if (Date.now() - lastAutoCheck < 60000) return;
   lastAutoCheck = Date.now();
-  const fxStale = isStale(state.settings.exchangeRateUpdatedAt, FX_REFRESH_MS);
-  const marketStale = state.assets.some((asset) => resourceDue(asset, "price") || resourceDue(asset, "dividend"));
+  const fxStale = !hasFreshFx();
+  const marketStale = state.assets.some((asset) => !hasLatestValidPrice(asset) || resourceDue(asset, "price") || resourceDue(asset, "dividend"));
   try {
     if (marketStale && (state.settings.alphaVantageApiKey || getMarketEndpoint())) await refreshAllData({ automatic: true });
     else if (fxStale) await refreshFxOnly({ automatic: true });
@@ -1450,7 +1491,7 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=7.3`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=8.0`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。

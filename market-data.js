@@ -1,197 +1,30 @@
-const ALPHA_BASE = "https://www.alphavantage.co/query";
-const FX_URL = "https://api.frankfurter.dev/v2/rate/USD/CNY";
+import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=8.0";
+
+const FX_PRIMARY = "https://api.frankfurter.dev/v2/rate/USD/CNY";
+const FX_BACKUP = "https://open.er-api.com/v6/latest/USD";
+const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
+const NASDAQ = "https://api.nasdaq.com/api/quote/";
 let marketEndpoint = "";
 export const SNAPSHOT_PATH = "./data/market.json";
 const SNAPSHOT_MIRROR = "https://raw.githubusercontent.com/dingdinglean/tangping-dividend-ding/main/data/market.json";
-let snapshotPromise = null;
-let snapshotLoadedAt = 0;
+let snapshotPromise = null; let snapshotLoadedAt = 0;
+const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
+const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
 
-export function snapshotUrls(location = globalThis.location) {
-  return location?.hostname === "dingdinglean.github.io" && location.pathname.startsWith("/tangping-dividend-ding/")
-    ? [SNAPSHOT_PATH, SNAPSHOT_MIRROR] : [SNAPSHOT_PATH];
-}
-
-export function parseSnapshot(snapshot, symbol, kind) {
-  if (snapshot?.schemaVersion !== 1 || !snapshot.symbols || typeof snapshot.symbols !== "object") throw new Error("静态行情快照格式无效");
-  if (!["GLOBAL_QUOTE", "DIVIDENDS", "TIME_SERIES_MONTHLY_ADJUSTED", "OVERVIEW"].includes(kind)) throw new Error("未知行情类型");
-  const row = Object.hasOwn(snapshot.symbols, symbol) ? snapshot.symbols[symbol]?.[kind] : null;
-  if (!row || !row._fetchedAt || !Number.isFinite(Date.parse(row._fetchedAt))) throw new Error(`${symbol} 静态行情尚未生成，请检查 Actions 运行状态`);
-  return { ...row, _snapshot: true, _refreshWarning: row._status === "error" ? "Actions 本次更新失败，保留上次有效数据" : null };
-}
-
-async function loadSnapshot() {
-  if (!snapshotPromise || Date.now() - snapshotLoadedAt > 60000) {
-    snapshotLoadedAt = Date.now();
-    snapshotPromise = Promise.allSettled(snapshotUrls().map(readSnapshotCopy)).then((results) => {
-      const valid = results.filter((r) => r.status === "fulfilled" && r.value?.schemaVersion === 1 && r.value.symbols && typeof r.value.symbols === "object").map((r) => r.value);
-      if (!valid.length) throw new Error("暂时无法读取静态行情，请检查 Actions 或网络；已有行情仍保留");
-      // GITHUB_TOKEN commits don't trigger legacy Pages builds; use the newer public copy.
-      return valid.sort((a,b) => (Date.parse(b.generatedAt) || 0) - (Date.parse(a.generatedAt) || 0))[0];
-    }).catch((error) => { snapshotPromise = null; throw error; });
-  }
-  return snapshotPromise;
-}
-
-async function readSnapshotCopy(url) {
-  let cache;
-  const cacheKey = globalThis.location ? new URL(url, globalThis.location.href).href : url;
-  try { if (globalThis.caches) cache = await caches.open("tangping-market-snapshots-v1"); } catch { /* Cache storage may be unavailable. */ }
-  try {
-    const body = await fetchJson(url);
-    if (body?.schemaVersion !== 1 || !body.symbols || typeof body.symbols !== "object") throw new Error("invalid snapshot");
-    // Also populate Cache Storage before a newly installed SW controls the page.
-    try { if (cache) await cache.put(cacheKey, new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } })); } catch { /* Fresh network data remains usable. */ }
-    return body;
-  } catch (error) {
-    try { const cached = await cache?.match(cacheKey); if (cached) return await cached.json(); } catch { /* Preserve the original network error. */ }
-    throw error;
-  }
-}
-
-async function alphaData(kind, symbol, apiKey) {
-  if (marketEndpoint === SNAPSHOT_PATH) return parseSnapshot(await loadSnapshot(), symbol, kind);
-  return fetchJson(alphaUrl(kind, symbol, apiKey));
-}
-
-const sourceName = (data, name) => data._snapshot ? `GitHub Actions · ${name}` : name;
-
-export function configureMarketEndpoint(value = "") {
-  if (value !== marketEndpoint) { snapshotPromise = null; snapshotLoadedAt = 0; }
-  if (value === SNAPSHOT_PATH) { marketEndpoint = value; return; }
-  if (!value) { marketEndpoint = ""; return; }
-  const url = new URL(value);
-  if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) || url.username || url.password || url.search || url.hash) {
-    throw new Error("共享服务请填写无参数的 HTTPS 地址（本机测试允许 HTTP）");
-  }
-  marketEndpoint = url.href;
-}
-
-function alphaUrl(kind, symbol, apiKey) {
-  const url = new URL(marketEndpoint || ALPHA_BASE);
-  url.searchParams.set("function", kind);
-  url.searchParams.set("symbol", symbol);
-  // Never send a personal API key to a configured proxy.
-  if (!marketEndpoint) url.searchParams.set("apikey", apiKey);
-  return url.href;
-}
-
-async function fetchJson(url, timeoutMs = 18000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error(response.status === 429 ? "行情请求额度已用完，请稍后重试" : `HTTP ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error("请求超时");
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function assertAlphaResponse(data) {
-  const message = data?.["Error Message"] || data?.Note || data?.Information;
-  if (message) {
-    if (/frequency|rate limit|25 requests|call volume/i.test(message)) {
-      throw new Error("Alpha Vantage 今日请求额度可能已用完");
-    }
-    if (/API key/i.test(message)) throw new Error("Alpha Vantage API Key 无效或尚未生效");
-    throw new Error(String(message).replace(/\*\*/g, "").slice(0, 160));
-  }
-}
-
-export async function fetchUsdCnyRate() {
-  const data = await fetchJson(FX_URL);
-  const rate = Number(data?.rate ?? data?.rates?.CNY);
-  if (!Number.isFinite(rate) || rate <= 0) throw new Error("汇率数据格式异常");
-  return {
-    rate,
-    date: data?.date || new Date().toISOString().slice(0, 10),
-    source: "Frankfurter",
-  };
-}
-
-export async function fetchAlphaQuote(symbol, apiKey) {
-  const data = await alphaData("GLOBAL_QUOTE", symbol, apiKey);
-  assertAlphaResponse(data);
-  const quote = data?.["Global Quote"] || {};
-  const price = Number(quote["05. price"] ?? quote.price);
-  if (!Number.isFinite(price) || price <= 0) throw new Error(`${symbol} 未返回有效价格`);
-  return {
-    price,
-    fetchedAt: data._fetchedAt || null,
-    refreshWarning: data._refreshWarning || null,
-    tradingDay: quote["07. latest trading day"] || null,
-    changePercent: Number.parseFloat(String(quote["10. change percent"] || "0").replace("%", "")) || 0,
-    source: sourceName(data, "Alpha Vantage EOD"),
-  };
-}
-
-export async function fetchAlphaDividends(symbol, apiKey) {
-  const data = await alphaData("DIVIDENDS", symbol, apiKey);
-  assertAlphaResponse(data);
-  const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data?.dividends) ? data.dividends : [];
-  const dividends = rows.map((row) => ({
-    exDate: row.ex_dividend_date || row.exDate || "",
-    declarationDate: row.declaration_date || row.declarationDate || "",
-    recordDate: row.record_date || row.recordDate || "",
-    paymentDate: row.payment_date || row.paymentDate || "",
-    amount: Number(row.amount),
-  })).filter((row) => row.exDate && Number.isFinite(row.amount) && row.amount >= 0)
-    .sort((a, b) => b.exDate.localeCompare(a.exDate));
-  return { dividends, source: sourceName(data, "Alpha Vantage Dividends"), quality: "exact", fetchedAt: data._fetchedAt || null, refreshWarning: data._refreshWarning || null };
-}
-
-export async function fetchAlphaMonthlyAdjustedDividends(symbol, apiKey) {
-  const data = await alphaData("TIME_SERIES_MONTHLY_ADJUSTED", symbol, apiKey);
-  assertAlphaResponse(data);
-  const series = data?.["Monthly Adjusted Time Series"] || data?.["Monthly Time Series"] || {};
-  const dividends = Object.entries(series).map(([date, row]) => ({
-    // 月度调整序列只提供月份，不提供精确除息/到账日。仅用于收益率估算。
-    exDate: date,
-    declarationDate: "",
-    recordDate: "",
-    paymentDate: "",
-    amount: Number(row?.["7. dividend amount"] ?? row?.dividend_amount ?? 0),
-    datePrecision: "month",
-    canAutoCreate: false,
-  })).filter((row) => row.exDate && Number.isFinite(row.amount) && row.amount > 0)
-    .sort((a, b) => b.exDate.localeCompare(a.exDate));
-  if (!dividends.length) throw new Error(`${symbol} 月度序列未返回股息记录`);
-  return {
-    dividends,
-    fetchedAt: data._fetchedAt || null,
-    source: sourceName(data, "Alpha Vantage Monthly Adjusted"),
-    refreshWarning: data._refreshWarning || null,
-    quality: "monthly",
-  };
-}
-
-export async function fetchAlphaOverviewDividend(symbol, apiKey) {
-  const data = await alphaData("OVERVIEW", symbol, apiKey);
-  assertAlphaResponse(data);
-  const annualDividendPerShare = Number(data?.DividendPerShare);
-  const dividendYield = Number(data?.DividendYield);
-  if ((!Number.isFinite(annualDividendPerShare) || annualDividendPerShare <= 0) && (!Number.isFinite(dividendYield) || dividendYield <= 0)) {
-    throw new Error(`${symbol} 概览未返回股息数据`);
-  }
-  return {
-    annualDividendPerShare: Number.isFinite(annualDividendPerShare) && annualDividendPerShare > 0 ? annualDividendPerShare : 0,
-    fetchedAt: data._fetchedAt || null,
-    dividendYield: Number.isFinite(dividendYield) && dividendYield > 0 ? dividendYield : 0,
-    exDate: data?.ExDividendDate || "",
-    paymentDate: data?.DividendDate || "",
-    source: sourceName(data, "Alpha Vantage Overview"),
-    refreshWarning: data._refreshWarning || null,
-    quality: "snapshot",
-  };
-}
-
-export function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+export function snapshotUrls(location = globalThis.location) { return location?.hostname === "dingdinglean.github.io" && location.pathname.startsWith("/tangping-dividend-ding/") ? [SNAPSHOT_PATH, SNAPSHOT_MIRROR] : [SNAPSHOT_PATH]; }
+export function configureMarketEndpoint(value = "") { if (value !== marketEndpoint) { snapshotPromise = null; snapshotLoadedAt = 0; } if (!value || value === SNAPSHOT_PATH) { marketEndpoint = value; return; } const url = new URL(value); if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("共享服务请填写无参数的 HTTPS 地址"); marketEndpoint = url.href; }
+async function fetchJson(url, timeoutMs = 18000) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { const response = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" }, cache: "no-store" }); if (!response.ok) throw new Error(response.status === 429 ? "行情请求额度已用完" : `HTTP ${response.status}`); return await response.json(); } catch (error) { if (error?.name === "AbortError") throw new Error("请求超时"); throw error; } finally { clearTimeout(timer); } }
+async function readSnapshotCopy(url) { let cache; const key = globalThis.location ? new URL(url, globalThis.location.href).href : url; try { cache = await globalThis.caches?.open("tangping-market-snapshots-v2"); } catch {} try { const data = await fetchJson(url); if (data?.schemaVersion !== 2 || !data.symbols) throw new Error("invalid snapshot"); try { await cache?.put(key, new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } })); } catch {} return data; } catch (error) { try { const cached = await cache?.match(key); if (cached) return await cached.json(); } catch {} throw error; } }
+async function loadSnapshot() { if (!snapshotPromise || Date.now() - snapshotLoadedAt > 60000) { snapshotLoadedAt = Date.now(); snapshotPromise = Promise.allSettled(snapshotUrls().map(readSnapshotCopy)).then((items) => { const valid = items.filter((item) => item.status === "fulfilled" && item.value?.schemaVersion === 2).map((item) => item.value); if (!valid.length) throw new Error("暂时无法读取静态行情，请检查 Actions 或网络；已有行情仍保留"); return valid.sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt))[0]; }).catch((error) => { snapshotPromise = null; throw error; }); } return snapshotPromise; }
+export function parseSnapshot(snapshot, symbol, kind) { if (snapshot?.schemaVersion !== 2 || !snapshot.symbols) throw new Error("静态行情快照格式无效"); if (kind === "FX") { if (!validPrice(snapshot.fx?.rate) || !validDate(snapshot.fx?.fx_date)) throw new Error("USD/CNY 静态数据尚未生成"); return snapshot.fx; } const row = snapshot.symbols[symbol]; if (!row) throw new Error(`${symbol} 静态行情尚未生成`); const map = { PRICE: row.price, DIVIDENDS: row.dividends, DIVIDEND_RATE: row.dividend_rate }; if (!map[kind]) throw new Error(`${symbol} ${kind} 数据尚未生成`); return { ...map[kind], _status: kind === "PRICE" ? row.price_status : "ok", _expectedDate: row.expected_price_date, _error: row.price_error || null }; }
+function quoteFromRecord(record) { return { price: Number(record.price), tradingDay: record.price_date, priceDate: record.price_date, source: record.source, fetchedAt: record.fetched_at, refreshWarning: record._status === "valid" ? null : "快照数据日期落后于最近完成交易日", changePercent: 0 }; }
+async function yahooPrice(symbol) { const url = new URL(`${YAHOO}${encodeURIComponent(symbol)}`); url.search = new URLSearchParams({ range: "10d", interval: "1d", includePrePost: "false" }).toString(); const data = await fetchJson(url); const result = data.chart?.result?.[0]; const rows = (result?.timestamp || []).map((stamp, index) => ({ price: Number(result?.indicators?.quote?.[0]?.close?.[index]), priceDate: sessionDateFromTimestamp(Number(stamp) * 1000) })).filter((row) => validPrice(row.price) && validDate(row.priceDate)).sort((a, b) => b.priceDate.localeCompare(a.priceDate)); if (!rows.length) throw new Error(`${symbol} 备用行情未返回有效收盘价`); return { ...rows[0], tradingDay: rows[0].priceDate, source: "Yahoo Finance Chart", fetchedAt: new Date().toISOString(), refreshWarning: null, changePercent: 0 }; }
+async function nasdaqClose(symbol) { const url = new URL(`${NASDAQ}${encodeURIComponent(symbol)}/info`); url.search = new URLSearchParams({ assetclass: "etf" }).toString(); const quote = (await fetchJson(url)).data?.secondaryData || {}; const match = /(?:Closed at\s*)?([A-Z][a-z]{2})\s+(\d{1,2}),\s*(\d{4})/.exec(String(quote.lastTradeTimestamp || "")); const months = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" }; const priceDate = match ? `${match[3]}-${months[match[1]]}-${match[2].padStart(2, "0")}` : ""; const price = Number(String(quote.lastSalePrice || "").replace(/[^0-9.]/g, "")); if (!validPrice(price) || !validDate(priceDate)) throw new Error(`${symbol} Nasdaq 未返回有效收盘价`); return { price, priceDate, tradingDay: priceDate, source: "Nasdaq official close", fetchedAt: new Date().toISOString(), refreshWarning: null, changePercent: 0 }; }
+export async function fetchAlphaQuote(symbol) { const snapshot = await loadSnapshot(); const record = parseSnapshot(snapshot, symbol, "PRICE"); const expected = latestCompletedUsTradingSession().date; if (record.price_date === expected && record._status === "valid") return quoteFromRecord(record); try { const backup = await nasdaqClose(symbol); if (backup.priceDate === expected) return backup; } catch {} try { const backup = await yahooPrice(symbol); if (backup.priceDate === expected) return backup; } catch {} return quoteFromRecord({ ...record, _status: "stale" }); }
+export async function fetchAlphaDividends(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDENDS"); const dividends = (row.data || []).map((item) => ({ exDate: item.ex_date, declarationDate: "", recordDate: "", paymentDate: item.payment_date || "", amount: Number(item.amount) })).filter((item) => validDate(item.exDate) && validPrice(item.amount)); if (!dividends.length) throw new Error(`${symbol} 未返回有效股息记录`); return { dividends, source: row.source, quality: "exact", fetchedAt: row.fetched_at, refreshWarning: null }; }
+export async function fetchAlphaMonthlyAdjustedDividends() { throw new Error("静态快照未提供月度估算股息"); }
+export async function fetchAlphaOverviewDividend(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDEND_RATE"); if (!validPrice(row.rate) || row.coverage === "insufficient") throw new Error(`${symbol} 股息历史不足 12 个月`); return { annualDividendPerShare: Number(row.annual_per_share || 0), dividendYield: Number(row.rate), dataDate: row.data_date || "", source: row.source, fetchedAt: row.fetched_at || null, quality: row.kind || "snapshot", refreshWarning: null, coverage: row.coverage || "complete" }; }
+async function fxPrimary() { const row = await fetchJson(FX_PRIMARY); if (!validPrice(row.rate) || !validDate(row.date)) throw new Error("汇率数据格式异常"); return { rate: Number(row.rate), date: row.date, source: "Frankfurter", fetchedAt: new Date().toISOString() }; }
+async function fxBackup() { const row = await fetchJson(FX_BACKUP); const date = sessionDateFromTimestamp(Number(row.time_last_update_unix || 0) * 1000) || new Date().toISOString().slice(0, 10); if (!validPrice(row.rates?.CNY)) throw new Error("汇率数据格式异常"); return { rate: Number(row.rates.CNY), date, source: "Open Exchange Rates", fetchedAt: new Date().toISOString() }; }
+export async function fetchUsdCnyRate() { try { const row = parseSnapshot(await loadSnapshot(), "", "FX"); if (Date.now() - Date.parse(row.fetched_at) < 36 * 3600000 && row.status !== "stale") return { rate: Number(row.rate), date: row.fx_date, source: row.source, fetchedAt: row.fetched_at }; } catch {} try { return await fxPrimary(); } catch { return fxBackup(); } }
+export const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

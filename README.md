@@ -24,11 +24,11 @@ Node.js 22+：`node server/server.mjs`，访问 http://127.0.0.1:4173。前端�
 - 已有 Edge 可设置 `BROWSER_CHANNEL=msedge`；设置 `REQUIRE_WEBKIT=1` 可使缺少 WebKit 时测试失败而不是跳过。
 - 测试使用独立浏览器上下文与明确标记的虚构测试资产，不读取或修改个人浏览器数据。
 
-## 自动行情：只需配置一个 Secret
+## 自动行情：可选配置 Alpha Vantage Secret
 
-默认架构：**GitHub Actions → Alpha Vantage → data/market.json → GitHub Pages → 手机 PWA**。`server/` 仅为高级备用，不参与默认部署。
+默认架构：**GitHub Actions → Alpha Vantage / Nasdaq regular close / Yahoo → data/market.json → GitHub Pages → 手机 PWA**。`server/` 仅为高级备用，不参与默认部署。
 
-PR #2 合并到 `main` 后，唯一人工配置步骤是：
+配置 Alpha Vantage 后可作为首选源；未配置时工作流仍会使用公开备用源：
 
 GitHub → **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -42,21 +42,22 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 1. 进入仓库 **Actions**。
 2. 左侧选择 **Update market data**。
 3. 点击 **Run workflow**，选择 `main`，再点击绿色 **Run workflow**。
-4. 等待完成后检查 `data/market.json`；手机重新打开 App 即会读取新快照。缺 Secret 会明确失败，不覆盖旧快照。
+4. 等待完成后检查 `data/market.json`；手机重新打开 App 即会读取新快照。缺 Secret 时会跳过 Alpha Vantage，不会覆盖已有有效记录。
 
-工作流使用 Node 22，每天 **22:37 UTC / 北京时间次日 06:37** 运行（美股夏令时和冬令时正常收盘后）。GitHub 调度可能延迟；定时任务只在默认分支生效，因此需要先合并 PR。
+工作流每天北京时间 **05:30** 刷新，并于 **06:45** 作一次延迟重试。脚本以 `America/New_York` 的最近已完成 NYSE/Nasdaq 交易日为准：识别周末、法定休市和 13:00 ET 提前收盘，绝不以北京时间简单减一天。GitHub 调度可能延迟；定时任务只在默认分支生效，因此需要先合并 PR。
 
 ### 快照内容与额度
 
-- 默认 QQQI、SPYI、QNDX、SCHD。正常 8 次请求；必要时回退月度历史/年度概览，单轮最多 16 次，同一 UTC 日累计最多 25 次（包括失败请求）。预算在请求前写入快照，重复手动运行也受限制。
-- 只提交 `data/market.json`，仅变化时 commit/push。某接口失败保留上次有效数据、原 `_fetchedAt`，记录 `_status` / `_error`，其他标的继续。错误描述为固定代码，不包含上游原文或请求 URL。
+- 默认 QQQI、SPYI、QNDX、SCHD。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Alpha Vantage 返回旧日线时自动尝试 Nasdaq 的常规收盘价，再尝试 Yahoo 日线。
+- USD/CNY 单独每日刷新，保存 `rate / fx_date / source / fetched_at`；主源 Frankfurter 失败时使用 Open Exchange Rates。所有行情源失败时保留旧记录并标记 `stale`，页面显示“数据截至 YYYY-MM-DD”，不会把它计入总市值。
+- QQQI、SPYI 的股息率为 NEOS 官方 `Distribution Rate`（独立保存数据日期）；QNDX、SCHD 用实际 distributions 的 TTM 计算，覆盖期不足 12 个月明确显示“数据不足”。累计股息始终只来自用户确认的真实到账记录。
 - 文件只包含白名单公开价格、每股派息、日期及刷新状态/计数；脚本不读取浏览器持仓、交易或到账记录，密钥仅从环境变量读取，不写入文件和日志。
 - 首次快照为空，等待配置 Secret 后真实抓取，不提供假行情。免费套餐未提供某接口时会回退或保留旧值，不承诺实时行情。
 - 同一密钥被其他程序使用、删除预算文件、强制取消流程或 push 失败可能影响共享额度；不要并行使用其他抓取器或清空快照。工作流串行运行，抓取失败后仍尝试提交已保存的预算和状态。
 
 ### GitHub Pages 更新与离线
 
-默认读取 `./data/market.json`，网络优先/no-store；离线或服务错误时回退最近成功缓存，保留数据原始时间。模块内最多复用 60 秒，避免一个刷新周期重复下载。
+默认读取 `./data/market.json`，网络优先/no-store；离线或服务错误时回退最近成功缓存，保留数据原始日期。页面打开、回到前台或恢复联网时会重新验证 `price_date`；快照陈旧时会在后台尝试 Nasdaq、Yahoo 备用行情。模块内最多复用 60 秒，避免一个刷新周期重复下载。
 
 **GitHub 默认令牌提交不会自动触发传统 Pages 重建。** 为避免 Pages 持续返回旧文件，正式站点同时读取同仓库 `main/data/market.json` 的公开 raw 副本，选择 `generatedAt` 更新的一份；两份都在 GitHub 托管，不增加服务器、Secret 或工作流权限。raw CDN 可能有短暂传播延迟。[GitHub 官方说明](https://docs.github.com/en/actions/concepts/security/github_token)
 

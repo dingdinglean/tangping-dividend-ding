@@ -3,8 +3,10 @@ name: Update market data
 on:
   workflow_dispatch:
   schedule:
-    # 22:37 UTC, after the regular US close in both summer and winter.
-    - cron: '37 22 * * *'
+    # Beijing 05:30 primary run, then 06:45 delayed retry. Both are after the
+    # preceding US regular/early close in America/New_York.
+    - cron: '30 21 * * *'
+    - cron: '45 22 * * *'
 
 permissions:
   contents: write

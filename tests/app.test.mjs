@@ -4,7 +4,7 @@ import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
 
-const source = (await readFile(new URL("../app.js", import.meta.url), "utf8")).replace(/^import .*\n/, "").split('if ("serviceWorker" in navigator)')[0];
+const source = (await readFile(new URL("../app.js", import.meta.url), "utf8")).replace(/^(?:import .*\n)+/, "").split('if ("serviceWorker" in navigator)')[0];
 class FixedDate extends Date {
   constructor(...args) { super(...(args.length ? args : ["2026-09-05T12:00:00Z"])); }
   static now() { return new Date("2026-09-05T12:00:00Z").getTime(); }
@@ -14,6 +14,7 @@ function app(saved) {
   const context = vm.createContext({ Date: FixedDate, crypto: webcrypto, structuredClone, Intl, URL,
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
     navigator: { onLine: true }, document: { visibilityState: "visible" }, setTimeout, clearTimeout,
+    latestCompletedUsTradingSession: () => ({ date: "2026-09-04" }),
     configureMarketEndpoint() {}, wait: async () => {}, console });
   vm.runInContext(source, context);
   vm.runInContext('render = () => {}; showToast = () => {};', context);
@@ -21,7 +22,7 @@ function app(saved) {
 }
 function fixture() {
   return { version: 1, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
-    assets: [{ id: "a", ticker: "TEST", frequency: "monthly", currentPrice: 100, manualDividendYieldPercent: 12, remoteDividends: [] }],
+    assets: [{ id: "a", ticker: "TEST", frequency: "monthly", currentPrice: 100, priceDate: "2026-09-04", manualDividendYieldPercent: 12, remoteDividends: [] }],
     transactions: [{ id: "b", assetId: "a", type: "buy", date: "2026-01-01", shares: 100, price: 90 }] };
 }
 
@@ -125,15 +126,15 @@ test("chart uses pixel heights and doesn't squash bars to an enormous goal", () 
   assert.match(html,/height:85\.714/);
 });
 
-test("unavailable dividend data is a known zero, not a pending portfolio estimate", () => {
+test("unavailable dividend data is insufficient, not a false 0% forecast", () => {
   const saved = fixture();
   saved.assets[0].manualDividendYieldPercent = null;
   saved.assets[0].dividendLastError = "静态行情未提供有效股息";
   const a = app(saved);
-  assert.equal(a.run("calculatePortfolio().positions[0].dividendKnownZero"), true);
+  assert.equal(a.run("calculatePortfolio().positions[0].dividendKnownZero"), false);
   assert.equal(a.run("calculatePortfolio().positions[0].annualForecast"), 0);
-  assert.equal(a.run("calculatePortfolio().totals.dividendCoverageComplete"), true);
-  assert.match(a.run("renderPortfolio()"), /0\.00%/);
+  assert.equal(a.run("calculatePortfolio().totals.dividendCoverageComplete"), false);
+  assert.match(a.run("renderPortfolio()"), /待更新/);
 });
 
 test("unreadable stored data is never overwritten by fallback defaults", () => {
@@ -150,6 +151,14 @@ test("quota failure stops fallback waterfall and missing price doesn't create a 
   assert.equal(calls,1);
   a.run("state.assets[0].currentPrice=0");
   assert.equal(a.run("calculatePortfolio().totals.priceCoverageComplete"),false);
+});
+
+test("total market value only includes prices from the same completed US session and a fresh FX rate", () => {
+  const a = app(fixture());
+  a.run('state.settings.exchangeRateUpdatedAt=new Date().toISOString(); state.assets.push({id:"old",ticker:"OLD",frequency:"monthly",currentPrice:200,priceDate:"2026-09-03",manualDividendYieldPercent:10,remoteDividends:[]}); state.transactions.push({assetId:"old",type:"buy",date:"2026-01-01",shares:10,price:180})');
+  assert.equal(a.run("calculatePortfolio().totals.marketValue"), 10000);
+  assert.equal(a.run("calculatePortfolio().totals.priceCoverageComplete"), false);
+  assert.match(a.run("renderPortfolio()"), /待更新/);
 });
 
 test("legacy settings migrate to Actions default without deleting personal key or endpoint",()=>{

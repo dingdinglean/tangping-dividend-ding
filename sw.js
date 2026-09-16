@@ -1,12 +1,13 @@
-const CACHE_NAME = "tangping-dividend-v7.3";
-const SNAPSHOT_CACHE = "tangping-market-snapshots-v1";
+const CACHE_NAME = "tangping-dividend-v8.0";
+const SNAPSHOT_CACHE = "tangping-market-snapshots-v2";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=7.3",
-  "./app.js?v=7.3",
-  "./market-data.js?v=7.3",
-  "./manifest.webmanifest?v=7.3",
+  "./styles.css?v=8.0",
+  "./app.js?v=8.0",
+  "./market-data.js?v=8.0",
+  "./market-calendar.js?v=8.0",
+  "./manifest.webmanifest?v=8.0",
   "./icon.svg",
   "./icon-180.png",
   "./icon-192.png",
@@ -39,7 +40,7 @@ self.addEventListener("fetch", (event) => {
         const response = await fetch(event.request, { cache: "no-store" });
         if (!response.ok) throw new Error("snapshot unavailable");
         const body = await response.clone().json();
-        if (body.schemaVersion !== 1 || !body.symbols || typeof body.symbols !== "object") throw new Error("invalid snapshot");
+        if (body.schemaVersion !== 2 || !body.symbols || typeof body.symbols !== "object") throw new Error("invalid snapshot");
         await cache.put(event.request, response.clone());
         return response;
       } catch {

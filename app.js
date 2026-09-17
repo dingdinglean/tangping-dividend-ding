@@ -11,6 +11,9 @@ const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
 const DIVIDEND_REFRESH_MS = 24 * 60 * 60 * 1000;
 const RETRY_MS = 30 * 60 * 1000;
 const AUTO_DIVIDEND_LOOKBACK_DAYS = 120;
+const THEME_VALUES = ["system", "light", "dark"];
+const THEME_LABELS = { system: "跟随系统", light: "浅色", dark: "深色" };
+const THEME_COLORS = { light: "#f4f4f6", dark: "#000000" };
 
 const defaultMilestones = [
   { id: "milk-tea", icon: "☕", name: "奶茶自由", amountCny: 150 },
@@ -25,6 +28,7 @@ const defaultState = {
   version: 1,
   settings: {
     displayCurrency: "CNY",
+    theme: "system",
     exchangeRate: 7.2,
     exchangeRateUpdatedAt: null,
     exchangeRateDate: null,
@@ -129,6 +133,50 @@ function normalizeMilestones(savedMilestones) {
 function saveState() {
   if (storageReadError) throw new Error("原有数据无法读取，已停止写入以保护原始数据；请先导出备份");
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function normalizeTheme(value) {
+  return THEME_VALUES.includes(value) ? value : "system";
+}
+
+function currentThemeLabel() {
+  return THEME_LABELS[normalizeTheme(state.settings.theme)];
+}
+
+function systemTheme() {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function resolvedTheme() {
+  const preference = normalizeTheme(state.settings.theme);
+  return preference === "system" ? systemTheme() : preference;
+}
+
+function syncThemeColor() {
+  const meta = document.querySelector?.('meta[name="theme-color"]');
+  if (meta) meta.content = THEME_COLORS[resolvedTheme()];
+}
+
+function applyTheme() {
+  if (!document.documentElement) return;
+  const preference = normalizeTheme(state.settings.theme);
+  document.documentElement.dataset.theme = preference;
+  document.documentElement.style.colorScheme = preference === "system" ? "light dark" : preference;
+  syncThemeColor();
+}
+
+function setTheme(preference) {
+  state.settings.theme = normalizeTheme(preference);
+  saveState();
+  applyTheme();
+}
+
+function initializeTheme() {
+  applyTheme();
+  const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+  systemThemeQuery?.addEventListener?.("change", () => {
+    if (normalizeTheme(state.settings.theme) === "system") applyTheme();
+  });
 }
 
 function money(amountUsd, forceCurrency) {
@@ -813,6 +861,7 @@ function renderSettings() {
   return `
     <section class="card settings-menu">
       <button class="settings-menu-row" data-action="open-display-settings"><span><b>显示货币</b><small>${state.settings.displayCurrency === "CNY" ? "人民币 CNY" : "美元 USD"}</small></span><em>›</em></button>
+      <button class="settings-menu-row" data-action="open-theme-settings"><span><b>外观</b><small>${currentThemeLabel()}</small></span><em>›</em></button>
       <button class="settings-menu-row" data-action="open-goal-settings"><span><b>月收入目标</b><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}/月</small></span><em>›</em></button>
       <button class="settings-menu-row" data-action="open-milestone-settings"><span><b>自由里程碑</b><small>6 个等级 · 人民币/月</small></span><em>›</em></button>
       <button class="settings-menu-row" data-action="export-data"><span><b>导出备份</b><small>${backupText}</small></span><em>›</em></button>
@@ -847,6 +896,7 @@ function renderModal() {
   if (modal.type === "price") return renderPriceModal(modal.assetId);
   if (modal.type === "confirm-dividend") return renderConfirmDividendModal(modal.transactionId);
   if (modal.type === "display-settings") return renderDisplaySettingsModal();
+  if (modal.type === "theme-settings") return renderThemeSettingsModal();
   if (modal.type === "goal-settings") return renderGoalSettingsModal();
   if (modal.type === "milestone-settings") return renderMilestoneSettingsModal();
   return "";
@@ -928,6 +978,13 @@ function renderAssetModal(assetId) {
 function renderDisplaySettingsModal() {
   return `<div class="modal-backdrop" data-action="close-modal"><div class="modal modal-compact" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>显示</h3><button class="icon-btn" data-action="close-modal">×</button></div>
     <form id="displaySettingsForm" class="form-grid"><div class="form-row"><label>显示货币</label><select name="displayCurrency"><option value="CNY" ${state.settings.displayCurrency === "CNY" ? "selected" : ""}>人民币 CNY</option><option value="USD" ${state.settings.displayCurrency === "USD" ? "selected" : ""}>美元 USD</option></select></div><div class="form-row"><label>备用汇率（USD/CNY）</label><input class="input" name="exchangeRate" type="number" step="0.0001" min="0.0001" value="${state.settings.exchangeRate}" /></div><button class="btn primary full" type="submit">保存</button></form>
+  </div></div>`;
+}
+
+function renderThemeSettingsModal() {
+  const selectedTheme = normalizeTheme(state.settings.theme);
+  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal modal-compact" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>外观</h3><button class="icon-btn" data-action="close-modal">×</button></div>
+    <div class="form-grid"><div class="form-row"><label>选择外观模式</label><div class="type-picker theme-picker">${THEME_VALUES.map((theme) => `<button class="${selectedTheme === theme ? "active" : ""}" data-action="set-theme" data-theme="${theme}">${THEME_LABELS[theme]}</button>`).join("")}</div></div><p class="settings-hint">跟随系统会在设备外观变化时自动更新。</p></div>
   </div></div>`;
 }
 
@@ -1029,6 +1086,8 @@ async function handleAction(action, element) {
   if (action === "next-month") { calendarCursor.setMonth(calendarCursor.getMonth() + 1); render(); }
   if (action === "select-date") { selectedDate = element.dataset.date; render(); }
   if (action === "open-display-settings") { modal = { type: "display-settings" }; render(); }
+  if (action === "open-theme-settings") { modal = { type: "theme-settings" }; render(); }
+  if (action === "set-theme") { setTheme(element.dataset.theme); modal = null; render(); }
   if (action === "open-goal-settings") { modal = { type: "goal-settings" }; render(); }
   if (action === "open-milestone-settings") { modal = { type: "milestone-settings" }; render(); }
   if (action === "save-settings") { saveSettings(); }
@@ -1417,6 +1476,7 @@ async function importData(event) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(imported));
     state = loadState();
     saveState();
+    applyTheme();
     showToast("导入成功");
     render();
   } catch {
@@ -1428,6 +1488,7 @@ function resetData() {
   if (!confirm("确定清空全部交易和设置？此操作不可撤销。")) return;
   state = structuredClone(defaultState);
   saveState();
+  applyTheme();
   showToast("已恢复初始状态");
   render();
 }
@@ -1494,6 +1555,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+initializeTheme();
 if (stateNeedsMigration) saveState();
 render();
 if (storageReadError) showToast("原有数据无法读取，已保护原始内容；请在设置导出备份");

@@ -9,16 +9,19 @@ class FixedDate extends Date {
   constructor(...args) { super(...(args.length ? args : ["2026-09-05T12:00:00Z"])); }
   static now() { return new Date("2026-09-05T12:00:00Z").getTime(); }
 }
-function app(saved) {
+function app(saved, { systemDark = false } = {}) {
   const storage = new Map(saved ? [["tangping-dividend.v1", JSON.stringify(saved)]] : []);
+  const themeColor = { content: "#f4f4f6" };
+  const documentElement = { dataset: {}, style: {} };
+  const mediaQuery = { matches: systemDark, addEventListener(type, listener) { if (type === "change") this.listener = listener; } };
   const context = vm.createContext({ Date: FixedDate, crypto: webcrypto, structuredClone, Intl, URL,
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
-    navigator: { onLine: true }, document: { visibilityState: "visible" }, setTimeout, clearTimeout,
+    navigator: { onLine: true }, window: { matchMedia: () => mediaQuery }, document: { visibilityState: "visible", documentElement, querySelector: (selector) => selector === 'meta[name="theme-color"]' ? themeColor : null }, setTimeout, clearTimeout,
     latestCompletedUsTradingSession: () => ({ date: "2026-09-04" }),
     configureMarketEndpoint() {}, wait: async () => {}, console });
   vm.runInContext(source, context);
   vm.runInContext('render = () => {}; showToast = () => {};', context);
-  return { run: (code) => vm.runInContext(code, context), context, storage };
+  return { run: (code) => vm.runInContext(code, context), context, storage, themeColor, documentElement, mediaQuery };
 }
 function fixture() {
   return { version: 1, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
@@ -170,4 +173,48 @@ test("legacy settings migrate to Actions default without deleting personal key o
   assert.equal(stored.settings.alphaVantageApiKey,"TEST-ONLY");
   assert.equal(stored.settings.marketDataEndpoint,saved.settings.marketDataEndpoint);
   assert.deepEqual(stored.transactions,saved.transactions);
+});
+
+test("system appearance follows the current system mode and updates when it changes", () => {
+  const lightSystem = app(fixture(), { systemDark: false });
+  lightSystem.run("applyTheme()");
+  assert.equal(lightSystem.run("resolvedTheme()"), "light");
+  assert.equal(lightSystem.documentElement.dataset.theme, "system");
+  assert.equal(lightSystem.themeColor.content, "#f4f4f6");
+
+  const darkSystem = app(fixture(), { systemDark: true });
+  darkSystem.run("applyTheme()");
+  assert.equal(darkSystem.run("resolvedTheme()"), "dark");
+  assert.equal(darkSystem.themeColor.content, "#000000");
+  darkSystem.run("initializeTheme()");
+  darkSystem.mediaQuery.matches = false;
+  darkSystem.mediaQuery.listener();
+  assert.equal(darkSystem.run("resolvedTheme()"), "light");
+  assert.equal(darkSystem.themeColor.content, "#f4f4f6");
+});
+
+test("forced appearance overrides system preference and synchronizes the status color", () => {
+  const systemLight = app(fixture(), { systemDark: false });
+  systemLight.run('setTheme("dark")');
+  assert.equal(systemLight.run("resolvedTheme()"), "dark");
+  assert.equal(systemLight.documentElement.style.colorScheme, "dark");
+  assert.equal(systemLight.themeColor.content, "#000000");
+
+  const systemDark = app(fixture(), { systemDark: true });
+  systemDark.run('setTheme("light")');
+  assert.equal(systemDark.run("resolvedTheme()"), "light");
+  assert.equal(systemDark.documentElement.style.colorScheme, "light");
+  assert.equal(systemDark.themeColor.content, "#f4f4f6");
+});
+
+test("appearance persists locally and unknown legacy values safely fall back to system", () => {
+  const a = app(fixture());
+  a.run('setTheme("dark")');
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(stored.settings.theme, "dark");
+  const reopened = app(stored, { systemDark: false });
+  assert.equal(reopened.run("state.settings.theme"), "dark");
+  assert.equal(reopened.run("currentThemeLabel()"), "深色");
+  reopened.run('state.settings.theme="unexpected"');
+  assert.equal(reopened.run("normalizeTheme(state.settings.theme)"), "system");
 });

@@ -1,24 +1,24 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T00:48:29.315Z",
+  "generatedAt": "2026-09-18T23:30:11.258Z",
   "refresh": {
-    "target_price_date": "2026-09-17",
-    "generated_at": "2026-09-18T00:48:29.315Z"
+    "target_price_date": "2026-09-18",
+    "generated_at": "2026-09-18T23:30:11.258Z"
   },
   "fx": {
-    "rate": 6.7061,
-    "fx_date": "2026-09-17",
+    "rate": 6.7012,
+    "fx_date": "2026-09-19",
     "source": "Frankfurter",
-    "fetched_at": "2026-09-18T00:48:29.315Z"
+    "fetched_at": "2026-09-18T23:30:11.258Z"
   },
   "symbols": {
     "QQQI": {
       "price": {
         "symbol": "QQQI",
-        "price": 54.1,
-        "price_date": "2026-09-17",
+        "price": 54.39,
+        "price_date": "2026-09-18",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividends": {
         "data": [
@@ -149,25 +149,25 @@
           }
         ],
         "source": "Yahoo Finance Dividends",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividend_rate": {
         "rate": 0.1439,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-17"
+      "expected_price_date": "2026-09-18"
     },
     "SPYI": {
       "price": {
         "symbol": "SPYI",
-        "price": 53,
-        "price_date": "2026-09-17",
+        "price": 53.08,
+        "price_date": "2026-09-18",
         "source": "Nasdaq official close",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividends": {
         "data": [
@@ -418,25 +418,25 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividend_rate": {
         "rate": 0.1215,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-17"
+      "expected_price_date": "2026-09-18"
     },
     "QNDX": {
       "price": {
         "symbol": "QNDX",
-        "price": 24.29,
-        "price_date": "2026-09-17",
+        "price": 24.44,
+        "price_date": "2026-09-18",
         "source": "Nasdaq official close",
-        "fetched_at": "2026-09-17T23:37:21.020Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividend_rate": {
         "coverage": "insufficient",
@@ -444,15 +444,15 @@
         "source": "Distributions unavailable"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-17"
+      "expected_price_date": "2026-09-18"
     },
     "SCHD": {
       "price": {
         "symbol": "SCHD",
-        "price": 33.885,
-        "price_date": "2026-09-17",
+        "price": 33.66,
+        "price_date": "2026-09-18",
         "source": "Nasdaq official close",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividends": {
         "data": [
@@ -753,19 +753,19 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "dividend_rate": {
-        "rate": 0.03092813929467316,
+        "rate": 0.031134878193701726,
         "annual_per_share": 1.048,
         "data_date": "2026-06-24",
         "source": "Alpha Vantage Dividends",
         "kind": "ttm_distribution_yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-18T00:48:29.315Z"
+        "fetched_at": "2026-09-18T23:30:11.258Z"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-17"
+      "expected_price_date": "2026-09-18"
     }
   }
 }

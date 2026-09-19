@@ -140,6 +140,19 @@ test("unavailable dividend data is insufficient, not a false 0% forecast", () =>
   assert.match(a.run("renderPortfolio()"), /待更新/);
 });
 
+test("a failed dividend-rate refresh preserves the last valid rate and marks it stale", async () => {
+  const a = app(fixture());
+  a.run('Object.assign(state.assets[0], { dividendRate: 0.0044, dividendRateDate: "2026-09-17", dividendRateKind: "30_day_sec_yield", dividendRateYieldType: "30 Day SEC Yield", dividendCoverage: "complete", dividendRateStale: false })');
+  a.context.fetchAlphaQuote = async () => ({ price: 101, tradingDay: "2026-09-04", priceDate: "2026-09-04", source: "test" });
+  a.context.fetchAlphaDividends = async () => ({ dividends: [{ exDate: "2026-09-01", amount: 1 }], source: "test" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => ({ dividends: [], source: "test" });
+  a.context.fetchAlphaOverviewDividend = async () => { throw new Error("upstream unavailable"); };
+  await a.run('updateAssetMarketData(state.assets[0])');
+  assert.equal(a.run("state.assets[0].dividendRate"), 0.0044);
+  assert.equal(a.run("state.assets[0].dividendRateStale"), true);
+  assert.equal(a.run("state.assets[0].dividendRateYieldType"), "30 Day SEC Yield");
+});
+
 test("unreadable stored data is never overwritten by fallback defaults", () => {
   const a=app(fixture()); a.storage.set("tangping-dividend.v1","{broken-json");
   a.run("state=loadState()");

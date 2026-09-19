@@ -7,6 +7,7 @@ const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after 
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
 const dayStamp = (day) => Math.floor(Date.parse(`${day}T20:00:00Z`) / 1000);
 const neos = (rate = "14.39") => `<div>Distribution Information (as of 08/31/2026) Distribution Rate ${rate}%</div>`;
+const stateStreet = ({ fundDistributionYield, noYield } = {}) => `<div>Yields as of Sep 15 2026 ${fundDistributionYield ? `Fund Distribution Yield ${fundDistributionYield}%` : noYield ? "Index Dividend Yield 0.58%" : "30 Day SEC Yield 0.44%"}</div>`;
 
 function fetcher(options = {}) {
   return async (url) => {
@@ -15,14 +16,20 @@ function fetcher(options = {}) {
       const ticker = parsed.searchParams.get("symbol"); const fn = parsed.searchParams.get("function");
       if (options.alphaFails?.includes(ticker)) throw new Error("network");
       if (fn === "GLOBAL_QUOTE") return response({ "Global Quote": { "05. price": options.alphaPrice?.[ticker] || "100", "07. latest trading day": options.alphaDate?.[ticker] || "2026-09-15" } });
-      return response({ data: options.shortHistory?.includes(ticker) ? [{ ex_dividend_date: "2026-08-01", amount: "1" }] : [{ ex_dividend_date: "2026-09-01", amount: "1" }, { ex_dividend_date: "2025-08-01", amount: "1" }] });
+      return response({ data: options.shortHistory?.includes(ticker) ? [{ ex_dividend_date: "2026-08-01", amount: "1" }] : [{ ex_dividend_date: "2026-09-01", amount: "1" }, { ex_dividend_date: "2025-09-15", amount: "1" }] });
     }
     if (parsed.hostname.includes("query1.finance.yahoo.com")) {
       if (options.yahooFails?.includes(symbol)) throw new Error("network");
-      if (parsed.searchParams.has("events")) return response({ chart: { result: [{ events: { dividends: { a: { date: dayStamp("2026-09-01"), amount: 1 }, b: { date: dayStamp("2025-08-01"), amount: 1 } } } }] } });
+      if (parsed.searchParams.has("events")) return response({ chart: { result: [{ events: { dividends: { a: { date: dayStamp("2026-09-01"), amount: 1 }, b: { date: dayStamp("2025-09-15"), amount: 1 } } } }] } });
       const day = options.yahooDate?.[symbol] || "2026-09-15"; return response({ chart: { result: [{ timestamp: [dayStamp(day)], indicators: { quote: [{ close: [Number(options.yahooPrice?.[symbol] || 101)] }] } }] } });
     }
+    if (parsed.hostname.includes("api.nasdaq.com") && parsed.pathname.endsWith("/dividends")) {
+      const ticker = parsed.pathname.split("/").filter(Boolean).at(-2);
+      if (options.nasdaqDividendFails?.includes(ticker)) throw new Error("network");
+      return response({ data: { dividends: { rows: options.nasdaqDividends?.[ticker] || null } } });
+    }
     if (parsed.hostname.includes("neosfunds.com")) return { ok: true, text: async () => neos(symbol === "spyi" ? "12.15" : "14.39") };
+    if (parsed.hostname.includes("ssga.com")) { if (options.stateStreetFails) throw new Error("network"); return { ok: true, text: async () => stateStreet({ fundDistributionYield: options.stateStreetFundYield, noYield: options.stateStreetNoYield }) }; }
     if (parsed.hostname.includes("frankfurter")) { if (options.fxPrimaryFails) throw new Error("network"); return response({ rate: 7.2, date: "2026-09-15" }); }
     if (parsed.hostname.includes("open.er-api.com")) { if (options.fxBackupFails) throw new Error("network"); return response({ rates: { CNY: 7.21 }, time_last_update_unix: dayStamp("2026-09-15") }); }
     throw new Error(`unexpected ${url}`);
@@ -73,11 +80,51 @@ test("FX has a dated secondary source and preserves an explicit stale status whe
   assert.equal(failed.fx.status, "stale"); assert.equal(failed.fx.fx_date, "2026-09-15");
 });
 
-test("NEOS is labelled as official Distribution Rate and new ordinary ETFs never become false 0%", async () => {
+test("NEOS remains an official Distribution Rate while QNDX uses a separately typed official yield", async () => {
   const snapshot = await updateSnapshot({ apiKey: "test", now: NOW, fetcher: fetcher({ shortHistory: ["QNDX"] }) });
   assert.deepEqual(snapshot.symbols.QQQI.dividend_rate, { rate: 0.1439, data_date: "2026-08-31", source: "NEOS official Distribution Rate", kind: "distribution_rate", fetched_at: new Date(NOW).toISOString() });
   assert.equal(snapshot.symbols.SPYI.dividend_rate.rate, 0.1215);
-  assert.equal(snapshot.symbols.QNDX.dividend_rate.coverage, "insufficient");
-  assert.equal("rate" in snapshot.symbols.QNDX.dividend_rate, false);
+  assert.deepEqual(snapshot.symbols.QNDX.dividend_rate, { rate: 0.0044, data_date: "2026-09-15", source: "State Street official 30 Day SEC Yield", kind: "30_day_sec_yield", yield_type: "30 Day SEC Yield", coverage: "complete", fetched_at: new Date(NOW).toISOString(), status: "valid" });
   assert.equal(snapshot.symbols.SCHD.dividend_rate.coverage, "complete");
+  assert.equal(snapshot.symbols.SCHD.dividend_rate.kind, "ttm_distribution_yield");
+});
+
+test("QNDX prefers State Street Fund Distribution Yield when the fund publishes one", async () => {
+  const snapshot = await updateSnapshot({ apiKey: "test", now: NOW, fetcher: fetcher({ shortHistory: ["QNDX"], stateStreetFundYield: "1.23" }) });
+  assert.deepEqual(snapshot.symbols.QNDX.dividend_rate, { rate: 0.0123, data_date: "2026-09-15", source: "State Street official Fund Distribution Yield", kind: "fund_distribution_yield", yield_type: "Fund Distribution Yield", coverage: "complete", fetched_at: new Date(NOW).toISOString(), status: "valid" });
+});
+
+test("QNDX falls back to a verified TTM Distribution Yield when State Street has no direct yield", async () => {
+  const snapshot = await updateSnapshot({ apiKey: "test", now: NOW, fetcher: fetcher({ stateStreetNoYield: true }) });
+  const rate = snapshot.symbols.QNDX.dividend_rate;
+  assert.equal(rate.rate, 0.02);
+  assert.equal(rate.kind, "ttm_distribution_yield");
+  assert.equal(rate.yield_type, "TTM Distribution Yield");
+  assert.equal(rate.data_date, "2026-09-01");
+  assert.equal(rate.status, "valid");
+});
+
+test("QNDX uses Nasdaq official distributions before the existing Alpha Vantage/Yahoo fallback", async () => {
+  const snapshot = await updateSnapshot({ apiKey: "test", now: NOW, fetcher: fetcher({ stateStreetNoYield: true, nasdaqDividends: { QNDX: [{ exOrEffDate: "09/01/2026", paymentDate: "09/10/2026", amount: "$1.50" }, { exOrEffDate: "09/15/2025", paymentDate: "09/25/2025", amount: "$0.50" }] } }) });
+  const rate = snapshot.symbols.QNDX.dividend_rate;
+  assert.equal(rate.rate, 0.02);
+  assert.equal(rate.source, "Nasdaq official dividends");
+  assert.equal(rate.yield_type, "TTM Distribution Yield");
+  assert.equal(rate.data_date, "2026-09-01");
+});
+
+test("QNDX uses the ordinary ETF TTM fallback when State Street is unavailable", async () => {
+  const snapshot = await updateSnapshot({ apiKey: "test", now: NOW, fetcher: fetcher({ stateStreetFails: true }) });
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.kind, "ttm_distribution_yield");
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.rate, 0.02);
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.status, "valid");
+});
+
+test("QNDX retains the last valid yield and marks it stale when every source fails", async () => {
+  const previous = { schemaVersion: 2, symbols: { QNDX: { dividend_rate: { rate: 0.0044, data_date: "2026-09-15", source: "State Street official 30 Day SEC Yield", kind: "30_day_sec_yield", yield_type: "30 Day SEC Yield", coverage: "complete", fetched_at: "2026-09-15T22:00:00.000Z", status: "valid" } } } };
+  const snapshot = await updateSnapshot({ previous, apiKey: "test", now: NOW + 3600000, fetcher: fetcher({ alphaFails: ["QNDX"], yahooFails: ["QNDX"], stateStreetFails: true }) });
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.rate, 0.0044);
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.data_date, "2026-09-15");
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.yield_type, "30 Day SEC Yield");
+  assert.equal(snapshot.symbols.QNDX.dividend_rate.status, "stale");
 });

@@ -46,10 +46,10 @@ const defaultState = {
     freedomMilestones: defaultMilestones,
   },
   assets: [
-    { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
-    { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
-    { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "资产增长" },
-    { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendCoverage: null, manualDividendYieldPercent: null, role: "股息增长" },
+    { id: crypto.randomUUID(), ticker: "QQQI", apiSymbol: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "资产增长" },
+    { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "股息增长" },
   ],
   transactions: [],
 };
@@ -104,6 +104,8 @@ function loadState() {
       dividendRate: null,
       dividendRateDate: null,
       dividendRateKind: null,
+      dividendRateYieldType: null,
+      dividendRateStale: false,
       dividendCoverage: null,
       ...asset,
       apiSymbol: asset.apiSymbol || asset.ticker,
@@ -1379,11 +1381,20 @@ async function updateAssetMarketData(asset, options = {}) {
     asset.dividendRate = rate.dividendYield;
     asset.dividendRateDate = rate.dataDate || null;
     asset.dividendRateKind = rate.quality || null;
+    asset.dividendRateYieldType = rate.yieldType || rate.quality || null;
+    asset.dividendRateStale = Boolean(rate.stale);
     asset.dividendCoverage = rate.coverage || "complete";
     asset.dividendSource = rate.source || asset.dividendSource;
   } catch {
-    asset.dividendRate = null;
-    asset.dividendCoverage = "insufficient";
+    // A failed refresh must not turn the last verified dividend-rate record
+    // into "insufficient". Preserve it and make its freshness explicit.
+    if (Number.isFinite(Number(asset.dividendRate)) && Number(asset.dividendRate) > 0) {
+      asset.dividendRateStale = true;
+    } else {
+      asset.dividendRate = null;
+      asset.dividendCoverage = "insufficient";
+      asset.dividendRateStale = false;
+    }
   }
   // A missing source is insufficient data, not a verified 0% long-term yield.
   if (!dividendOk && !asset.remoteDividends?.length && !asset.snapshotAnnualDividendPerShare && !asset.snapshotDividendYield && !getManualDividendYield(asset)) {

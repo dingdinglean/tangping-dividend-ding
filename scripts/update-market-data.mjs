@@ -8,18 +8,22 @@ const ALPHA = "https://www.alphavantage.co/query";
 const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const NASDAQ = "https://api.nasdaq.com/api/quote/";
 const NEOS = new Map([["QQQI", "https://neosfunds.com/qqqi/"], ["SPYI", "https://neosfunds.com/spyi/"]]);
+const STATE_STREET = new Map([["QNDX", "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-nasdaq-100-etf-qndx"]]);
 const DAY = 86400000;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
 const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
+const validDividendRate = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
 const time = (now) => new Date(now).toISOString();
 const errorCode = (e) => ["invalid_data", "quota_exhausted", "price_date_stale"].includes(e?.message) ? e.message : "upstream_unavailable";
+const MONTHS = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+function isoDate(value) { const text = String(value || "").trim(); if (validDate(text)) return text; const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text); return match ? `${match[3]}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}` : text; }
 
 function safePrice(row) {
   if (!validPrice(row?.price) || !validDate(row?.price_date) || !row.source || !Number.isFinite(Date.parse(row.fetched_at))) return null;
   return { symbol: String(row.symbol || ""), price: Number(row.price), price_date: row.price_date, source: String(row.source), fetched_at: new Date(row.fetched_at).toISOString() };
 }
 function safeDividends(row) {
-  const data = (row?.data || []).map((item) => ({ ex_date: item.ex_date || item.ex_dividend_date || item.exDate, payment_date: item.payment_date || item.paymentDate || "", amount: Number(item.amount) }))
+  const data = (row?.data || []).map((item) => ({ ex_date: isoDate(item.ex_date || item.ex_dividend_date || item.exDate), payment_date: isoDate(item.payment_date || item.paymentDate || ""), amount: Number(item.amount) }))
     .filter((item) => validDate(item.ex_date) && validPrice(item.amount)).sort((a, b) => b.ex_date.localeCompare(a.ex_date));
   return data.length ? { data, source: String(row.source || ""), fetched_at: Number.isFinite(Date.parse(row.fetched_at)) ? new Date(row.fetched_at).toISOString() : null } : null;
 }
@@ -63,6 +67,16 @@ export async function fetchNasdaqPrice(symbol, fetcher, fetched_at) {
   const price = Number(String(quote.lastSalePrice || "").replace(/[^0-9.]/g, "")); const price_date = match ? `${match[3]}-${months[match[1]]}-${match[2].padStart(2, "0")}` : "";
   if (!validPrice(price) || !validDate(price_date)) throw new Error("invalid_data"); return { symbol, price, price_date, source: "Nasdaq official close", fetched_at };
 }
+export async function fetchNasdaqDividends(symbol, fetcher, fetched_at) {
+  const url = new URL(`${NASDAQ}${encodeURIComponent(symbol)}/dividends`); url.search = new URLSearchParams({ assetclass: "etf" }).toString();
+  const body = await json(fetcher, url); const rows = body.data?.dividends?.rows || [];
+  const result = safeDividends({ data: rows.map((row) => ({
+    ex_date: row.exOrEffDate || row.exDate || row.ex_dividend_date,
+    payment_date: row.paymentDate || row.payment_date || "",
+    amount: String(row.amount || row.dividendRate || row.dividend || "").replace(/[$,]/g, ""),
+  })), source: "Nasdaq official dividends", fetched_at });
+  if (!result) throw new Error("invalid_data"); return result;
+}
 export async function fetchAlphaDividends(symbol, apiKey, fetcher, fetched_at) {
   if (!apiKey) throw new Error("upstream_unavailable"); const url = new URL(ALPHA); url.search = new URLSearchParams({ function: "DIVIDENDS", symbol, apikey: apiKey }).toString();
   const body = await json(fetcher, url); const result = safeDividends({ data: body.data || body.dividends, source: "Alpha Vantage Dividends", fetched_at }); if (!result) throw new Error("invalid_data"); return result;
@@ -78,9 +92,45 @@ export async function fetchNeosDistributionRate(symbol, fetcher, fetched_at) {
   const rate = /Distribution\s*Rate(?:\s*Image[^%]{0,120})?\s*([0-9]+(?:\.[0-9]+)?)%/i.exec(plain); const asOf = /(?:Distribution Information\s*)?\(?\s*as of\s*([0-9]{1,2})[\/-]([0-9]{1,2})[\/-]([0-9]{4})/i.exec(plain);
   if (!rate || !asOf) throw new Error("invalid_data"); return { rate: Number(rate[1]) / 100, data_date: `${asOf[3]}-${asOf[1].padStart(2, "0")}-${asOf[2].padStart(2, "0")}`, source: "NEOS official Distribution Rate", kind: "distribution_rate", fetched_at };
 }
+function stateStreetDate(plain) {
+  const match = /Yields\s+as of\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})/i.exec(plain);
+  return match && MONTHS[match[1]] ? `${match[3]}-${MONTHS[match[1]]}-${match[2].padStart(2, "0")}` : null;
+}
+function labelledPercent(plain, label) {
+  const match = new RegExp(`${label}(?:\\s*\\([^)]*\\))?[^%]{0,700}?([0-9]+(?:\\.[0-9]+)?)%`, "i").exec(plain);
+  return match && validDividendRate(Number(match[1]) / 100) ? Number(match[1]) / 100 : null;
+}
+// State Street may publish a Fund/Trailing Distribution Yield in the future.
+// QNDX currently publishes only its 30 Day SEC Yield, which must remain a
+// separate, explicitly labelled metric rather than pretending to be TTM.
+export async function fetchStateStreetYield(symbol, fetcher, fetched_at) {
+  const url = STATE_STREET.get(symbol); if (!url) throw new Error("invalid_data");
+  const plain = (await html(fetcher, url)).replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
+  const data_date = stateStreetDate(plain); if (!data_date) throw new Error("invalid_data");
+  const fundDistributionYield = labelledPercent(plain, "(?:Fund|Trailing)\\s+Distribution\\s+Yield");
+  if (fundDistributionYield) return { rate: fundDistributionYield, data_date, source: "State Street official Fund Distribution Yield", kind: "fund_distribution_yield", yield_type: "Fund Distribution Yield", coverage: "complete", fetched_at, status: "valid" };
+  const secYield = labelledPercent(plain, "30\\s*Day\\s+SEC\\s+Yield");
+  if (secYield) return { rate: secYield, data_date, source: "State Street official 30 Day SEC Yield", kind: "30_day_sec_yield", yield_type: "30 Day SEC Yield", coverage: "complete", fetched_at, status: "valid" };
+  throw new Error("invalid_data");
+}
 export async function fetchFrankfurter(fetcher, fetched_at) { const body = await json(fetcher, "https://api.frankfurter.dev/v2/rate/USD/CNY"); if (!validPrice(body.rate) || !validDate(body.date)) throw new Error("invalid_data"); return { rate: Number(body.rate), fx_date: body.date, source: "Frankfurter", fetched_at }; }
 export async function fetchOpenExchangeRate(fetcher, fetched_at) { const body = await json(fetcher, "https://open.er-api.com/v6/latest/USD"); const fx_date = sessionDateFromTimestamp(Number(body.time_last_update_unix || 0) * 1000) || fetched_at.slice(0, 10); if (!validPrice(body.rates?.CNY) || !validDate(fx_date)) throw new Error("invalid_data"); return { rate: Number(body.rates.CNY), fx_date, source: "Open Exchange Rates", fetched_at }; }
-function ttm(dividends, price, target, fetched_at) { const cutoff = Date.parse(`${target}T00:00:00Z`) - 365 * DAY; const rows = dividends?.data?.filter((row) => Date.parse(`${row.ex_date}T00:00:00Z`) >= cutoff) || []; const oldest = dividends?.data?.at(-1)?.ex_date; if (!rows.length || !oldest || Date.parse(`${oldest}T00:00:00Z`) > cutoff) return { coverage: "insufficient", data_date: dividends?.data?.[0]?.ex_date || null, source: dividends?.source || "" }; const annual_per_share = rows.reduce((sum, row) => sum + row.amount, 0); return { rate: annual_per_share / price.price, annual_per_share, data_date: rows[0].ex_date, source: dividends.source, kind: "ttm_distribution_yield", coverage: "complete", fetched_at }; }
+function ttm(dividends, price, target, fetched_at) { const cutoff = Date.parse(`${target}T00:00:00Z`) - 365 * DAY; const rows = dividends?.data?.filter((row) => Date.parse(`${row.ex_date}T00:00:00Z`) >= cutoff) || []; const oldest = dividends?.data?.at(-1)?.ex_date; if (!rows.length || !oldest || Date.parse(`${oldest}T00:00:00Z`) > cutoff) return { coverage: "insufficient", data_date: dividends?.data?.[0]?.ex_date || null, source: dividends?.source || "" }; const annual_per_share = rows.reduce((sum, row) => sum + row.amount, 0); return { rate: annual_per_share / price.price, annual_per_share, data_date: rows[0].ex_date, source: dividends.source, kind: "ttm_distribution_yield", yield_type: "TTM Distribution Yield", coverage: "complete", fetched_at }; }
+function isUsableDividendRate(row) { return validDividendRate(row?.rate) && validDate(row?.data_date) && typeof row?.source === "string" && row.source.length > 0; }
+function staleDividendRate(row) { return { ...row, status: "stale" }; }
+async function resolveOrdinaryDividendRate({ symbol, dividends, dividendsFresh, price, target, fetched_at, old, fetcher }) {
+  let official;
+  if (STATE_STREET.has(symbol)) try { official = await fetchStateStreetYield(symbol, fetcher, fetched_at); } catch {}
+  // A literal fund distribution yield wins. A 30 Day SEC Yield is a clearly
+  // typed official stopgap only while verified TTM distributions are incomplete.
+  if (official?.kind === "fund_distribution_yield") return official;
+  if (!dividendsFresh && !official && isUsableDividendRate(old)) return staleDividendRate(old);
+  const calculated = dividends && price ? ttm(dividends, price, target, fetched_at) : null;
+  if (calculated?.coverage === "complete") return { ...calculated, status: dividendsFresh ? "valid" : "stale" };
+  if (official) return official;
+  if (isUsableDividendRate(old)) return staleDividendRate(old);
+  return calculated || { coverage: "insufficient", data_date: null, source: "Distributions unavailable", status: "unavailable" };
+}
 
 export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fetch, now = Date.now() } = {}) {
   const snapshot = previousSnapshot(previous); const fetched_at = time(now); const session = latestCompletedUsTradingSession(now); snapshot.generatedAt = fetched_at; snapshot.refresh = { target_price_date: session.date, generated_at: fetched_at };
@@ -95,10 +145,11 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     const validSessionPrice = price || retainedCurrentPrice;
     snapshot.symbols[symbol] = { ...old, ...(price ? { price } : {}), price_status: validSessionPrice ? "valid" : "stale", expected_price_date: session.date };
     if (!validSessionPrice) snapshot.symbols[symbol].price_error = priceError; else delete snapshot.symbols[symbol].price_error;
-    let dividends; try { dividends = await fetchAlphaDividends(symbol, apiKey, fetcher, fetched_at); } catch { try { dividends = await fetchYahooDividends(symbol, fetcher, fetched_at); } catch { dividends = old.dividends; } } if (dividends) snapshot.symbols[symbol].dividends = dividends;
+    let dividends; let dividendsFresh = false;
+    try { dividends = await fetchNasdaqDividends(symbol, fetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchAlphaDividends(symbol, apiKey, fetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchYahooDividends(symbol, fetcher, fetched_at); dividendsFresh = true; } catch { dividends = old.dividends; } } }
+    if (dividends) snapshot.symbols[symbol].dividends = dividends;
     if (NEOS.has(symbol)) { try { snapshot.symbols[symbol].dividend_rate = await fetchNeosDistributionRate(symbol, fetcher, fetched_at); } catch { if (!old.dividend_rate) snapshot.symbols[symbol].dividend_rate = { coverage: "insufficient", source: "NEOS official Distribution Rate" }; } }
-    else if (snapshot.symbols[symbol].dividends && (price || old.price)) snapshot.symbols[symbol].dividend_rate = ttm(snapshot.symbols[symbol].dividends, price || old.price, session.date, fetched_at);
-    else snapshot.symbols[symbol].dividend_rate = { coverage: "insufficient", data_date: null, source: "Distributions unavailable" };
+    else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
   }
   try { snapshot.fx = await fetchFrankfurter(fetcher, fetched_at); } catch { try { snapshot.fx = await fetchOpenExchangeRate(fetcher, fetched_at); } catch { snapshot.fx = snapshot.fx ? { ...snapshot.fx, status: "stale" } : { status: "unavailable" }; } }
   return snapshot;

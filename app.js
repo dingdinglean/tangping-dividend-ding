@@ -1,9 +1,9 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=8.1";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=8.1";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=8.2";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=8.2";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v8.1";
+const APP_VERSION = "v8.2";
 const INCOME_YEAR = 2026;
 const INCOME_CHART_PLOT_HEIGHT = 96;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
@@ -517,8 +517,6 @@ function getManualDividendYield(asset) {
 
 function dividendYieldTypeLabel(item) {
   if (item.manualYield !== null) return "手动股息率";
-  const publishedType = String(item.asset.dividendRateYieldType || "").trim();
-  if (publishedType) return publishedType;
   const labels = {
     distribution_rate: "Distribution Rate",
     ttm_distribution_yield: "TTM Distribution Yield",
@@ -526,6 +524,8 @@ function dividendYieldTypeLabel(item) {
     fund_distribution_yield: "Fund Distribution Yield",
     "30_day_sec_yield": "30 Day SEC Yield",
   };
+  const publishedType = String(item.asset.dividendRateYieldType || "").trim();
+  if (publishedType) return labels[publishedType] || publishedType;
   return labels[item.asset.dividendRateKind] || "股息率";
 }
 
@@ -1620,7 +1620,7 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=8.1`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=8.2`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。

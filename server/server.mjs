@@ -76,6 +76,7 @@ const staticFiles = new Map([
   ["/data/market.json", ["data/market.json", "application/json"]],
   ["/", ["index.html", "text/html"]], ["/index.html", ["index.html", "text/html"]],
   ["/app.js", ["app.js", "text/javascript"]], ["/market-data.js", ["market-data.js", "text/javascript"]],
+  ["/market-calendar.js", ["market-calendar.js", "text/javascript"]],
   ["/styles.css", ["styles.css", "text/css"]], ["/sw.js", ["sw.js", "text/javascript"]],
   ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
   ...["icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"].map((name) => [`/${name}`, [name, name.endsWith("svg") ? "image/svg+xml" : "image/png"]]),

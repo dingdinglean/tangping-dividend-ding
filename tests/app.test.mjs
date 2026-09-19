@@ -175,8 +175,8 @@ test("a legacy zero manual yield cannot hide QNDX's verified 30 Day SEC Yield", 
 
 test("ETF cards preserve percentage units and render each published yield type", () => {
   const cases = [
-    ["QQQI", 0.1439, "2026-08-31", "distribution_rate", "Distribution Rate", "14.39%", "Distribution Rate · 08/31"],
-    ["SPYI", 0.1215, "2026-08-31", "distribution_rate", "Distribution Rate", "12.15%", "Distribution Rate · 08/31"],
+    ["QQQI", 0.1439, "2026-08-31", "distribution_rate", "distribution_rate", "14.39%", "Distribution Rate · 08/31"],
+    ["SPYI", 0.1215, "2026-08-31", "distribution_rate", "distribution_rate", "12.15%", "Distribution Rate · 08/31"],
     ["SCHD", 0.03111638954869359, "2026-06-24", "ttm_distribution_yield", "TTM Distribution Yield", "3.11%", "TTM Distribution Yield · 06/24"],
   ];
   for (const [ticker, rate, date, kind, yieldType, displayedRate, caption] of cases) {

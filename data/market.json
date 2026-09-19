@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-19T00:40:40.654Z",
+  "generatedAt": "2026-09-19T05:30:24.442Z",
   "refresh": {
     "target_price_date": "2026-09-18",
-    "generated_at": "2026-09-19T00:40:40.654Z"
+    "generated_at": "2026-09-19T05:30:24.442Z"
   },
   "fx": {
-    "rate": 6.7015,
+    "rate": 6.7013,
     "fx_date": "2026-09-20",
     "source": "Frankfurter",
-    "fetched_at": "2026-09-19T00:40:40.654Z"
+    "fetched_at": "2026-09-19T05:30:24.442Z"
   },
   "symbols": {
     "QQQI": {
@@ -18,145 +18,180 @@
         "price": 54.39,
         "price_date": "2026-09-18",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividends": {
         "data": [
           {
             "ex_date": "2026-09-16",
-            "payment_date": "",
-            "amount": 0.634
+            "payment_date": "2026-09-18",
+            "amount": 0.6339
           },
           {
             "ex_date": "2026-08-19",
-            "payment_date": "",
-            "amount": 0.652
+            "payment_date": "2026-08-21",
+            "amount": 0.6518
           },
           {
             "ex_date": "2026-07-22",
-            "payment_date": "",
-            "amount": 0.635
+            "payment_date": "2026-07-24",
+            "amount": 0.6346
           },
           {
             "ex_date": "2026-06-16",
-            "payment_date": "",
-            "amount": 0.657
+            "payment_date": "2026-06-18",
+            "amount": 0.6572
           },
           {
             "ex_date": "2026-05-20",
-            "payment_date": "",
-            "amount": 0.659
+            "payment_date": "2026-05-22",
+            "amount": 0.6589
           },
           {
             "ex_date": "2026-04-22",
-            "payment_date": "",
-            "amount": 0.63
+            "payment_date": "2026-04-24",
+            "amount": 0.6297
           },
           {
             "ex_date": "2026-03-18",
-            "payment_date": "",
-            "amount": 0.609
+            "payment_date": "2026-03-20",
+            "amount": 0.6089
           },
           {
             "ex_date": "2026-02-18",
-            "payment_date": "",
+            "payment_date": "2026-02-20",
             "amount": 0.614
           },
           {
             "ex_date": "2026-01-21",
-            "payment_date": "",
-            "amount": 0.636
+            "payment_date": "2026-01-23",
+            "amount": 0.6359
           },
           {
             "ex_date": "2025-12-24",
-            "payment_date": "",
-            "amount": 0.641
+            "payment_date": "2025-12-26",
+            "amount": 0.6412851
           },
           {
             "ex_date": "2025-11-26",
-            "payment_date": "",
-            "amount": 0.63
+            "payment_date": "2025-11-28",
+            "amount": 0.6304
           },
           {
             "ex_date": "2025-10-22",
-            "payment_date": "",
-            "amount": 0.645
+            "payment_date": "2025-10-24",
+            "amount": 0.6445
           },
           {
             "ex_date": "2025-09-24",
-            "payment_date": "",
-            "amount": 0.641
+            "payment_date": "2025-09-26",
+            "amount": 0.6411
           },
           {
             "ex_date": "2025-08-20",
-            "payment_date": "",
-            "amount": 0.629
+            "payment_date": "2025-08-22",
+            "amount": 0.6285
           },
           {
             "ex_date": "2025-07-23",
-            "payment_date": "",
-            "amount": 0.637
+            "payment_date": "2025-07-25",
+            "amount": 0.6366
           },
           {
             "ex_date": "2025-06-25",
-            "payment_date": "",
-            "amount": 0.628
+            "payment_date": "2025-06-27",
+            "amount": 0.6282
           },
           {
             "ex_date": "2025-05-21",
-            "payment_date": "",
-            "amount": 0.637
+            "payment_date": "2025-05-23",
+            "amount": 0.6374
           },
           {
             "ex_date": "2025-04-23",
-            "payment_date": "",
-            "amount": 0.531
+            "payment_date": "2025-04-25",
+            "amount": 0.5309
           },
           {
             "ex_date": "2025-03-26",
-            "payment_date": "",
-            "amount": 0.587
+            "payment_date": "2025-03-28",
+            "amount": 0.5867
           },
           {
             "ex_date": "2025-02-26",
-            "payment_date": "",
-            "amount": 0.614
+            "payment_date": "2025-02-28",
+            "amount": 0.6138
           },
           {
             "ex_date": "2025-01-22",
-            "payment_date": "",
-            "amount": 0.624
+            "payment_date": "2025-01-24",
+            "amount": 0.6241
           },
           {
             "ex_date": "2024-12-24",
-            "payment_date": "",
-            "amount": 0.622
+            "payment_date": "2024-12-26",
+            "amount": 0.6216
           },
           {
             "ex_date": "2024-11-20",
-            "payment_date": "",
-            "amount": 0.612
+            "payment_date": "2024-11-21",
+            "amount": 0.6116
           },
           {
             "ex_date": "2024-10-23",
-            "payment_date": "",
-            "amount": 0.61
+            "payment_date": "2024-10-24",
+            "amount": 0.6098
           },
           {
             "ex_date": "2024-09-25",
-            "payment_date": "",
-            "amount": 0.602
+            "payment_date": "2024-09-26",
+            "amount": 0.6022
+          },
+          {
+            "ex_date": "2024-08-21",
+            "payment_date": "2024-08-22",
+            "amount": 0.6443
+          },
+          {
+            "ex_date": "2024-07-24",
+            "payment_date": "2024-07-25",
+            "amount": 0.6186
+          },
+          {
+            "ex_date": "2024-06-26",
+            "payment_date": "2024-06-27",
+            "amount": 0.6233
+          },
+          {
+            "ex_date": "2024-05-22",
+            "payment_date": "2024-05-24",
+            "amount": 0.6129
+          },
+          {
+            "ex_date": "2024-04-24",
+            "payment_date": "2024-04-26",
+            "amount": 0.5867
+          },
+          {
+            "ex_date": "2024-03-20",
+            "payment_date": "2024-03-22",
+            "amount": 0.6045
+          },
+          {
+            "ex_date": "2024-02-21",
+            "payment_date": "2024-02-23",
+            "amount": 0.5939
           }
         ],
-        "source": "Yahoo Finance Dividends",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "source": "Nasdaq official dividends",
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividend_rate": {
         "rate": 0.1439,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-18"
@@ -164,10 +199,10 @@
     "SPYI": {
       "price": {
         "symbol": "SPYI",
-        "price": 53.08,
+        "price": 53.09,
         "price_date": "2026-09-18",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "source": "Alpha Vantage EOD",
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividends": {
         "data": [
@@ -418,14 +453,14 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividend_rate": {
         "rate": 0.1215,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-18"
@@ -433,15 +468,20 @@
     "QNDX": {
       "price": {
         "symbol": "QNDX",
-        "price": 24.44,
+        "price": 24.440000534057617,
         "price_date": "2026-09-18",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-09-18T23:30:11.258Z"
+        "source": "Yahoo Finance Chart",
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividend_rate": {
-        "coverage": "insufficient",
-        "data_date": null,
-        "source": "Distributions unavailable"
+        "rate": 0.0044,
+        "data_date": "2026-09-17",
+        "source": "State Street official 30 Day SEC Yield",
+        "kind": "30_day_sec_yield",
+        "yield_type": "30 Day SEC Yield",
+        "coverage": "complete",
+        "fetched_at": "2026-09-19T05:30:24.442Z",
+        "status": "valid"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-18"
@@ -449,10 +489,10 @@
     "SCHD": {
       "price": {
         "symbol": "SCHD",
-        "price": 33.66,
+        "price": 33.68,
         "price_date": "2026-09-18",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "source": "Alpha Vantage EOD",
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividends": {
         "data": [
@@ -753,16 +793,18 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "fetched_at": "2026-09-19T05:30:24.442Z"
       },
       "dividend_rate": {
-        "rate": 0.031134878193701726,
+        "rate": 0.03111638954869359,
         "annual_per_share": 1.048,
         "data_date": "2026-06-24",
         "source": "Alpha Vantage Dividends",
         "kind": "ttm_distribution_yield",
+        "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-19T00:40:40.654Z"
+        "fetched_at": "2026-09-19T05:30:24.442Z",
+        "status": "valid"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-18"

@@ -194,6 +194,61 @@ function number(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function usdCents(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return Math.round((amount + Number.EPSILON) * 100);
+}
+
+function formatUsdCents(cents) {
+  return (cents / 100).toFixed(2);
+}
+
+function calculatedNetDividendCents(grossValue, withholdingValue) {
+  const grossCents = usdCents(grossValue);
+  const withholdingCents = usdCents(withholdingValue);
+  if (grossCents === null || withholdingCents === null) return null;
+  return grossCents - withholdingCents;
+}
+
+function syncConfirmDividendNet(form) {
+  const netCents = calculatedNetDividendCents(form.elements.grossDividend.value, form.elements.taxAndFees.value);
+  form.elements.netDividend.value = netCents === null || netCents < 0 ? "" : formatUsdCents(netCents);
+}
+
+function confirmedDividendAmounts(data) {
+  const grossCents = usdCents(data.grossDividend);
+  const withholdingCents = usdCents(data.taxAndFees);
+  const netCents = usdCents(data.netDividend);
+  if (!String(data.actualDate || "").trim()) throw new Error("请选择实际到账日期");
+  if (grossCents === null) throw new Error("请输入有效的实际税前股息");
+  if (withholdingCents === null) throw new Error("请输入有效的预扣税与费用");
+  if (netCents === null) throw new Error("请输入有效的实际净到账");
+  if (withholdingCents > grossCents) throw new Error("预扣税与费用不能高于实际税前股息");
+  if (netCents > grossCents) throw new Error("净到账不能高于实际税前股息");
+  return {
+    grossDividend: grossCents / 100,
+    taxAndFees: withholdingCents / 100,
+    netDividend: netCents / 100,
+  };
+}
+
+function confirmDividendRecord(tx, data) {
+  const amounts = confirmedDividendAmounts(data);
+  Object.assign(tx, {
+    status: "received",
+    date: data.actualDate,
+    actualDate: data.actualDate,
+    ...amounts,
+    isEstimatedNet: false,
+    confirmedAt: new Date().toISOString(),
+    note: String(data.note || "").trim(),
+  });
+  return tx;
+}
+
 function isStale(timestamp, maxAgeMs) {
   if (!timestamp) return true;
   const value = new Date(timestamp).getTime();
@@ -1011,6 +1066,8 @@ function renderConfirmDividendModal(transactionId) {
   const tx = state.transactions.find((item) => item.id === transactionId);
   const asset = tx ? getAsset(tx.assetId) : null;
   if (!tx) return "";
+  const initialNetCents = calculatedNetDividendCents(tx.grossDividend, tx.taxAndFees);
+  const initialNet = initialNetCents === null || initialNetCents < 0 ? "" : formatUsdCents(initialNetCents);
   return `<div class="modal-backdrop" data-action="close-modal"><div class="modal" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>确认 ${escapeHtml(asset?.ticker || "")} 股息到账</h3><button class="icon-btn" data-action="close-modal">×</button></div>
     <section class="confirm-summary">
       <div><span>除息日</span><strong>${escapeHtml(tx.exDate || "—")}</strong></div>
@@ -1025,7 +1082,7 @@ function renderConfirmDividendModal(transactionId) {
       <div class="form-row"><label>实际到账日期</label><input class="input" type="date" name="actualDate" value="${todayKey()}" required /></div>
       <div class="form-row"><label>实际税前股息（USD）</label><input class="input" type="number" name="grossDividend" step="0.01" min="0" value="${number(tx.grossDividend).toFixed(2)}" required /></div>
       <div class="form-row"><label>预扣税与费用（USD）</label><input class="input" type="number" name="taxAndFees" step="0.01" min="0" value="${number(tx.taxAndFees).toFixed(2)}" /></div>
-      <div class="form-row"><label>实际净到账（USD）</label><input class="input" type="number" name="netDividend" step="0.01" min="0" value="${number(tx.netDividend).toFixed(2)}" required /></div>
+      <div class="form-row"><label>实际净到账（USD）</label><input class="input" type="number" name="netDividend" step="0.01" min="0" value="${initialNet}" required /></div>
       <div class="form-row"><label>备注</label><textarea name="note" placeholder="例如：IBKR 实际到账">${escapeHtml(tx.note || "")}</textarea></div>
       <button class="btn primary full" type="submit">确认已到账</button>
     </form>
@@ -1052,7 +1109,10 @@ function bindEvents() {
   const priceForm = document.querySelector("#priceForm");
   if (priceForm) priceForm.addEventListener("submit", submitPrice);
   const confirmDividendForm = document.querySelector("#confirmDividendForm");
-  if (confirmDividendForm) confirmDividendForm.addEventListener("submit", submitConfirmDividend);
+  if (confirmDividendForm) {
+    confirmDividendForm.addEventListener("submit", submitConfirmDividend);
+    ["grossDividend", "taxAndFees"].forEach((field) => confirmDividendForm.elements[field].addEventListener("input", () => syncConfirmDividendNet(confirmDividendForm)));
+  }
   const displaySettingsForm = document.querySelector("#displaySettingsForm");
   if (displaySettingsForm) displaySettingsForm.addEventListener("submit", submitDisplaySettings);
   const goalSettingsForm = document.querySelector("#goalSettingsForm");
@@ -1143,21 +1203,7 @@ function submitConfirmDividend(event) {
   const data = Object.fromEntries(new FormData(event.currentTarget));
   const tx = state.transactions.find((item) => item.id === data.transactionId);
   if (!tx || tx.type !== "dividend") return showToast("找不到这笔股息记录");
-  const grossDividend = number(data.grossDividend);
-  const taxAndFees = number(data.taxAndFees);
-  const netDividend = number(data.netDividend);
-  if (netDividend > grossDividend + 0.01) return showToast("净到账不能高于税前股息");
-  Object.assign(tx, {
-    status: "received",
-    date: data.actualDate,
-    actualDate: data.actualDate,
-    grossDividend,
-    taxAndFees,
-    netDividend,
-    isEstimatedNet: false,
-    confirmedAt: new Date().toISOString(),
-    note: String(data.note || "").trim(),
-  });
+  try { confirmDividendRecord(tx, data); } catch (error) { showToast(error.message); return; }
   saveState();
   modal = null;
   showToast("股息到账已确认");

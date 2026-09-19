@@ -218,3 +218,52 @@ test("appearance persists locally and unknown legacy values safely fall back to 
   reopened.run('state.settings.theme="unexpected"');
   assert.equal(reopened.run("normalizeTheme(state.settings.theme)"), "system");
 });
+
+test("confirmed dividend net uses whole cents for the requested tax examples", () => {
+  const a = app(fixture());
+  const result = (grossDividend, taxAndFees) => Number(a.run(`calculatedNetDividendCents("${grossDividend}", "${taxAndFees}")`)) / 100;
+  assert.equal(result("55.15", "5.52"), 49.63);
+  assert.equal(result("55.16", "0"), 55.16);
+  assert.equal(result("55.16", "5.52"), 49.64);
+  assert.equal(a.run('formatUsdCents(calculatedNetDividendCents("55.15", "5.52"))'), "49.63");
+  a.run('state.transactions.push({id:"confirm-default",assetId:"a",type:"dividend",status:"announced",grossDividend:55.15,taxAndFees:5.52,netDividend:55.16})');
+  assert.match(a.run('renderConfirmDividendModal("confirm-default")'), /name="netDividend" step="0\.01" min="0" value="49\.63"/);
+});
+
+test("changing gross or withholding recalculates the editable confirmation net field", () => {
+  const a = app(fixture());
+  const net = a.run(`(() => {
+    const form = { elements: { grossDividend: { value: "55.15" }, taxAndFees: { value: "5.52" }, netDividend: { value: "40.00" } } };
+    syncConfirmDividendNet(form);
+    const afterGross = form.elements.netDividend.value;
+    form.elements.taxAndFees.value = "0";
+    syncConfirmDividendNet(form);
+    return [afterGross, form.elements.netDividend.value];
+  })()`);
+  assert.deepEqual(Array.from(net), ["49.63", "55.15"]);
+});
+
+test("confirmation validates empty, invalid and over-withheld amounts before saving", () => {
+  const a = app(fixture());
+  const valid = '{actualDate:"2026-09-18",grossDividend:"55.15",taxAndFees:"5.52",netDividend:"49.63"}';
+  assert.throws(() => a.run(`confirmedDividendAmounts({...${valid},taxAndFees:"55.16",netDividend:"0.00"})`), /预扣税/);
+  assert.throws(() => a.run(`confirmedDividendAmounts({...${valid},grossDividend:"",netDividend:""})`), /实际税前/);
+  assert.throws(() => a.run(`confirmedDividendAmounts({...${valid},taxAndFees:"not-a-number"})`), /预扣税/);
+  assert.throws(() => a.run(`confirmedDividendAmounts({...${valid},actualDate:""})`), /到账日期/);
+});
+
+test("confirmed dividend persists the final displayed net amount used by receipt totals and chart", () => {
+  const a = app(fixture());
+  const saved = JSON.parse(a.run(`(() => {
+    const tx = { id: "confirmed", assetId: "a", type: "dividend", status: "announced", date: "2026-09-10", grossDividend: 55.15, taxAndFees: 5.52, netDividend: 55.16 };
+    state.transactions.push(tx);
+    confirmDividendRecord(tx, { transactionId: "confirmed", actualDate: "2026-09-18", grossDividend: "55.15", taxAndFees: "5.52", netDividend: "49.63", note: "IBKR" });
+    return JSON.stringify({ tx, received: calculatePortfolio().totals.received, september: monthlyIncomeData(2026).received[8] });
+  })()`));
+  assert.deepEqual(saved.tx, {
+    id: "confirmed", assetId: "a", type: "dividend", status: "received", date: "2026-09-18", actualDate: "2026-09-18",
+    grossDividend: 55.15, taxAndFees: 5.52, netDividend: 49.63, isEstimatedNet: false, note: "IBKR", confirmedAt: saved.tx.confirmedAt,
+  });
+  assert.equal(saved.received, 49.63);
+  assert.equal(saved.september, 49.63);
+});

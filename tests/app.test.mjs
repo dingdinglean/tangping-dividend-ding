@@ -153,6 +153,42 @@ test("a failed dividend-rate refresh preserves the last valid rate and marks it 
   assert.equal(a.run("state.assets[0].dividendRateYieldType"), "30 Day SEC Yield");
 });
 
+test("a legacy zero manual yield cannot hide QNDX's verified 30 Day SEC Yield", () => {
+  const saved = fixture();
+  Object.assign(saved.assets[0], {
+    ticker: "QNDX",
+    name: "State Street SPDR Portfolio Nasdaq 100 ETF",
+    manualDividendYieldPercent: 0,
+    dividendRate: 0.0044,
+    dividendRateDate: "2026-09-17",
+    dividendRateKind: "30_day_sec_yield",
+    dividendRateYieldType: "30 Day SEC Yield",
+  });
+  const a = app(saved);
+  assert.equal(a.run("calculatePortfolio().positions[0].manualYield"), null);
+  assert.equal(a.run("calculatePortfolio().positions[0].dividendYield"), 0.0044);
+  const html = a.run("renderAssetCard(calculatePortfolio().positions[0])");
+  assert.match(html, />0\.44%<\/strong>/);
+  assert.match(html, /30 Day SEC Yield · 09\/17/);
+  assert.doesNotMatch(html, />0\.00%<\/strong>/);
+});
+
+test("ETF cards preserve percentage units and render each published yield type", () => {
+  const cases = [
+    ["QQQI", 0.1439, "2026-08-31", "distribution_rate", "Distribution Rate", "14.39%", "Distribution Rate · 08/31"],
+    ["SPYI", 0.1215, "2026-08-31", "distribution_rate", "Distribution Rate", "12.15%", "Distribution Rate · 08/31"],
+    ["SCHD", 0.03111638954869359, "2026-06-24", "ttm_distribution_yield", "TTM Distribution Yield", "3.11%", "TTM Distribution Yield · 06/24"],
+  ];
+  for (const [ticker, rate, date, kind, yieldType, displayedRate, caption] of cases) {
+    const saved = fixture();
+    Object.assign(saved.assets[0], { ticker, manualDividendYieldPercent: null, dividendRate: rate, dividendRateDate: date, dividendRateKind: kind, dividendRateYieldType: yieldType });
+    const a = app(saved);
+    const html = a.run("renderAssetCard(calculatePortfolio().positions[0])");
+    assert.match(html, new RegExp(`>${displayedRate.replace(".", "\\.")}</strong>`));
+    assert.match(html, new RegExp(caption.replace(".", "\\.")));
+  }
+});
+
 test("unreadable stored data is never overwritten by fallback defaults", () => {
   const a=app(fixture()); a.storage.set("tangping-dividend.v1","{broken-json");
   a.run("state=loadState()");

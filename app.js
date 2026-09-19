@@ -1,9 +1,9 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=8.0";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=8.0";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=8.1";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=8.1";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v8.0";
+const APP_VERSION = "v8.1";
 const INCOME_YEAR = 2026;
 const INCOME_CHART_PLOT_HEIGHT = 96;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
@@ -509,8 +509,24 @@ function getManualDividendYield(asset) {
   const raw = asset?.manualDividendYieldPercent;
   if (raw === null || raw === undefined || raw === "") return null;
   const percent = Number(raw);
-  if (!Number.isFinite(percent) || percent < 0) return null;
+  // Legacy devices may have stored 0 while automatic data was unavailable.
+  // Zero is not a meaningful manual override and must not hide a verified rate.
+  if (!Number.isFinite(percent) || percent <= 0) return null;
   return percent / 100;
+}
+
+function dividendYieldTypeLabel(item) {
+  if (item.manualYield !== null) return "手动股息率";
+  const publishedType = String(item.asset.dividendRateYieldType || "").trim();
+  if (publishedType) return publishedType;
+  const labels = {
+    distribution_rate: "Distribution Rate",
+    ttm_distribution_yield: "TTM Distribution Yield",
+    trailing_distribution_yield: "Trailing Distribution Yield",
+    fund_distribution_yield: "Fund Distribution Yield",
+    "30_day_sec_yield": "30 Day SEC Yield",
+  };
+  return labels[item.asset.dividendRateKind] || "股息率";
 }
 
 function calculatePortfolio() {
@@ -858,7 +874,7 @@ function renderAssetCard(item) {
         <div class="asset-title"><h3 title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</h3><div class="ticker-row"><span>🇺🇸</span><strong>${escapeHtml(asset.ticker)}</strong><span>· USD · ${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div></div>
         <div class="asset-yield"><span>股息率</span><strong class="${hasDividendRate ? "" : "insufficient"}">${dividendRate}</strong></div>
       </div>
-      <div class="asset-price-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${priceFresh ? `收盘价 · ${shortDataDate(priceDate)} · ${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}` : `数据截至 ${priceDate || "—"}`}</span><small>${hasDividendRate && asset.dividendRateDate ? `${asset.dividendRateKind === "distribution_rate" ? "Distribution Rate" : "股息率"} · ${shortDataDate(asset.dividendRateDate)}` : "数据不足"}</small></div>
+      <div class="asset-price-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${priceFresh ? `收盘价 · ${shortDataDate(priceDate)} · ${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}` : `数据截至 ${priceDate || "—"}`}</span><small>${hasDividendRate && asset.dividendRateDate ? `${escapeHtml(dividendYieldTypeLabel(item))} · ${shortDataDate(asset.dividendRateDate)}` : "数据不足"}</small></div>
       <div class="asset-stat-grid"><div><label>已收分红</label><strong>${money(item.receivedDividends, "USD")}</strong></div><div><label>成本</label><strong>${item.shares > 0 ? money(avgCost, "USD") : "—"}</strong></div><div><label>净收益</label><strong class="${item.priceValid ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${pnlText}</strong></div></div>
     </article>
   `;
@@ -1604,7 +1620,7 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=8.0`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=8.1`);
       await registration.update();
     } catch {
       // 离线启动时继续使用已缓存版本。

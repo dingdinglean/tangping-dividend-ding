@@ -46,10 +46,10 @@ async function testStaticSnapshots(browser, engine) {
     // Windows WebKit reports an internal error for offline top-level navigation.
     // Still test an actual uncached module request through its service worker.
     if(engine==="Chromium") await page.reload();
-    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=8.0");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
+    const cached=await page.evaluate(async()=>{const data=await import("./market-data.js?v=8.1");data.configureMarketEndpoint("");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;});
     assert.equal(cached,105);
     await context.setOffline(false);fail=true;await page.reload();
-    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=8.0");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
+    assert.equal(await page.evaluate(async()=>{const data=await import("./market-data.js?v=8.1");data.configureMarketEndpoint("./data/market.json");return (await data.fetchAlphaQuote("QQQI")).price;}),105);
     assert.deepEqual(errors,[]);
     console.log(`PASS ${engine} snapshot: no personal key, new network snapshot, offline/503 last-good fallback`);
   } finally {await context.close();await new Promise(r=>snapshotServer.close(r));}
@@ -156,7 +156,7 @@ try {
   await page.locator('[data-tab="home"]').click();
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await context.setOffline(true); await page.reload(); await page.waitForSelector(".empty-home");
-  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v8.0"));
+  assert.ok((await page.evaluate(()=>caches.keys())).includes("tangping-dividend-v8.1"));
   await context.setOffline(false);
   assert.deepEqual(errors,[]);
   console.log("PASS Chromium: V7.3 single-viewport home/portfolio/calendar/settings, internal lists, sheets, CRUD, migration, offline cache, no page errors");
@@ -166,7 +166,7 @@ try {
   const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");
   const upgradeServer=http.createServer(async(req,res)=>{
     const url=new URL(req.url,base);
-    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v8.0","v7.3"):sw);return;}
+    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v8.1","v8.0"):sw);return;}
     const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
   });
   await new Promise(r=>upgradeServer.listen(0,"127.0.0.1",r));
@@ -180,11 +180,11 @@ try {
     let navigations=0; updatePage.on("framenavigated",frame=>{if(frame===updatePage.mainFrame())navigations++;});
     legacy=false;
     await updatePage.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration.update();});
-    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v8.0")==="1");
+    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v8.1")==="1");
     await updatePage.waitForSelector(".chart-bars");
     assert.equal(navigations,1);
-    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v8.0"));
-    console.log("PASS PWA upgrade: old cache -> v7.3, exactly one automatic reload");
+    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v8.1"));
+    console.log("PASS PWA upgrade: v8.0 cache -> v8.1, exactly one automatic reload");
   } finally {await updateContext.close(); await new Promise(r=>upgradeServer.close(r));}
   await testStaticSnapshots(browser,"Chromium");
   await browser.close(); browser=null;

@@ -14,3 +14,25 @@ test("Pages reads both deployment and repository copies", () => {
   assert.equal(snapshotUrls({ hostname: "dingdinglean.github.io", pathname: "/tangping-dividend-ding/" }).length, 2);
   assert.equal(snapshotUrls({ hostname: "localhost", pathname: "/" }).length, 1);
 });
+
+test("QNDX normalization preserves the decimal yield unit and published type", () => {
+  const qndxSnapshot = {
+    schemaVersion: 2,
+    symbols: {
+      QNDX: {
+        dividend_rate: {
+          rate: 0.0044,
+          data_date: "2026-09-17",
+          source: "State Street official 30 Day SEC Yield",
+          kind: "30_day_sec_yield",
+          yield_type: "30 Day SEC Yield",
+          status: "valid",
+        },
+      },
+    },
+  };
+  const row = parseSnapshot(qndxSnapshot, "QNDX", "DIVIDEND_RATE");
+  assert.equal(row.rate, 0.0044);
+  assert.equal(row.yield_type, "30 Day SEC Yield");
+  assert.equal(row._status, "valid");
+});

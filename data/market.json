@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-22T00:13:57.715Z",
+  "generatedAt": "2026-09-22T01:13:54.991Z",
   "refresh": {
     "target_price_date": "2026-09-21",
-    "generated_at": "2026-09-22T00:13:57.715Z"
+    "generated_at": "2026-09-22T01:13:54.991Z"
   },
   "fx": {
-    "rate": 6.6948,
-    "fx_date": "2026-09-21",
+    "rate": 6.6945,
+    "fx_date": "2026-09-22",
     "source": "Frankfurter",
-    "fetched_at": "2026-09-22T00:13:57.715Z"
+    "fetched_at": "2026-09-22T01:13:54.991Z"
   },
   "symbols": {
     "QQQI": {
@@ -18,7 +18,7 @@
         "price": 55.54,
         "price_date": "2026-09-21",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "dividends": {
         "data": [
@@ -184,14 +184,14 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "dividend_rate": {
         "rate": 0.1439,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-21"
@@ -202,7 +202,7 @@
         "price": 53.72,
         "price_date": "2026-09-21",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "dividends": {
         "data": [
@@ -453,14 +453,14 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "dividend_rate": {
         "rate": 0.1215,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-21"
@@ -473,19 +473,6 @@
         "source": "Yahoo Finance Chart",
         "fetched_at": "2026-09-21T00:31:48.429Z"
       },
-      "dividend_rate": {
-        "rate": 0.0044,
-        "data_date": "2026-09-18",
-        "source": "State Street official 30 Day SEC Yield",
-        "kind": "30_day_sec_yield",
-        "yield_type": "30 Day SEC Yield",
-        "coverage": "complete",
-        "fetched_at": "2026-09-22T00:13:57.715Z",
-        "status": "valid"
-      },
-      "price_status": "stale",
-      "expected_price_date": "2026-09-21",
-      "price_error": "price_date_stale",
       "dividends": {
         "data": [
           {
@@ -495,8 +482,21 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
-      }
+        "fetched_at": "2026-09-22T01:13:54.991Z"
+      },
+      "dividend_rate": {
+        "rate": 0.0044,
+        "data_date": "2026-09-18",
+        "source": "State Street official 30 Day SEC Yield",
+        "kind": "30_day_sec_yield",
+        "yield_type": "30 Day SEC Yield",
+        "coverage": "complete",
+        "fetched_at": "2026-09-22T01:13:54.991Z",
+        "status": "valid"
+      },
+      "price_status": "stale",
+      "expected_price_date": "2026-09-21",
+      "price_error": "price_date_stale"
     },
     "SCHD": {
       "price": {
@@ -504,7 +504,7 @@
         "price": 33.72,
         "price_date": "2026-09-21",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "dividends": {
         "data": [
@@ -805,7 +805,7 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-22T00:13:57.715Z"
+        "fetched_at": "2026-09-22T01:13:54.991Z"
       },
       "dividend_rate": {
         "rate": 0.031079478054567025,
@@ -815,7 +815,7 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-22T00:13:57.715Z",
+        "fetched_at": "2026-09-22T01:13:54.991Z",
         "status": "valid"
       },
       "price_status": "valid",

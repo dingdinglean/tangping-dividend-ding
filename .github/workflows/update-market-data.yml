@@ -3,10 +3,11 @@ name: Update market data
 on:
   workflow_dispatch:
   schedule:
-    # Beijing 05:30 primary run, then 06:45 delayed retry. Both are after the
-    # preceding US regular/early close in America/New_York.
+    # Beijing 05:30 primary run, then 06:45 and 10:30 delayed retries. All are
+    # after the preceding US regular/early close in America/New_York.
     - cron: '30 21 * * *'
     - cron: '45 22 * * *'
+    - cron: '30 2 * * *'
 
 permissions:
   contents: write

@@ -23,6 +23,16 @@ function fetcher(options = {}) {
       if (parsed.searchParams.has("events")) return response({ chart: { result: [{ events: { dividends: { a: { date: dayStamp("2026-09-01"), amount: 1 }, b: { date: dayStamp("2025-09-15"), amount: 1 } } } }] } });
       const day = options.yahooDate?.[symbol] || "2026-09-15"; return response({ chart: { result: [{ timestamp: [dayStamp(day)], indicators: { quote: [{ close: [Number(options.yahooPrice?.[symbol] || 101)] }] } }] } });
     }
+    if (parsed.hostname.includes("api.nasdaq.com") && parsed.pathname.endsWith("/historical")) {
+      const ticker = parsed.pathname.split("/").filter(Boolean).at(-2);
+      if (options.nasdaqHistoricalFails?.includes(ticker)) throw new Error("network");
+      if (options.assertNasdaqHistoricalRange && ticker === "QNDX") {
+        assert.equal(parsed.searchParams.get("fromdate"), "2026-09-11");
+        assert.equal(parsed.searchParams.get("todate"), "2026-09-21");
+        assert.equal(parsed.searchParams.get("limit"), "20");
+      }
+      return response({ data: { tradesTable: { rows: options.nasdaqHistorical?.[ticker] || null } } });
+    }
     if (parsed.hostname.includes("api.nasdaq.com") && parsed.pathname.endsWith("/dividends")) {
       const ticker = parsed.pathname.split("/").filter(Boolean).at(-2);
       if (options.nasdaqDividendFails?.includes(ticker)) throw new Error("network");
@@ -71,6 +81,55 @@ test("a failed retry retains a same-session close as valid instead of falsely ma
   assert.equal(snapshot.symbols.QQQI.price_status, "valid");
   assert.equal(snapshot.symbols.QQQI.price.price_date, "2026-09-15");
   assert.equal(snapshot.symbols.QQQI.price_error, undefined);
+});
+
+test("Nasdaq historical close supplies the exact completed session when Alpha Vantage is stale", async () => {
+  const now = Date.parse("2026-09-21T22:00:00Z");
+  const snapshot = await updateSnapshot({ apiKey: "test", now, fetcher: fetcher({
+    assertNasdaqHistoricalRange: true,
+    alphaDate: { QNDX: "2026-09-18" },
+    nasdaqHistorical: { QNDX: [
+      { date: "09/18/2026", close: "$24.44" },
+      { date: "09/21/2026", close: "$24.52" },
+    ] },
+  }) });
+  const row = snapshot.symbols.QNDX;
+  assert.equal(row.price.price, 24.52);
+  assert.equal(row.price.price_date, "2026-09-21");
+  assert.equal(row.price.source, "Nasdaq historical close");
+  assert.equal(row.price_status, "valid");
+  assert.equal(row.expected_price_date, "2026-09-21");
+  assert.equal(row.price_error, undefined);
+});
+
+test("all price sources returning an older session retain the old price and mark it stale", async () => {
+  const now = Date.parse("2026-09-21T22:00:00Z");
+  const previous = { schemaVersion: 2, symbols: { QNDX: { price: { symbol: "QNDX", price: 24.44, price_date: "2026-09-18", source: "Yahoo Finance Chart", fetched_at: "2026-09-19T01:00:00.000Z" } } } };
+  const snapshot = await updateSnapshot({ previous, apiKey: "test", now, fetcher: fetcher({
+    alphaDate: { QNDX: "2026-09-18" },
+    yahooDate: { QNDX: "2026-09-18" },
+    nasdaqHistorical: { QNDX: [{ date: "09/18/2026", close: "$24.44" }] },
+  }) });
+  const row = snapshot.symbols.QNDX;
+  assert.equal(row.price.price, 24.44);
+  assert.equal(row.price.price_date, "2026-09-18");
+  assert.equal(row.price_status, "stale");
+  assert.equal(row.expected_price_date, "2026-09-21");
+  assert.equal(row.price_error, "price_date_stale");
+});
+
+test("a verified current-session price remains valid when every remote price source fails", async () => {
+  const now = Date.parse("2026-09-21T22:00:00Z");
+  const previous = { schemaVersion: 2, symbols: { QNDX: { price: { symbol: "QNDX", price: 24.52, price_date: "2026-09-21", source: "Nasdaq historical close", fetched_at: "2026-09-21T22:00:00.000Z" } } } };
+  const snapshot = await updateSnapshot({ previous, apiKey: "test", now, fetcher: fetcher({
+    nasdaqHistoricalFails: ["QNDX"], alphaFails: ["QNDX"], yahooFails: ["QNDX"],
+  }) });
+  const row = snapshot.symbols.QNDX;
+  assert.equal(row.price.price, 24.52);
+  assert.equal(row.price.price_date, "2026-09-21");
+  assert.equal(row.price_status, "valid");
+  assert.equal(row.expected_price_date, "2026-09-21");
+  assert.equal(row.price_error, undefined);
 });
 
 test("FX has a dated secondary source and preserves an explicit stale status when both fail", async () => {

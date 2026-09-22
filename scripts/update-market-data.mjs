@@ -59,6 +59,26 @@ export async function fetchYahooPrice(symbol, fetcher, fetched_at) {
   const rows = stamps.map((stamp, index) => ({ price: Number(closes[index]), price_date: sessionDateFromTimestamp(Number(stamp) * 1000) })).filter((row) => validPrice(row.price) && validDate(row.price_date)).sort((a, b) => b.price_date.localeCompare(a.price_date));
   if (!rows.length) throw new Error("invalid_data"); return { symbol, ...rows[0], source: "Yahoo Finance Chart", fetched_at };
 }
+export async function fetchNasdaqHistoricalPrice(symbol, fetcher, fetched_at, targetDate) {
+  if (!validDate(targetDate)) throw new Error("invalid_data");
+  const target = Date.parse(`${targetDate}T00:00:00Z`);
+  const formatNasdaqDate = (value) => new Date(value).toISOString().slice(0, 10);
+  const url = new URL(`${NASDAQ}${encodeURIComponent(symbol)}/historical`);
+  url.search = new URLSearchParams({
+    assetclass: "etf",
+    fromdate: formatNasdaqDate(target - 10 * DAY),
+    todate: formatNasdaqDate(target),
+    limit: "20",
+  }).toString();
+  const body = await json(fetcher, url);
+  const rows = body.data?.tradesTable?.rows;
+  if (!Array.isArray(rows) || !rows.length) throw new Error("invalid_data");
+  const match = rows.find((row) => isoDate(row.date) === targetDate);
+  if (!match) throw new Error("price_date_stale");
+  const price = Number(String(match.close ?? match.closeLast ?? match["close/last"] ?? match.lastSalePrice ?? "").replace(/[$,]/g, "").trim());
+  if (!validPrice(price)) throw new Error("invalid_data");
+  return { symbol, price, price_date: targetDate, source: "Nasdaq historical close", fetched_at };
+}
 export async function fetchNasdaqPrice(symbol, fetcher, fetched_at) {
   const url = new URL(`${NASDAQ}${encodeURIComponent(symbol)}/info`); url.search = new URLSearchParams({ assetclass: "etf" }).toString();
   const body = await json(fetcher, url); const quote = body.data?.secondaryData || {};
@@ -136,8 +156,8 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
   const snapshot = previousSnapshot(previous); const fetched_at = time(now); const session = latestCompletedUsTradingSession(now); snapshot.generatedAt = fetched_at; snapshot.refresh = { target_price_date: session.date, generated_at: fetched_at };
   for (const symbol of SYMBOLS) {
     const old = snapshot.symbols[symbol] || {}; let price; let priceError = "upstream_unavailable";
-    try { const row = await fetchAlphaPrice(symbol, apiKey, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { priceError = errorCode(e); }
-    if (!price) try { const row = await fetchNasdaqPrice(symbol, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { if (priceError !== "price_date_stale") priceError = errorCode(e); }
+    try { const row = await fetchNasdaqHistoricalPrice(symbol, fetcher, fetched_at, session.date); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { priceError = errorCode(e); }
+    if (!price) try { const row = await fetchAlphaPrice(symbol, apiKey, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { if (priceError !== "price_date_stale") priceError = errorCode(e); }
     if (!price) try { const row = await fetchYahooPrice(symbol, fetcher, fetched_at); if (row.price_date === session.date) price = row; else priceError = "price_date_stale"; } catch (e) { if (priceError !== "price_date_stale") priceError = errorCode(e); }
     // A failed retry must not invalidate an already verified close for this same
     // completed session. Only a record whose date lags the target is stale.

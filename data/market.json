@@ -1,24 +1,24 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-21T00:31:48.429Z",
+  "generatedAt": "2026-09-22T00:13:57.715Z",
   "refresh": {
-    "target_price_date": "2026-09-18",
-    "generated_at": "2026-09-21T00:31:48.429Z"
+    "target_price_date": "2026-09-21",
+    "generated_at": "2026-09-22T00:13:57.715Z"
   },
   "fx": {
-    "rate": 6.7002,
+    "rate": 6.6948,
     "fx_date": "2026-09-21",
     "source": "Frankfurter",
-    "fetched_at": "2026-09-21T00:31:48.429Z"
+    "fetched_at": "2026-09-22T00:13:57.715Z"
   },
   "symbols": {
     "QQQI": {
       "price": {
         "symbol": "QQQI",
-        "price": 54.39,
-        "price_date": "2026-09-18",
+        "price": 55.54,
+        "price_date": "2026-09-21",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "dividends": {
         "data": [
@@ -184,25 +184,25 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "dividend_rate": {
         "rate": 0.1439,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-18"
+      "expected_price_date": "2026-09-21"
     },
     "SPYI": {
       "price": {
         "symbol": "SPYI",
-        "price": 53.09,
-        "price_date": "2026-09-18",
+        "price": 53.72,
+        "price_date": "2026-09-21",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "dividends": {
         "data": [
@@ -453,17 +453,17 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "dividend_rate": {
         "rate": 0.1215,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-18"
+      "expected_price_date": "2026-09-21"
     },
     "QNDX": {
       "price": {
@@ -475,24 +475,36 @@
       },
       "dividend_rate": {
         "rate": 0.0044,
-        "data_date": "2026-09-17",
+        "data_date": "2026-09-18",
         "source": "State Street official 30 Day SEC Yield",
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-21T00:31:48.429Z",
+        "fetched_at": "2026-09-22T00:13:57.715Z",
         "status": "valid"
       },
-      "price_status": "valid",
-      "expected_price_date": "2026-09-18"
+      "price_status": "stale",
+      "expected_price_date": "2026-09-21",
+      "price_error": "price_date_stale",
+      "dividends": {
+        "data": [
+          {
+            "ex_date": "2026-09-21",
+            "payment_date": "2026-09-23",
+            "amount": 0.027225
+          }
+        ],
+        "source": "Nasdaq official dividends",
+        "fetched_at": "2026-09-22T00:13:57.715Z"
+      }
     },
     "SCHD": {
       "price": {
         "symbol": "SCHD",
-        "price": 33.68000030517578,
-        "price_date": "2026-09-18",
-        "source": "Yahoo Finance Chart",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "price": 33.72,
+        "price_date": "2026-09-21",
+        "source": "Alpha Vantage EOD",
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "dividends": {
         "data": [
@@ -793,21 +805,21 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-21T00:31:48.429Z"
+        "fetched_at": "2026-09-22T00:13:57.715Z"
       },
       "dividend_rate": {
-        "rate": 0.031116389266746782,
+        "rate": 0.031079478054567025,
         "annual_per_share": 1.048,
         "data_date": "2026-06-24",
         "source": "Alpha Vantage Dividends",
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-21T00:31:48.429Z",
+        "fetched_at": "2026-09-22T00:13:57.715Z",
         "status": "valid"
       },
       "price_status": "valid",
-      "expected_price_date": "2026-09-18"
+      "expected_price_date": "2026-09-21"
     }
   }
 }

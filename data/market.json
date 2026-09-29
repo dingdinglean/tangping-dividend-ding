@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-29T02:19:56.378Z",
+  "generatedAt": "2026-09-29T08:57:12.050Z",
   "refresh": {
     "target_price_date": "2026-09-28",
-    "generated_at": "2026-09-29T02:19:56.378Z"
+    "generated_at": "2026-09-29T08:57:12.050Z"
   },
   "fx": {
-    "rate": 6.7075,
+    "rate": 6.7069,
     "fx_date": "2026-09-29",
     "source": "Frankfurter",
-    "fetched_at": "2026-09-29T02:19:56.378Z"
+    "fetched_at": "2026-09-29T08:57:12.050Z"
   },
   "symbols": {
     "QQQI": {
@@ -18,7 +18,7 @@
         "price": 55.39,
         "price_date": "2026-09-28",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividends": {
         "data": [
@@ -184,14 +184,14 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividend_rate": {
         "rate": 0.1439,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-28"
@@ -202,7 +202,7 @@
         "price": 53.34,
         "price_date": "2026-09-28",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividends": {
         "data": [
@@ -453,14 +453,14 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividend_rate": {
         "rate": 0.1215,
         "data_date": "2026-08-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-09-28"
@@ -471,7 +471,7 @@
         "price": 24.96,
         "price_date": "2026-09-28",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividends": {
         "data": [
@@ -482,7 +482,7 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividend_rate": {
         "rate": 0.0043,
@@ -491,7 +491,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-29T02:19:56.378Z",
+        "fetched_at": "2026-09-29T08:57:12.050Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -503,323 +503,63 @@
         "price": 33.01,
         "price_date": "2026-09-28",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividends": {
         "data": [
           {
             "ex_date": "2026-09-23",
-            "payment_date": "2026-09-28",
-            "amount": 0.2665
+            "payment_date": "",
+            "amount": 0.267
           },
           {
             "ex_date": "2026-06-24",
-            "payment_date": "2026-06-29",
-            "amount": 0.2525
+            "payment_date": "",
+            "amount": 0.253
           },
           {
             "ex_date": "2026-03-25",
-            "payment_date": "2026-03-30",
-            "amount": 0.2569
+            "payment_date": "",
+            "amount": 0.257
           },
           {
             "ex_date": "2025-12-10",
-            "payment_date": "2025-12-15",
-            "amount": 0.2782
+            "payment_date": "",
+            "amount": 0.278
           },
           {
             "ex_date": "2025-09-24",
-            "payment_date": "2025-09-29",
-            "amount": 0.2604
+            "payment_date": "",
+            "amount": 0.26
           },
           {
             "ex_date": "2025-06-25",
-            "payment_date": "2025-06-30",
-            "amount": 0.2602
+            "payment_date": "",
+            "amount": 0.26
           },
           {
             "ex_date": "2025-03-26",
-            "payment_date": "2025-03-31",
-            "amount": 0.2488
+            "payment_date": "",
+            "amount": 0.249
           },
           {
             "ex_date": "2024-12-11",
-            "payment_date": "2024-12-16",
-            "amount": 0.2645
-          },
-          {
-            "ex_date": "2024-09-25",
-            "payment_date": "2024-09-30",
-            "amount": 0.7545
-          },
-          {
-            "ex_date": "2024-06-26",
-            "payment_date": "2024-07-01",
-            "amount": 0.8241
-          },
-          {
-            "ex_date": "2024-03-20",
-            "payment_date": "2024-03-25",
-            "amount": 0.611
-          },
-          {
-            "ex_date": "2023-12-06",
-            "payment_date": "2023-12-11",
-            "amount": 0.7423
-          },
-          {
-            "ex_date": "2023-09-20",
-            "payment_date": "2023-09-25",
-            "amount": 0.6545
-          },
-          {
-            "ex_date": "2023-06-21",
-            "payment_date": "2023-06-26",
-            "amount": 0.6647
-          },
-          {
-            "ex_date": "2023-03-22",
-            "payment_date": "2023-03-27",
-            "amount": 0.5965
-          },
-          {
-            "ex_date": "2022-12-07",
-            "payment_date": "2022-12-12",
-            "amount": 0.7034
-          },
-          {
-            "ex_date": "2022-09-21",
-            "payment_date": "2022-09-26",
-            "amount": 0.6367
-          },
-          {
-            "ex_date": "2022-06-22",
-            "payment_date": "2022-06-27",
-            "amount": 0.7038
-          },
-          {
-            "ex_date": "2022-03-23",
-            "payment_date": "2022-03-28",
-            "amount": 0.5176
-          },
-          {
-            "ex_date": "2021-12-08",
-            "payment_date": "2021-12-13",
-            "amount": 0.6198
-          },
-          {
-            "ex_date": "2021-09-22",
-            "payment_date": "2021-09-27",
-            "amount": 0.587
-          },
-          {
-            "ex_date": "2021-06-23",
-            "payment_date": "2021-06-28",
-            "amount": 0.5396
-          },
-          {
-            "ex_date": "2021-03-24",
-            "payment_date": "2021-03-29",
-            "amount": 0.5026
-          },
-          {
-            "ex_date": "2020-12-10",
-            "payment_date": "2020-12-15",
-            "amount": 0.6015
-          },
-          {
-            "ex_date": "2020-09-23",
-            "payment_date": "2020-09-28",
-            "amount": 0.543
-          },
-          {
-            "ex_date": "2020-06-24",
-            "payment_date": "2020-06-29",
-            "amount": 0.442
-          },
-          {
-            "ex_date": "2020-03-25",
-            "payment_date": "2020-03-30",
-            "amount": 0.4419
-          },
-          {
-            "ex_date": "2019-12-12",
-            "payment_date": "None",
-            "amount": 0.4658
-          },
-          {
-            "ex_date": "2019-09-25",
-            "payment_date": "None",
-            "amount": 0.4855
-          },
-          {
-            "ex_date": "2019-06-26",
-            "payment_date": "None",
-            "amount": 0.4209
-          },
-          {
-            "ex_date": "2019-03-20",
-            "payment_date": "None",
-            "amount": 0.352
-          },
-          {
-            "ex_date": "2018-12-12",
-            "payment_date": "None",
-            "amount": 0.405
-          },
-          {
-            "ex_date": "2018-09-25",
-            "payment_date": "None",
-            "amount": 0.3668
-          },
-          {
-            "ex_date": "2018-06-26",
-            "payment_date": "None",
-            "amount": 0.4056
-          },
-          {
-            "ex_date": "2018-03-16",
-            "payment_date": "None",
-            "amount": 0.2615
-          },
-          {
-            "ex_date": "2017-12-18",
-            "payment_date": "None",
-            "amount": 0.3448
-          },
-          {
-            "ex_date": "2017-09-18",
-            "payment_date": "None",
-            "amount": 0.3439
-          },
-          {
-            "ex_date": "2017-06-19",
-            "payment_date": "None",
-            "amount": 0.3312
-          },
-          {
-            "ex_date": "2017-03-20",
-            "payment_date": "None",
-            "amount": 0.3258
-          },
-          {
-            "ex_date": "2016-12-19",
-            "payment_date": "None",
-            "amount": 0.3987
-          },
-          {
-            "ex_date": "2016-09-19",
-            "payment_date": "None",
-            "amount": 0.2438
-          },
-          {
-            "ex_date": "2016-06-20",
-            "payment_date": "None",
-            "amount": 0.3174
-          },
-          {
-            "ex_date": "2016-03-21",
-            "payment_date": "None",
-            "amount": 0.2981
-          },
-          {
-            "ex_date": "2015-12-21",
-            "payment_date": "None",
-            "amount": 0.2715
-          },
-          {
-            "ex_date": "2015-09-21",
-            "payment_date": "None",
-            "amount": 0.2989
-          },
-          {
-            "ex_date": "2015-06-22",
-            "payment_date": "None",
-            "amount": 0.3063
-          },
-          {
-            "ex_date": "2015-03-23",
-            "payment_date": "None",
-            "amount": 0.2699
-          },
-          {
-            "ex_date": "2014-12-22",
-            "payment_date": "None",
-            "amount": 0.2754
-          },
-          {
-            "ex_date": "2014-09-22",
-            "payment_date": "None",
-            "amount": 0.2544
-          },
-          {
-            "ex_date": "2014-06-23",
-            "payment_date": "None",
-            "amount": 0.2693
-          },
-          {
-            "ex_date": "2014-03-24",
-            "payment_date": "None",
-            "amount": 0.2478
-          },
-          {
-            "ex_date": "2013-12-23",
-            "payment_date": "None",
-            "amount": 0.2489
-          },
-          {
-            "ex_date": "2013-09-23",
-            "payment_date": "None",
-            "amount": 0.2306
-          },
-          {
-            "ex_date": "2013-06-24",
-            "payment_date": "None",
-            "amount": 0.225
-          },
-          {
-            "ex_date": "2013-03-18",
-            "payment_date": "None",
-            "amount": 0.1993
-          },
-          {
-            "ex_date": "2012-12-24",
-            "payment_date": "None",
-            "amount": 0.2581
-          },
-          {
-            "ex_date": "2012-09-17",
-            "payment_date": "None",
-            "amount": 0.2078
-          },
-          {
-            "ex_date": "2012-06-18",
-            "payment_date": "None",
-            "amount": 0.2062
-          },
-          {
-            "ex_date": "2012-03-19",
-            "payment_date": "None",
-            "amount": 0.1379
-          },
-          {
-            "ex_date": "2011-12-19",
-            "payment_date": "None",
-            "amount": 0.1217
+            "payment_date": "",
+            "amount": 0.265
           }
         ],
-        "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-09-29T02:19:56.378Z"
+        "source": "Yahoo Finance Dividends",
+        "fetched_at": "2026-09-29T08:57:12.050Z"
       },
       "dividend_rate": {
-        "rate": 0.031932747652226603,
-        "annual_per_share": 1.0541,
+        "rate": 0.03196001211754015,
+        "annual_per_share": 1.0550000000000002,
         "data_date": "2026-09-23",
-        "source": "Alpha Vantage Dividends",
+        "source": "Yahoo Finance Dividends",
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-09-29T02:19:56.378Z",
+        "fetched_at": "2026-09-29T08:57:12.050Z",
         "status": "valid"
       },
       "price_status": "valid",

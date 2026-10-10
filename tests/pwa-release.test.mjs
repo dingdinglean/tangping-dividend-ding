@@ -11,7 +11,7 @@ import {
   githubPagesSnapshotMirror,
   obsoleteCacheNames,
 } from "../pwa-release.js";
-import { syncCacheVersion } from "../scripts/sync-cache-version.mjs";
+import { findVersionDrift, readShippedSources, syncCacheVersion } from "../scripts/sync-cache-version.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (name) => readFile(new URL(name, root), "utf8");
@@ -30,6 +30,10 @@ const SHIPPED = [
 test("package.json version is the only shipped cache token", async () => {
   assert.equal(APP_VERSION, pkg.version);
   assert.equal(APP_CACHE, `tangping-dividend-v${pkg.version}`);
+  const files = await readShippedSources();
+  assert.deepEqual(findVersionDrift(pkg.version, files), []);
+  assert.equal(JSON.parse(files["manifest.webmanifest"]).start_url, `./?v=${pkg.version}`);
+  assert.match(files["sw.js"], /const CACHE_NAME = APP_CACHE;/);
   const literal = /\?v=(\d+\.\d+(?:\.\d+)?)/g;
   for (const name of SHIPPED) {
     const source = await read(name);
@@ -43,6 +47,21 @@ test("package.json version is the only shipped cache token", async () => {
   assert.equal(synced.version, pkg.version);
   assert.equal(synced.releaseChanged, false);
   assert.deepEqual(synced.files.map((file) => file.changed), [false, false, false, false]);
+});
+
+test("version drift check fails when the cache name, query, or start_url disagree", async () => {
+  const files = await readShippedSources();
+  const drifted = {
+    ...files,
+    "index.html": files["index.html"].replaceAll(`?v=${pkg.version}`, "?v=8.2"),
+    "manifest.webmanifest": files["manifest.webmanifest"].replace(`"./?v=${pkg.version}"`, `"./?v=7.3"`),
+    "sw.js": files["sw.js"].replace("const CACHE_NAME = APP_CACHE;", 'const CACHE_NAME = "tangping-dividend-v8.2";'),
+  };
+  const problems = findVersionDrift(pkg.version, drifted);
+  assert.ok(problems.some((problem) => problem.includes("index.html") && problem.includes("8.2")));
+  assert.ok(problems.some((problem) => problem.includes("start_url") && problem.includes("7.3")));
+  assert.ok(problems.some((problem) => problem.includes("sw.js cache name")));
+  assert.ok(findVersionDrift("9.9.9", files).length > 0);
 });
 
 test("shell precache lists every versioned module the pages import", async () => {

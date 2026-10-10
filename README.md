@@ -59,7 +59,13 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 
 默认读取 `./data/market.json`，网络优先/no-store；离线或服务错误时回退最近成功缓存，保留数据原始日期。页面打开、回到前台或恢复联网时会重新验证 `price_date`；快照陈旧时会在后台尝试 Nasdaq、Yahoo 备用行情。模块内最多复用 60 秒，避免一个刷新周期重复下载。
 
-**GitHub 默认令牌提交不会自动触发传统 Pages 重建。** 为避免 Pages 持续返回旧文件，正式站点同时读取同仓库 `main/data/market.json` 的公开 raw 副本，选择 `generatedAt` 更新的一份；两份都在 GitHub 托管，不增加服务器、Secret 或工作流权限。raw CDN 可能有短暂传播延迟。[GitHub 官方说明](https://docs.github.com/en/actions/concepts/security/github_token)
+**GitHub 默认令牌提交不会自动触发传统 Pages 重建。** 为避免 Pages 持续返回旧文件，`*.github.io/<仓库>/` 会按当前站点的 owner 和仓库名读取同仓库 `main/data/market.json` 的公开 raw 副本，选择 `generatedAt` 更新的一份；两份都在 GitHub 托管，不增加服务器、Secret 或工作流权限。用户站点根路径和自定义域名只读同目录 `./data/market.json`。raw CDN 可能有短暂传播延迟。[GitHub 官方说明](https://docs.github.com/en/actions/concepts/security/github_token)
+
+### 版本与缓存
+
+`package.json` 的 `version` 是唯一版本来源。`pwa-release.js` 的 `APP_VERSION`、页面和模块上的 `?v=`、Service Worker 脚本地址，以及缓存名 `tangping-dividend-v<version>` 都必须与它一致。发布时先改 `package.json`，再运行 `npm run sync-version`。`npm test` 会在这些标记不一致时失败。
+
+打开页面会注册模块化 Service Worker（`updateViaCache: "none"`）并调用 `registration.update()`。新版本 `skipWaiting` 后接管页面，并只删除名称以 `tangping-dividend-` 开头、且不是当前版本的 Cache Storage。行情快照缓存 `tangping-market-snapshots-v2` 会留下，供离线回退。持仓、交易、设置和删除前备份在 `localStorage`（`tangping-dividend.v1`、`tangping-dividend.backup-before-delete`），升级不会读取、改写或删除这些键。应用版本没有写进存储键，避免一次发布把旧账本留在浏览器里却不再打开。
 
 App 固定使用 Actions 静态快照，不向普通用户展示 API Key、服务地址或行情模式。旧版本地数据中的个人 Key、服务 URL、持仓、交易和到账记录会被保留，以保证导入导出兼容；市场公告仍然只生成待确认股息，不冒充实际到账。
 

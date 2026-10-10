@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { createMarketService, createServer } from "../server/server.mjs";
+import { APP_VERSION as appVersion } from "../pwa-release.js";
 const { chromium, webkit } = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
 const server = createServer(await createMarketService());
 await new Promise(r=>server.listen(0,"127.0.0.1",r));
@@ -105,6 +106,9 @@ try {
   assert.equal(await page.locator("#marketDataMode,#marketDataEndpoint,#alphaVantageApiKey,#autoRefresh").count(),0);
   assert.equal(await page.getByText("动态数据").count(),0);
   assert.ok(await page.getByText("躺平股息", { exact: true }).isVisible());
+  assert.ok(await page.getByText("尚未备份，升级前建议导出").isVisible());
+  assert.ok(await page.getByText(`v${appVersion}`).isVisible());
+  assert.equal(await page.locator('[data-action="export-data"] small').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
   assert.equal(await page.locator(".settings-menu-row").count(),7);
   assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
   await page.locator('[data-action="open-milestone-settings"]').click();
@@ -127,13 +131,25 @@ try {
   // Upgrade a controlled v6 cache to v7 and count real page navigations.
   let legacy=true;
   const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");
+  const release=await readFile(new URL("../pwa-release.js",import.meta.url),"utf8");
+  const legacyRelease=release.replaceAll(appVersion,"8.2.0");
   const upgradeServer=http.createServer(async(req,res)=>{
     const url=new URL(req.url,base);
-    if(url.pathname==="/sw.js") {res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});res.end(legacy?sw.replaceAll("v8.2","v8.1"):sw);return;}
+    if(url.pathname==="/sw.js" || (url.pathname==="/pwa-release.js" && url.search==="")) {
+      res.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});
+      res.end(url.pathname==="/sw.js" ? sw : (legacy ? legacyRelease : release));
+      return;
+    }
     const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
   });
   await new Promise(r=>upgradeServer.listen(0,"127.0.0.1",r));
   const updateContext=await browser.newContext();
+  await updateContext.addInitScript(() => {
+    if (sessionStorage.getItem("tangping-dividend.seeded") === "1") return;
+    localStorage.setItem("tangping-dividend.v1", JSON.stringify({ version: 1, settings: {}, assets: [{ id: "keep", ticker: "KEEP" }], transactions: [{ id: "tx-keep", assetId: "keep", type: "buy", date: "2026-01-01", shares: 1, price: 1 }] }));
+    localStorage.setItem("tangping-dividend.backup-before-delete", "{\"marker\":\"keep-backup\"}");
+    sessionStorage.setItem("tangping-dividend.seeded", "1");
+  });
   try {
     const updatePage=await updateContext.newPage();
     await updatePage.goto(`http://127.0.0.1:${upgradeServer.address().port}`);
@@ -143,11 +159,16 @@ try {
     let navigations=0; updatePage.on("framenavigated",frame=>{if(frame===updatePage.mainFrame())navigations++;});
     legacy=false;
     await updatePage.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration.update();});
-    await updatePage.waitForFunction(()=>sessionStorage.getItem("tangping-dividend.reloaded-v8.2")==="1");
+    await updatePage.waitForFunction((version)=>sessionStorage.getItem(`tangping-dividend.reloaded-${version}`)==="1", appVersion);
     await updatePage.waitForSelector(".app-shell");
     assert.equal(navigations,1);
-    assert.ok((await updatePage.evaluate(()=>caches.keys())).includes("tangping-dividend-v8.2"));
-    console.log("PASS PWA upgrade: v8.1 cache -> v8.2, exactly one automatic reload");
+    const keys=await updatePage.evaluate(()=>caches.keys());
+    assert.ok(keys.includes(`tangping-dividend-v${appVersion}`));
+    assert.equal(keys.includes("tangping-dividend-v8.2.0"), false);
+    const kept=await updatePage.evaluate(()=>({tx:JSON.parse(localStorage.getItem("tangping-dividend.v1")).transactions[0].id,backup:localStorage.getItem("tangping-dividend.backup-before-delete")}));
+    assert.equal(kept.tx,"tx-keep");
+    assert.equal(kept.backup,"{\"marker\":\"keep-backup\"}");
+    console.log(`PASS PWA upgrade: legacy cache -> v${appVersion}, one reload, localStorage kept`);
   } finally {await updateContext.close(); await new Promise(r=>upgradeServer.close(r));}
   await testStaticSnapshots(browser,"Chromium");
   await browser.close(); browser=null;

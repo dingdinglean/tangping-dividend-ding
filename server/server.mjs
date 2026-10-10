@@ -75,7 +75,7 @@ export async function createMarketService({ apiKey = "", symbols = ["QQQI", "SPY
 const staticFiles = new Map([
   ["/data/market.json", ["data/market.json", "application/json"]],
   ["/", ["index.html", "text/html"]], ["/index.html", ["index.html", "text/html"]],
-  ["/app.js", ["app.js", "text/javascript"]], ["/market-data.js", ["market-data.js", "text/javascript"]],
+  ["/app.js", ["app.js", "text/javascript"]], ["/pwa-release.js", ["pwa-release.js", "text/javascript"]], ["/market-data.js", ["market-data.js", "text/javascript"]],
   ["/market-calendar.js", ["market-calendar.js", "text/javascript"]],
   ["/styles.css", ["styles.css", "text/css"]], ["/sw.js", ["sw.js", "text/javascript"]],
   ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],

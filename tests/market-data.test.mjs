@@ -11,8 +11,11 @@ test("v2 snapshot exposes dated price, FX and dividend-rate records", () => {
   assert.throws(() => parseSnapshot({ schemaVersion: 1 }, "QQQI", "PRICE"), /格式无效/);
 });
 test("Pages reads both deployment and repository copies", () => {
-  assert.equal(snapshotUrls({ hostname: "dingdinglean.github.io", pathname: "/tangping-dividend-ding/" }).length, 2);
-  assert.equal(snapshotUrls({ hostname: "localhost", pathname: "/" }).length, 1);
+  assert.deepEqual(snapshotUrls({ hostname: "dingdinglean.github.io", pathname: "/tangping-dividend-ding/" }), [
+    "./data/market.json",
+    "https://raw.githubusercontent.com/dingdinglean/tangping-dividend-ding/main/data/market.json",
+  ]);
+  assert.deepEqual(snapshotUrls({ hostname: "localhost", pathname: "/" }), ["./data/market.json"]);
 });
 
 test("QNDX normalization preserves the decimal yield unit and published type", () => {

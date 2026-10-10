@@ -1,9 +1,9 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=8.2";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=8.2";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.3.0";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.3.0";
+import { APP_VERSION } from "./pwa-release.js?v=7.3.0";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const APP_VERSION = "v8.2";
 const INCOME_YEAR = 2026;
 const INCOME_CHART_PLOT_HEIGHT = 96;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
@@ -930,7 +930,7 @@ function renderEvent(tx) {
 }
 
 function renderSettings() {
-  const backupText = state.settings.lastBackupAt ? new Date(state.settings.lastBackupAt).toLocaleString("zh-CN") : "尚未备份";
+  const backupText = state.settings.lastBackupAt ? new Date(state.settings.lastBackupAt).toLocaleString("zh-CN") : "尚未备份，升级前建议导出";
   return `
     <section class="card settings-menu">
       <button class="settings-menu-row" data-action="open-display-settings"><span><b>显示货币</b><small>${state.settings.displayCurrency === "CNY" ? "人民币 CNY" : "美元 USD"}</small></span><em>›</em></button>
@@ -944,7 +944,7 @@ function renderSettings() {
     <input class="file-input" id="importFile" type="file" accept="application/json" />
 
     <section class="card settings-about">
-      <div><b>躺平股息</b><small>行情自动更新，实际到账需本人确认</small></div>
+      <div><b>躺平股息</b><small>v${escapeHtml(APP_VERSION)} · 行情自动更新，实际到账需本人确认</small></div>
       <small>${escapeHtml(marketStatusText())}</small>
     </section>
   `;
@@ -1620,10 +1620,15 @@ if ("serviceWorker" in navigator) {
   });
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=8.2`);
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`, { type: "module", updateViaCache: "none" });
       await registration.update();
     } catch {
-      // 离线启动时继续使用已缓存版本。
+      try {
+        const registration = await navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`, { type: "module" });
+        await registration.update();
+      } catch {
+        // 离线启动时继续使用已缓存版本。
+      }
     }
   });
 }

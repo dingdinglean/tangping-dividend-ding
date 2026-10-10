@@ -1,4 +1,5 @@
-import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=8.0";
+import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.3.0";
+import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.3.0";
 
 const FX_PRIMARY = "https://api.frankfurter.dev/v2/rate/USD/CNY";
 const FX_BACKUP = "https://open.er-api.com/v6/latest/USD";
@@ -6,12 +7,11 @@ const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const NASDAQ = "https://api.nasdaq.com/api/quote/";
 let marketEndpoint = "";
 export const SNAPSHOT_PATH = "./data/market.json";
-const SNAPSHOT_MIRROR = "https://raw.githubusercontent.com/dingdinglean/tangping-dividend-ding/main/data/market.json";
 let snapshotPromise = null; let snapshotLoadedAt = 0;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
 const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
 
-export function snapshotUrls(location = globalThis.location) { return location?.hostname === "dingdinglean.github.io" && location.pathname.startsWith("/tangping-dividend-ding/") ? [SNAPSHOT_PATH, SNAPSHOT_MIRROR] : [SNAPSHOT_PATH]; }
+export function snapshotUrls(location = globalThis.location) { const mirror = githubPagesSnapshotMirror(location); return mirror ? [SNAPSHOT_PATH, mirror] : [SNAPSHOT_PATH]; }
 export function configureMarketEndpoint(value = "") { if (value !== marketEndpoint) { snapshotPromise = null; snapshotLoadedAt = 0; } if (!value || value === SNAPSHOT_PATH) { marketEndpoint = value; return; } const url = new URL(value); if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("共享服务请填写无参数的 HTTPS 地址"); marketEndpoint = url.href; }
 async function fetchJson(url, timeoutMs = 18000) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { const response = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" }, cache: "no-store" }); if (!response.ok) throw new Error(response.status === 429 ? "行情请求额度已用完" : `HTTP ${response.status}`); return await response.json(); } catch (error) { if (error?.name === "AbortError") throw new Error("请求超时"); throw error; } finally { clearTimeout(timer); } }
 async function readSnapshotCopy(url) { let cache; const key = globalThis.location ? new URL(url, globalThis.location.href).href : url; try { cache = await globalThis.caches?.open("tangping-market-snapshots-v2"); } catch {} try { const data = await fetchJson(url); if (data?.schemaVersion !== 2 || !data.symbols) throw new Error("invalid snapshot"); try { await cache?.put(key, new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } })); } catch {} return data; } catch (error) { try { const cached = await cache?.match(key); if (cached) return await cached.json(); } catch {} throw error; } }

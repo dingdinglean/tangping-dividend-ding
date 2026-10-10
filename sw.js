@@ -1,18 +1,7 @@
-const CACHE_NAME = "tangping-dividend-v8.2";
-const SNAPSHOT_CACHE = "tangping-market-snapshots-v2";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./styles.css?v=8.2",
-  "./app.js?v=8.2",
-  "./market-data.js?v=8.2",
-  "./market-calendar.js?v=8.2",
-  "./manifest.webmanifest?v=8.2",
-  "./icon.svg",
-  "./icon-180.png",
-  "./icon-192.png",
-  "./icon-512.png",
-];
+import { APP_CACHE, SNAPSHOT_CACHE, SHELL_ASSETS, obsoleteCacheNames, githubPagesSnapshotMirror } from "./pwa-release.js";
+
+const CACHE_NAME = APP_CACHE;
+const ASSETS = SHELL_ASSETS;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
@@ -22,9 +11,9 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith("tangping-dividend-") && key !== CACHE_NAME).map((key) => caches.delete(key)));
+    // 只删除旧的应用壳 Cache Storage，保留行情快照缓存。
+    await Promise.all(obsoleteCacheNames(keys).map((key) => caches.delete(key)));
     await self.clients.claim();
-
   })());
 });
 
@@ -32,8 +21,8 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   const snapshotUrl = new URL("./data/market.json", self.location.href).href;
-  const mirrorUrl = "https://raw.githubusercontent.com/dingdinglean/tangping-dividend-ding/main/data/market.json";
-  if (url.href === snapshotUrl || url.href === mirrorUrl) {
+  const mirrorUrl = githubPagesSnapshotMirror(self.location);
+  if (url.href === snapshotUrl || (mirrorUrl && url.href === mirrorUrl)) {
     event.respondWith((async () => {
       const cache = await caches.open(SNAPSHOT_CACHE);
       try {
@@ -66,6 +55,10 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || (event.request.mode === "navigate" ? caches.match("./index.html") : Response.error())))
+      .catch(async () => {
+        const cache = await caches.open(CACHE_NAME);
+        return (await cache.match(event.request))
+          || (event.request.mode === "navigate" ? cache.match("./index.html") : Response.error());
+      })
   );
 });

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
+import { APP_VERSION } from "../pwa-release.js";
 
 const source = (await readFile(new URL("../app.js", import.meta.url), "utf8")).replace(/^(?:import[^\r\n]*\r?\n)+/, "").split('if ("serviceWorker" in navigator)')[0];
 class FixedDate extends Date {
@@ -17,6 +18,7 @@ function app(saved, { systemDark = false } = {}) {
   const context = vm.createContext({ Date: FixedDate, crypto: webcrypto, structuredClone, Intl, URL,
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
     navigator: { onLine: true }, window: { matchMedia: () => mediaQuery }, document: { visibilityState: "visible", documentElement, querySelector: (selector) => selector === 'meta[name="theme-color"]' ? themeColor : null }, setTimeout, clearTimeout,
+    APP_VERSION,
     latestCompletedUsTradingSession: () => ({ date: "2026-09-04" }),
     configureMarketEndpoint() {}, wait: async () => {}, console });
   vm.runInContext(source, context);
@@ -211,6 +213,28 @@ test("total market value only includes prices from the same completed US session
   assert.equal(a.run("calculatePortfolio().totals.marketValue"), 10000);
   assert.equal(a.run("calculatePortfolio().totals.priceCoverageComplete"), false);
   assert.match(a.run("renderPortfolio()"), /待更新/);
+});
+
+test("settings keeps the export row and reminds only when no backup exists", () => {
+  const a = app(fixture());
+  const empty = a.run("renderSettings()");
+  assert.match(empty, /<b>躺平股息<\/b>/);
+  assert.match(empty, new RegExp(`v${APP_VERSION}`));
+  assert.match(empty, /尚未备份，升级前建议导出/);
+  assert.equal((empty.match(/settings-menu-row/g) || []).length, 7);
+  a.run('state.settings.lastBackupAt="2026-09-01T00:00:00.000Z"');
+  assert.doesNotMatch(a.run("renderSettings()"), /升级前建议导出/);
+});
+
+test("release upgrade rewrites neither the storage key nor saved transactions", () => {
+  const saved = fixture();
+  const a = app(saved);
+  a.run("saveState()");
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(stored.transactions[0].id, "b");
+  assert.equal(stored.assets[0].ticker, "TEST");
+  assert.equal(a.storage.has("tangping-dividend.backup-before-delete"), false);
+  assert.notEqual(`tangping-dividend-v${APP_VERSION}`, "tangping-dividend.v1");
 });
 
 test("legacy settings migrate to Actions default without deleting personal key or endpoint",()=>{

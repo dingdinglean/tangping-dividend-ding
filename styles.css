@@ -177,5 +177,8 @@ button, .btn, .nav-btn, .floating-add { touch-action: manipulation; }
 .summary-item { min-height: 88px; padding-right: var(--space-2); padding-left: var(--space-2); }
 .summary-item strong { font-size: clamp(13px, 3.75vw, 16px); letter-spacing: -.045em; }
 .asset-price-line, .asset-price-line small { color: var(--text-tertiary); font-size: var(--font-micro); }
+.asset-card-compact { height: auto; min-height: var(--asset-card-height); }
+.asset-price-line { flex-wrap: wrap; white-space: normal; }
+.asset-price-line > span:nth-child(2), .asset-price-line small { overflow: visible; white-space: normal; text-overflow: unset; }
 .nav-btn { min-height: calc(var(--nav-height) - var(--space-4)); }
 .market-caption { padding-bottom: var(--space-5); }

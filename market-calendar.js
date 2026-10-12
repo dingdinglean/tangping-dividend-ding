@@ -63,11 +63,19 @@ export function isEarlyClose(value) {
   const year = Number(value.slice(0, 4));
   const thanksgivingFriday = addDays(nthWeekday(year, 11, 4, 4), 1);
   if (value === thanksgivingFriday) return true;
-  // NYSE schedules a 1pm ET close on Christmas Eve when it is an open weekday.
+  // Christmas Eve is 13:00 ET when that date is itself an open session.
   if (value === `${year}-12-24`) return true;
-  // Independence Day early-close rules: the preceding open session closes early,
-  // except when the exchange observes the holiday as a full-day closure.
+  // When Christmas falls on Saturday, Dec 24 is a full closure and the
+  // preceding Thursday (Dec 23) is the early close.
+  const christmas = `${year}-12-25`;
+  if (weekday(christmas) === 6 && value === addDays(christmas, -2)) return true;
+  // A weekend July 4 is observed as a full-day closure. NYSE does not then
+  // shorten the preceding open session (2026-07-02 and 2027-07-02 are regular
+  // closes). When July 4 is Monday–Friday, the previous open session closes
+  // at 13:00 ET, including the Friday before a Monday holiday.
   const july4 = `${year}-07-04`;
+  const july4Weekday = weekday(july4);
+  if (july4Weekday === 0 || july4Weekday === 6) return false;
   let prior = addDays(july4, -1);
   while (!isUsTradingDay(prior) && prior >= `${year}-06-29`) prior = addDays(prior, -1);
   return value === prior;

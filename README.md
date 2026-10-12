@@ -49,15 +49,15 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 ### 快照内容与额度
 
 - 默认 QQQI、SPYI、QNDX、SCHD。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Alpha Vantage 返回旧日线时自动尝试 Nasdaq 的常规收盘价，再尝试 Yahoo 日线。
-- USD/CNY 单独每日刷新，保存 `rate / fx_date / source / fetched_at`；主源 Frankfurter 失败时使用 Open Exchange Rates。所有行情源失败时保留旧记录并标记 `stale`，页面显示“数据截至 YYYY-MM-DD”，不会把它计入总市值。
-- QQQI、SPYI 的股息率为 NEOS 官方 `Distribution Rate`（独立保存数据日期）；QNDX、SCHD 用实际 distributions 的 TTM 计算，覆盖期不足 12 个月明确显示“数据不足”。累计股息始终只来自用户确认的真实到账记录。
+- USD/CNY 单独每日刷新，保存 `rate / fx_date / source / fetched_at`；主源 Frankfurter 失败时使用 Open Exchange Rates。所有行情源失败时保留旧记录并标记 `stale`。页面在价格日期不是最近完成交易日时，仍用上一笔收盘价估算市值和预期现金流，并写明日期和“沿用上一交易日收盘价”；完全没有价格时不计入总市值。
+- QQQI、SPYI 使用 NEOS 官方 `Distribution Rate`；QNDX 在派息历史不足时使用 State Street 的 `30 Day SEC Yield`；SCHD 使用实际 distributions 的 TTM。三者各自保留原指标名称，页面不把它们合成一个“股息率”。覆盖期不足明确显示“数据不足”，来源刷新失败时保留上次数值并标记过期。累计股息始终只来自用户确认的真实到账记录。
 - 文件只包含白名单公开价格、每股派息、日期及刷新状态/计数；脚本不读取浏览器持仓、交易或到账记录，密钥仅从环境变量读取，不写入文件和日志。
 - 首次快照为空，等待配置 Secret 后真实抓取，不提供假行情。免费套餐未提供某接口时会回退或保留旧值，不承诺实时行情。
 - 同一密钥被其他程序使用、删除预算文件、强制取消流程或 push 失败可能影响共享额度；不要并行使用其他抓取器或清空快照。工作流串行运行，抓取失败后仍尝试提交已保存的预算和状态。
 
 ### GitHub Pages 更新与离线
 
-默认读取 `./data/market.json`，网络优先/no-store；离线或服务错误时回退最近成功缓存，保留数据原始日期。页面打开、回到前台或恢复联网时会重新验证 `price_date`；快照陈旧时会在后台尝试 Nasdaq、Yahoo 备用行情。模块内最多复用 60 秒，避免一个刷新周期重复下载。
+默认读取 `./data/market.json`，网络优先/no-store；离线或服务错误时回退最近成功缓存，保留数据原始日期。页面打开、回到前台或恢复联网时会重新验证 `price_date`。快照日期未对齐最近完成交易日时，大约每 60 秒重读 `market.json`；对齐后恢复约 18 小时的低频检查。浏览器不再请求 Nasdaq 或 Yahoo，这两处仍只由 GitHub Actions 在服务端抓取。模块内最多复用 60 秒，避免一个刷新周期重复下载。
 
 **GitHub 默认令牌提交不会自动触发传统 Pages 重建。** 为避免 Pages 持续返回旧文件，`*.github.io/<仓库>/` 会按当前站点的 owner 和仓库名读取同仓库 `main/data/market.json` 的公开 raw 副本，选择 `generatedAt` 更新的一份；两份都在 GitHub 托管，不增加服务器、Secret 或工作流权限。用户站点根路径和自定义域名只读同目录 `./data/market.json`。raw CDN 可能有短暂传播延迟。[GitHub 官方说明](https://docs.github.com/en/actions/concepts/security/github_token)
 

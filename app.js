@@ -4,12 +4,12 @@ import { APP_VERSION } from "./pwa-release.js?v=7.3.0";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
-const INCOME_YEAR = 2026;
 const INCOME_CHART_PLOT_HEIGHT = 96;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
 const DIVIDEND_REFRESH_MS = 24 * 60 * 60 * 1000;
 const RETRY_MS = 30 * 60 * 1000;
+const SNAPSHOT_POLL_MS = 60 * 1000;
 const AUTO_DIVIDEND_LOOKBACK_DAYS = 120;
 const THEME_VALUES = ["system", "light", "dark"];
 const THEME_LABELS = { system: "跟随系统", light: "浅色", dark: "深色" };
@@ -261,8 +261,39 @@ function latestSessionDate() {
   return latestCompletedUsTradingSession().date;
 }
 
+function priceDateOf(asset) {
+  return asset?.priceDate || asset?.priceTradingDay || "";
+}
+
+function hasUsableClose(asset) {
+  return number(asset?.currentPrice) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(priceDateOf(asset));
+}
+
 function hasLatestValidPrice(asset) {
-  return number(asset?.currentPrice) > 0 && (asset.priceDate || asset.priceTradingDay) === latestSessionDate();
+  return hasUsableClose(asset) && priceDateOf(asset) === latestSessionDate();
+}
+
+function usesPriorClose(asset) {
+  return hasUsableClose(asset) && !hasLatestValidPrice(asset) && asset?.priceSource !== "手动";
+}
+
+function isSnapshotMode() {
+  return state.settings.marketDataMode !== "direct" && state.settings.marketDataMode !== "proxy";
+}
+
+function incomeChartYear(now = new Date()) {
+  return now.getFullYear();
+}
+
+function applyManualPrice(asset, price) {
+  const sessionDate = latestSessionDate();
+  asset.currentPrice = number(price);
+  if (!(asset.currentPrice > 0)) return;
+  asset.priceDate = sessionDate;
+  asset.priceTradingDay = sessionDate;
+  asset.priceSource = "手动";
+  asset.priceUpdatedAt = new Date().toISOString();
+  asset.priceLastError = null;
 }
 
 function hasFreshFx() {
@@ -567,7 +598,7 @@ function calculatePortfolio() {
     });
 
   const positions = [...map.values()].map((item) => {
-    const priceValid = hasLatestValidPrice(item.asset);
+    const priceValid = hasUsableClose(item.asset);
     const marketValue = priceValid ? item.shares * number(item.asset.currentPrice) : 0;
     const pnl = marketValue - item.cost;
     const ttmPerShare = getTtmDividendPerShare(item.asset);
@@ -597,6 +628,8 @@ function calculatePortfolio() {
       dividendYield,
       dividendKnownZero,
       priceValid,
+      priceFresh: hasLatestValidPrice(item.asset) && item.asset.priceSource !== "手动",
+      priceCarried: usesPriorClose(item.asset),
       currentYield: marketValue > 0 ? annualForecast / marketValue : 0,
       yieldOnCost: item.cost > 0 ? annualForecast / item.cost : 0,
       nextDividend: getNextDeclaredDividend(item.asset),
@@ -613,10 +646,11 @@ function calculatePortfolio() {
     if (item.shares > 0) {
       acc.heldCount += 1;
       if (item.priceValid) acc.priceCoveredCount += 1;
+      if (item.priceCarried) acc.carriedCloseCount += 1;
       if (item.hasDividendEstimate) acc.dividendCoveredCount += 1;
     }
     return acc;
-  }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0, heldCount: 0, dividendCoveredCount: 0, priceCoveredCount: 0 });
+  }, { marketValue: 0, cost: 0, pnl: 0, received: 0, annualForecast: 0, heldCount: 0, dividendCoveredCount: 0, priceCoveredCount: 0, carriedCloseCount: 0 });
   totals.dividendCoverageComplete = totals.heldCount > 0 && totals.dividendCoveredCount === totals.heldCount;
   totals.priceCoverageComplete = totals.heldCount === totals.priceCoveredCount;
   totals.fxValid = hasFreshFx();
@@ -738,10 +772,23 @@ function renderTopbar() {
 }
 
 function marketStatusText() {
+  if (!navigator.onLine) return "行情离线，继续使用上次数据";
+  const carried = state.assets.filter((asset) => usesPriorClose(asset));
+  if (carried.length) {
+    const dates = [...new Set(carried.map((asset) => priceDateOf(asset)).filter(Boolean))];
+    return dates.length === 1 ? `沿用上一交易日收盘价 · ${dates[0]}` : "沿用上一交易日收盘价";
+  }
   const staleCount = state.assets.filter((asset) => isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS) || isStale(asset.dividendUpdatedAt, DIVIDEND_REFRESH_MS)).length;
-  return !navigator.onLine ? "行情离线，继续使用上次数据"
-    : staleCount ? "行情暂未更新，继续使用上次数据"
-    : `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`;
+  return staleCount ? "行情暂未更新，继续使用上次数据" : `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`;
+}
+
+function blendedYieldFoot(positions) {
+  const labels = new Set(positions
+    .filter((item) => item.shares > 0 && (item.manualYield !== null || item.dividendYield > 0))
+    .map((item) => dividendYieldTypeLabel(item)));
+  if (labels.size === 1) return `口径：${[...labels][0]}`;
+  if (labels.size > 1) return "各标的口径不同，不是统一股息率";
+  return "尚无收益率";
 }
 
 function renderMarketCaption() {
@@ -749,8 +796,9 @@ function renderMarketCaption() {
 }
 
 function renderHome() {
-  const { totals } = calculatePortfolio();
-  const year = INCOME_YEAR;
+  const { positions, totals } = calculatePortfolio();
+  const year = incomeChartYear();
+  const yieldFoot = blendedYieldFoot(positions);
   const chart = monthlyIncomeData(year);
   const monthExpected = getMonthlyPassiveIncomeUsd(totals);
   const monthlyIncomeCny = monthExpected * number(state.settings.exchangeRate, 7.2);
@@ -770,20 +818,20 @@ function renderHome() {
 
   return `
     <section class="card hero income-hero">
-      <div class="hero-row"><div><div class="eyebrow">被动收入 / 每月 · ${state.settings.displayCurrency}</div><div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div><div class="hero-sub">当前持仓预计年股息 ÷ 12${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div></div><div class="hero-goal"><span>月目标</span><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div></div>
+      <div class="hero-row"><div><div class="eyebrow">被动收入 / 每月 · ${state.settings.displayCurrency}</div><div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div><div class="hero-sub">按各标的自身口径估算 ÷ 12${totals.carriedCloseCount ? " · 沿用上一交易日收盘价" : ""}${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div></div><div class="hero-goal"><span>月目标</span><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div></div>
       <div class="income-facts"><div><span>累计股息</span><strong>${money(totals.received)}</strong></div><div><span>预计年股息</span><strong>${money(totals.annualForecast)}</strong></div></div>
     </section>
 
     <div class="grid-2">
       <div class="metric-card">
-        <div class="metric-label">价格股息率</div>
+        <div class="metric-label">预期现金流/市值</div>
         <div class="metric-value">${totals.marketValue > 0 && totals.dividendCoverageComplete && totals.priceCoverageComplete ? `${(currentYield * 100).toFixed(2)}%` : "待更新"}</div>
-        <div class="metric-foot">按当前市值计算</div>
+        <div class="metric-foot">${escapeHtml(yieldFoot)}</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">成本股息率</div>
+        <div class="metric-label">预期现金流/成本</div>
         <div class="metric-value">${totals.cost > 0 && totals.dividendCoverageComplete ? `${(yieldOnCost * 100).toFixed(2)}%` : "待更新"}</div>
-        <div class="metric-foot">按持仓成本计算</div>
+        <div class="metric-foot">${escapeHtml(yieldFoot)}</div>
       </div>
     </div>
 
@@ -822,7 +870,7 @@ function renderPendingDividends(rows) {
     </section>`;
 }
 
-function renderIncomeChart(chart, goalUsd, year = INCOME_YEAR) {
+function renderIncomeChart(chart, goalUsd, year = incomeChartYear()) {
   const plotHeight = INCOME_CHART_PLOT_HEIGHT;
   const values = chart.received.map((v, i) => v + chart.announced[i] + chart.forecast[i]);
   const max = Math.max(...values, 1) * 1.12;
@@ -860,10 +908,26 @@ function renderPortfolio() {
   `;
 }
 
+function priceStatusText(asset) {
+  const dated = shortDataDate(priceDateOf(asset));
+  const amount = number(asset.currentPrice) > 0 ? money(number(asset.currentPrice), "USD") : "—";
+  if (asset.priceSource === "手动" && hasUsableClose(asset)) return `手动价格 · ${dated} · ${amount}`;
+  if (hasLatestValidPrice(asset)) return `收盘价 · ${dated} · ${amount}`;
+  if (hasUsableClose(asset)) return `沿用上一交易日收盘价 · ${dated} · ${amount}`;
+  return `数据截至 ${priceDateOf(asset) || "—"}`;
+}
+
+function dividendRateCaption(item) {
+  const asset = item.asset;
+  const hasRate = item.manualYield !== null || item.dividendYield > 0;
+  if (!hasRate) return "数据不足";
+  if (item.manualYield !== null) return "手动股息率";
+  if (!asset.dividendRateDate) return "数据不足";
+  return `${dividendYieldTypeLabel(item)} · ${shortDataDate(asset.dividendRateDate)}${asset.dividendRateStale ? " · 已过期，沿用上次" : ""}`;
+}
+
 function renderAssetCard(item) {
   const asset = item.asset;
-  const priceFresh = item.priceValid;
-  const priceDate = asset.priceDate || asset.priceTradingDay;
   const hasDividendRate = item.manualYield !== null || item.dividendYield > 0;
   const dividendRate = hasDividendRate ? `${(item.dividendYield * 100).toFixed(2)}%` : "—";
   const avgCost = item.shares > 0 ? item.cost / item.shares : 0;
@@ -872,9 +936,9 @@ function renderAssetCard(item) {
     <article class="card asset-card asset-card-compact" data-asset-card="${asset.id}" data-action="asset-detail" data-id="${asset.id}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(asset.ticker)} 详情">
       <div class="asset-head">
         <div class="asset-title"><h3 title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</h3><div class="ticker-row"><span>🇺🇸</span><strong>${escapeHtml(asset.ticker)}</strong><span>· USD · ${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span></div></div>
-        <div class="asset-yield"><span>股息率</span><strong class="${hasDividendRate ? "" : "insufficient"}">${dividendRate}</strong></div>
+        <div class="asset-yield"><span>收益率</span><strong class="${hasDividendRate ? "" : "insufficient"}">${dividendRate}</strong></div>
       </div>
-      <div class="asset-price-line"><span class="status-dot ${priceFresh ? "fresh" : "stale"}"></span><span>${priceFresh ? `收盘价 · ${shortDataDate(priceDate)} · ${asset.currentPrice > 0 ? money(number(asset.currentPrice), "USD") : "—"}` : `数据截至 ${priceDate || "—"}`}</span><small>${hasDividendRate && asset.dividendRateDate ? `${escapeHtml(dividendYieldTypeLabel(item))} · ${shortDataDate(asset.dividendRateDate)}` : "数据不足"}</small></div>
+      <div class="asset-price-line"><span class="status-dot ${item.priceFresh ? "fresh" : "stale"}"></span><span>${escapeHtml(priceStatusText(asset))}</span><small>${escapeHtml(dividendRateCaption(item))}</small></div>
       <div class="asset-stat-grid"><div><label>已收分红</label><strong>${money(item.receivedDividends, "USD")}</strong></div><div><label>成本</label><strong>${item.shares > 0 ? money(avgCost, "USD") : "—"}</strong></div><div><label>净收益</label><strong class="${item.priceValid ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${pnlText}</strong></div></div>
     </article>
   `;
@@ -1271,8 +1335,16 @@ function submitAsset(event) {
     manualDividendYieldPercent: String(data.manualDividendYieldPercent ?? "").trim() === "" ? null : Math.max(0, number(data.manualDividendYieldPercent)),
     currentPrice: number(data.currentPrice),
   };
-  if (data.assetId) Object.assign(getAsset(data.assetId), payload);
-  else state.assets.push({ id: crypto.randomUUID(), ...payload });
+  if (data.assetId) {
+    const asset = getAsset(data.assetId);
+    const priceChanged = number(asset?.currentPrice) !== number(data.currentPrice);
+    Object.assign(asset, payload);
+    if (priceChanged) applyManualPrice(asset, data.currentPrice);
+  } else {
+    const asset = { id: crypto.randomUUID(), ...payload };
+    if (number(data.currentPrice) > 0) applyManualPrice(asset, data.currentPrice);
+    state.assets.push(asset);
+  }
   saveState(); modal = null; showToast("标的已保存"); render();
 }
 
@@ -1280,7 +1352,7 @@ function submitPrice(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget));
   const asset = getAsset(data.assetId);
-  if (asset) asset.currentPrice = number(data.currentPrice);
+  if (asset) applyManualPrice(asset, data.currentPrice);
   saveState(); modal = null; showToast("价格已更新"); render();
 }
 
@@ -1323,12 +1395,20 @@ function resourceDue(asset, resource) {
   return isStale(asset[`${resource}UpdatedAt`], maxAge) && isStale(asset[`${resource}AttemptAt`], RETRY_MS);
 }
 
+function automaticResourceDue(asset, resource) {
+  // Snapshot reads are free. While the stored close is not the latest
+  // completed session, ignore the 18/24 hour budget and let the 60 second
+  // poll re-read market.json. Direct key mode keeps the budget gate.
+  if (isSnapshotMode() && !hasLatestValidPrice(asset)) return true;
+  return resourceDue(asset, resource);
+}
+
 async function updateAssetMarketData(asset, options = {}) {
   const apiKey = String(state.settings.alphaVantageApiKey || "").trim();
   configureMarketEndpoint(getMarketEndpoint());
   if (!apiKey && !getMarketEndpoint()) throw new Error("备用直连模式需要个人 API Key；也可切回默认 Actions 快照");
-  const updatePrice = !options.automatic || resourceDue(asset, "price");
-  const updateDividend = !options.automatic || resourceDue(asset, "dividend");
+  const updatePrice = !options.automatic || automaticResourceDue(asset, "price");
+  const updateDividend = !options.automatic || automaticResourceDue(asset, "dividend");
   if (!updatePrice && !updateDividend) return { skipped: true };
   const symbol = asset.apiSymbol || asset.ticker;
   let quoteOk = false;
@@ -1347,7 +1427,7 @@ async function updateAssetMarketData(asset, options = {}) {
         priceUpdatedAt: quote.fetchedAt || new Date().toISOString(), priceSource: quote.source,
         changePercent: quote.changePercent, priceLastError: quote.refreshWarning || null });
       quoteOk = (quote.priceDate || quote.tradingDay) === latestSessionDate();
-      if (!quoteOk) asset.priceLastError = `数据截至 ${quote.priceDate || quote.tradingDay || "—"}`;
+      if (!quoteOk) asset.priceLastError = hasUsableClose(asset) ? "沿用上一交易日收盘价" : `数据截至 ${quote.priceDate || quote.tradingDay || "—"}`;
     } catch (error) {
       lastError = error;
       asset.priceLastError = error.message;
@@ -1511,7 +1591,7 @@ async function refreshAllData(options = {}) {
 
 async function maybeAutoRefresh() {
   if (storageReadError || !state.settings.autoRefresh || !navigator.onLine || document.visibilityState === "hidden" || refreshInProgress || modal || currentTab === "settings") return;
-  if (Date.now() - lastAutoCheck < 60000) return;
+  if (Date.now() - lastAutoCheck < SNAPSHOT_POLL_MS) return;
   lastAutoCheck = Date.now();
   const fxStale = !hasFreshFx();
   const marketStale = state.assets.some((asset) => !hasLatestValidPrice(asset) || resourceDue(asset, "price") || resourceDue(asset, "dividend"));
@@ -1643,4 +1723,4 @@ window.addEventListener("focus", () => maybeAutoRefresh());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") maybeAutoRefresh();
 });
-setInterval(() => maybeAutoRefresh(), 60000);
+setInterval(() => maybeAutoRefresh(), SNAPSHOT_POLL_MS);

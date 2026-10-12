@@ -38,7 +38,7 @@ function fetcher(options = {}) {
       if (options.nasdaqDividendFails?.includes(ticker)) throw new Error("network");
       return response({ data: { dividends: { rows: options.nasdaqDividends?.[ticker] || null } } });
     }
-    if (parsed.hostname.includes("neosfunds.com")) return { ok: true, text: async () => neos(symbol === "spyi" ? "12.15" : "14.39") };
+    if (parsed.hostname.includes("neosfunds.com")) { if (options.neosFails) throw new Error("network"); return { ok: true, text: async () => neos(symbol === "spyi" ? "12.15" : "14.39") }; }
     if (parsed.hostname.includes("ssga.com")) { if (options.stateStreetFails) throw new Error("network"); return { ok: true, text: async () => stateStreet({ fundDistributionYield: options.stateStreetFundYield, noYield: options.stateStreetNoYield }) }; }
     if (parsed.hostname.includes("frankfurter")) { if (options.fxPrimaryFails) throw new Error("network"); return response({ rate: 7.2, date: "2026-09-15" }); }
     if (parsed.hostname.includes("open.er-api.com")) { if (options.fxBackupFails) throw new Error("network"); return response({ rates: { CNY: 7.21 }, time_last_update_unix: dayStamp("2026-09-15") }); }
@@ -53,6 +53,17 @@ test("NYSE calendar uses New York close, weekends, holidays and early closes", (
   assert.equal(isUsTradingDay("2026-09-07"), false); // Labor Day
   assert.equal(latestCompletedUsTradingSession(Date.parse("2026-09-08T14:00:00Z")).date, "2026-09-04");
   assert.equal(isEarlyClose("2026-11-27"), true);
+  assert.equal(isEarlyClose("2026-07-02"), false);
+  assert.equal(isUsTradingDay("2026-07-03"), false);
+  assert.equal(isEarlyClose("2026-07-03"), false);
+  assert.equal(isEarlyClose("2026-12-24"), true);
+  assert.equal(isEarlyClose("2027-07-02"), false);
+  assert.equal(isEarlyClose("2027-12-23"), true);
+  assert.equal(isEarlyClose("2027-12-24"), false);
+  assert.equal(isEarlyClose("2028-07-03"), true);
+  assert.equal(isUsTradingDay("2022-07-04"), false);
+  assert.equal(isEarlyClose("2022-07-01"), true);
+  assert.equal(isEarlyClose("2022-07-03"), false);
   assert.equal(latestCompletedUsTradingSession(Date.parse("2026-11-27T17:30:00Z")).date, "2026-11-25"); // 12:30 ET, not closed yet
   assert.equal(latestCompletedUsTradingSession(Date.parse("2026-11-27T18:10:00Z")).date, "2026-11-27"); // 13:10 ET, complete
 });
@@ -186,4 +197,15 @@ test("QNDX retains the last valid yield and marks it stale when every source fai
   assert.equal(snapshot.symbols.QNDX.dividend_rate.data_date, "2026-09-15");
   assert.equal(snapshot.symbols.QNDX.dividend_rate.yield_type, "30 Day SEC Yield");
   assert.equal(snapshot.symbols.QNDX.dividend_rate.status, "stale");
+});
+
+test("NEOS failure keeps the last distribution rate and marks it stale", async () => {
+  const previous = { schemaVersion: 2, symbols: { QQQI: { dividend_rate: { rate: 0.1428, data_date: "2026-09-30", source: "NEOS official Distribution Rate", kind: "distribution_rate", fetched_at: "2026-09-30T00:00:00.000Z" } } } };
+  const snapshot = await updateSnapshot({ previous, apiKey: "test", now: NOW, fetcher: fetcher({ neosFails: true }) });
+  assert.equal(snapshot.symbols.QQQI.dividend_rate.rate, 0.1428);
+  assert.equal(snapshot.symbols.QQQI.dividend_rate.data_date, "2026-09-30");
+  assert.equal(snapshot.symbols.QQQI.dividend_rate.kind, "distribution_rate");
+  assert.equal(snapshot.symbols.QQQI.dividend_rate.status, "stale");
+  assert.equal(snapshot.symbols.SPYI.dividend_rate.coverage, "insufficient");
+  assert.equal(snapshot.symbols.SPYI.dividend_rate.status, "unavailable");
 });

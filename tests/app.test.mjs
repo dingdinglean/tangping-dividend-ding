@@ -16,6 +16,7 @@ function app(saved, { systemDark = false } = {}) {
   const documentElement = { dataset: {}, style: {} };
   const mediaQuery = { matches: systemDark, addEventListener(type, listener) { if (type === "change") this.listener = listener; } };
   const context = vm.createContext({ Date: FixedDate, crypto: webcrypto, structuredClone, Intl, URL,
+    FormData: class { constructor(target) { this.pairs = Object.entries(target?.fields || {}); } [Symbol.iterator]() { return this.pairs[Symbol.iterator](); } },
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
     navigator: { onLine: true }, window: { matchMedia: () => mediaQuery }, document: { visibilityState: "visible", documentElement, querySelector: (selector) => selector === 'meta[name="theme-color"]' ? themeColor : null }, setTimeout, clearTimeout,
     APP_VERSION,
@@ -111,7 +112,7 @@ test("resource freshness ignores global success; failures back off independently
 });
 test("automatic refresh requests only stale resources and can run again after reconnect", async () => {
   const a=app(fixture()); let quoteCalls=0, dividendCalls=0;
-  a.context.fetchAlphaQuote=async()=>{quoteCalls++;return {price:101};};
+  a.context.fetchAlphaQuote=async()=>{quoteCalls++;return {price:101,tradingDay:"2026-09-04",priceDate:"2026-09-04",source:"test"};};
   a.context.fetchAlphaDividends=async()=>{dividendCalls++;return {dividends:[{exDate:"2026-08-01",amount:1}],source:"test"};};
   a.context.fetchUsdCnyRate=async()=>({rate:7,date:"2026-09-05"});
   a.run('state.assets[0].dividendUpdatedAt=new Date().toISOString()');
@@ -153,6 +154,8 @@ test("a failed dividend-rate refresh preserves the last valid rate and marks it 
   assert.equal(a.run("state.assets[0].dividendRate"), 0.0044);
   assert.equal(a.run("state.assets[0].dividendRateStale"), true);
   assert.equal(a.run("state.assets[0].dividendRateYieldType"), "30 Day SEC Yield");
+  a.run("state.assets[0].manualDividendYieldPercent = null");
+  assert.match(a.run("renderAssetCard(calculatePortfolio().positions[0])"), /30 Day SEC Yield · 09\/17 · 已过期，沿用上次/);
 });
 
 test("a legacy zero manual yield cannot hide QNDX's verified 30 Day SEC Yield", () => {
@@ -207,12 +210,29 @@ test("quota failure stops fallback waterfall and missing price doesn't create a 
   assert.equal(a.run("calculatePortfolio().totals.priceCoverageComplete"),false);
 });
 
-test("total market value only includes prices from the same completed US session and a fresh FX rate", () => {
+test("a prior close still values the holding, and a missing price stays out of the total", () => {
   const a = app(fixture());
-  a.run('state.settings.exchangeRateUpdatedAt=new Date().toISOString(); state.assets.push({id:"old",ticker:"OLD",frequency:"monthly",currentPrice:200,priceDate:"2026-09-03",manualDividendYieldPercent:10,remoteDividends:[]}); state.transactions.push({assetId:"old",type:"buy",date:"2026-01-01",shares:10,price:180})');
-  assert.equal(a.run("calculatePortfolio().totals.marketValue"), 10000);
+  a.run(`state.settings.exchangeRateUpdatedAt=new Date().toISOString();
+    Object.assign(state.assets[0], { currentPrice: 56.27, priceDate: "2026-09-03", priceTradingDay: "2026-09-03", priceSource: "Nasdaq historical close", manualDividendYieldPercent: null, dividendRate: 0.1428, dividendRateDate: "2026-08-31", dividendRateKind: "distribution_rate", dividendRateYieldType: "Distribution Rate", dividendCoverage: "complete" });
+    state.assets.push({id:"none",ticker:"NONE",frequency:"monthly",currentPrice:0,priceDate:null,manualDividendYieldPercent:null,remoteDividends:[]});
+    state.transactions.push({assetId:"none",type:"buy",date:"2026-01-01",shares:10,price:180})`);
+  assert.equal(a.run("calculatePortfolio().totals.marketValue"), 5627);
+  assert.ok(a.run("calculatePortfolio().totals.annualForecast") > 800);
   assert.equal(a.run("calculatePortfolio().totals.priceCoverageComplete"), false);
+  assert.equal(a.run("calculatePortfolio().totals.carriedCloseCount"), 1);
   assert.match(a.run("renderPortfolio()"), /待更新/);
+  const home = a.run("renderHome()");
+  assert.match(home, /沿用上一交易日收盘价 · 2026-09-03/);
+  assert.match(home, /按各标的自身口径估算/);
+  const card = a.run("renderAssetCard(calculatePortfolio().positions[0])");
+  assert.match(card, /沿用上一交易日收盘价 · 09\/03/);
+  assert.match(card, /status-dot stale/);
+  assert.equal(a.run('priceStatusText(state.assets[0]).startsWith("沿用上一交易日收盘价")'), true);
+  a.run('state.assets[0].priceDate="2026-09-04"; state.assets[0].priceTradingDay="2026-09-04"');
+  assert.match(a.run("priceStatusText(state.assets[0])"), /^收盘价 · 09\/04/);
+  assert.equal(a.run("usesPriorClose(state.assets[0])"), false);
+  assert.match(a.run("renderAssetCard(calculatePortfolio().positions[0])"), /status-dot fresh/);
+  assert.doesNotMatch(a.run("renderHome()"), /沿用上一交易日收盘价/);
 });
 
 test("settings keeps the export row and reminds only when no backup exists", () => {
@@ -339,4 +359,105 @@ test("confirmed dividend persists the final displayed net amount used by receipt
   });
   assert.equal(saved.received, 49.63);
   assert.equal(saved.september, 49.63);
+});
+
+test("snapshot mode rechecks a misaligned close about every 60 seconds and stays quiet once aligned", async () => {
+  const a = app(fixture());
+  let quoteCalls = 0;
+  a.context.fetchAlphaQuote = async () => { quoteCalls += 1; return { price: 56.27, tradingDay: "2026-09-03", priceDate: "2026-09-03", source: "Nasdaq historical close", fetchedAt: "2026-09-04T09:00:00.000Z" }; };
+  a.context.fetchAlphaDividends = async () => ({ dividends: [], source: "test" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => ({ dividends: [] });
+  a.context.fetchAlphaOverviewDividend = async () => ({ dividendYield: 0.1428, dataDate: "2026-08-31", quality: "distribution_rate", yieldType: "Distribution Rate", coverage: "complete" });
+  a.context.fetchUsdCnyRate = async () => ({ rate: 7, date: "2026-09-05", fetchedAt: new Date().toISOString() });
+  a.run(`state.settings.marketDataMode="snapshot";
+    Object.assign(state.assets[0], { priceDate: "2026-09-03", priceUpdatedAt: new Date().toISOString(), dividendUpdatedAt: new Date().toISOString(), priceAttemptAt: new Date().toISOString(), dividendAttemptAt: new Date().toISOString() });
+    lastAutoCheck = 0`);
+  assert.equal(a.run("SNAPSHOT_POLL_MS"), 60000);
+  assert.equal(a.run('automaticResourceDue(state.assets[0], "price")'), true);
+  await a.run("maybeAutoRefresh()");
+  assert.equal(quoteCalls, 1);
+  a.run("lastAutoCheck = Date.now() - 1000");
+  await a.run("maybeAutoRefresh()");
+  assert.equal(quoteCalls, 1);
+  a.run("lastAutoCheck = Date.now() - 60000");
+  await a.run("maybeAutoRefresh()");
+  assert.equal(quoteCalls, 2);
+  a.run(`Object.assign(state.assets[0], { currentPrice: 56.27, priceDate: "2026-09-04", priceTradingDay: "2026-09-04", priceSource: "Nasdaq historical close", priceUpdatedAt: new Date().toISOString(), dividendUpdatedAt: new Date().toISOString() });
+    lastAutoCheck = 0`);
+  assert.equal(a.run('automaticResourceDue(state.assets[0], "price")'), false);
+  await a.run("maybeAutoRefresh()");
+  assert.equal(quoteCalls, 2);
+});
+
+test("direct mode keeps the 18 hour budget when the stored close is from a previous session", async () => {
+  const a = app(fixture());
+  let quoteCalls = 0;
+  a.context.fetchAlphaQuote = async () => { quoteCalls += 1; return { price: 56.27, priceDate: "2026-09-04", tradingDay: "2026-09-04" }; };
+  a.context.fetchUsdCnyRate = async () => ({ rate: 7, date: "2026-09-05", fetchedAt: new Date().toISOString() });
+  a.run(`state.settings.marketDataMode="direct";
+    Object.assign(state.assets[0], { priceDate: "2026-09-03", priceUpdatedAt: new Date().toISOString(), dividendUpdatedAt: new Date().toISOString(), priceAttemptAt: new Date().toISOString(), dividendAttemptAt: new Date().toISOString() });
+    lastAutoCheck = 0`);
+  assert.equal(a.run('automaticResourceDue(state.assets[0], "price")'), false);
+  await a.run("maybeAutoRefresh()");
+  assert.equal(quoteCalls, 0);
+  assert.equal(a.run("state.assets[0].currentPrice"), 100);
+});
+
+test("manual price records the latest session date and a manual source", () => {
+  const a = app(fixture());
+  a.run(`Object.assign(state.assets[0], { currentPrice: 50, priceDate: "2026-09-03", priceSource: "Nasdaq historical close", priceUpdatedAt: "2026-09-03T20:00:00.000Z" });
+    submitPrice({ preventDefault() {}, currentTarget: { fields: { assetId: "a", currentPrice: "56.5" } } })`);
+  assert.equal(a.run("state.assets[0].currentPrice"), 56.5);
+  assert.equal(a.run("state.assets[0].priceDate"), "2026-09-04");
+  assert.equal(a.run("state.assets[0].priceTradingDay"), "2026-09-04");
+  assert.equal(a.run("state.assets[0].priceSource"), "手动");
+  const card = a.run("renderAssetCard(calculatePortfolio().positions[0])");
+  assert.match(card, /手动价格 · 09\/04/);
+  assert.doesNotMatch(card, /沿用上一交易日收盘价/);
+  a.run(`Object.assign(state.assets[0], { currentPrice: 100, priceDate: "2026-09-03", priceTradingDay: "2026-09-03", priceSource: "Nasdaq historical close" });
+    submitAsset({ preventDefault() {}, currentTarget: { fields: { assetId: "a", ticker: "TEST", apiSymbol: "TEST", name: "Test", assetType: "ETF", frequency: "monthly", role: "现金", manualDividendYieldPercent: "12", currentPrice: "100" } } })`);
+  assert.equal(a.run("state.assets[0].priceSource"), "Nasdaq historical close");
+  assert.equal(a.run("state.assets[0].priceDate"), "2026-09-03");
+});
+
+test("a prior-close refresh keeps confirmed dividends and the existing storage key", async () => {
+  const a = app(fixture());
+  a.context.fetchAlphaQuote = async () => ({ price: 100, tradingDay: "2026-09-03", priceDate: "2026-09-03", source: "Nasdaq historical close" });
+  a.context.fetchAlphaDividends = async () => ({ dividends: [{ exDate: "2026-08-01", paymentDate: "2026-08-05", amount: 9 }], source: "Alpha Vantage Dividends" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => ({ dividends: [] });
+  a.context.fetchAlphaOverviewDividend = async () => ({ dividendYield: 0.12, dataDate: "2026-08-31", quality: "distribution_rate", yieldType: "Distribution Rate", coverage: "complete" });
+  a.run(`state.transactions.push({ id: "recv", assetId: "a", type: "dividend", status: "received", date: "2026-08-01", exDate: "2026-08-01", netDividend: 42, grossDividend: 50, perShare: 0.5 });
+    Object.assign(state.assets[0], { priceDate: "2026-09-03", manualDividendYieldPercent: null })`);
+  const before = a.run('state.transactions.find((tx) => tx.id === "recv").netDividend');
+  await a.run("updateAssetMarketData(state.assets[0])");
+  assert.equal(before, 42);
+  assert.equal(a.run('state.transactions.find((tx) => tx.id === "recv").netDividend'), 42);
+  assert.equal(a.run('state.transactions.find((tx) => tx.id === "recv").status'), "received");
+  a.run("saveState()");
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(stored.transactions.find((tx) => tx.id === "recv").netDividend, 42);
+  assert.equal(stored.transactions.filter((tx) => tx.type === "buy").length, 1);
+  assert.equal(a.storage.has("tangping-dividend.v2"), false);
+});
+
+test("income chart year follows the calendar year instead of a fixed 2026", () => {
+  const a = app(fixture());
+  assert.equal(a.run("incomeChartYear()"), 2026);
+  assert.equal(a.run("incomeChartYear(new Date(2027, 0, 3))"), 2027);
+  assert.match(a.run("renderHome()"), /2026 年股息趋势/);
+  assert.match(a.run("renderIncomeChart(monthlyIncomeData(2027), 1, 2027)"), /2027 年股息趋势/);
+});
+
+test("different published yield types stay labeled separately", () => {
+  const a = app(fixture());
+  a.run(`state.assets[0].manualDividendYieldPercent = null;
+    Object.assign(state.assets[0], { dividendRate: 0.1428, dividendRateDate: "2026-08-31", dividendRateKind: "distribution_rate", dividendRateYieldType: "Distribution Rate", dividendCoverage: "complete" });
+    state.assets.push({ id: "s", ticker: "SCHD", frequency: "quarterly", currentPrice: 33.04, priceDate: "2026-09-04", manualDividendYieldPercent: null, dividendRate: 0.0319, dividendRateDate: "2026-06-24", dividendRateKind: "ttm_distribution_yield", dividendRateYieldType: "TTM Distribution Yield", dividendCoverage: "complete", remoteDividends: [] });
+    state.transactions.push({ assetId: "s", type: "buy", date: "2026-01-01", shares: 10, price: 30 })`);
+  const home = a.run("renderHome()");
+  assert.match(home, /各标的口径不同，不是统一股息率/);
+  assert.match(home, /预期现金流\/市值/);
+  assert.doesNotMatch(home, /价格股息率|成本股息率/);
+  assert.match(a.run("renderAssetCard(calculatePortfolio().positions[0])"), /Distribution Rate · 08\/31/);
+  assert.match(a.run("renderAssetCard(calculatePortfolio().positions[1])"), /TTM Distribution Yield · 06\/24/);
 });

@@ -1,5 +1,5 @@
-import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.3.0";
-import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.3.0";
+import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.4.0";
+import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.4.0";
 
 const FX_PRIMARY = "https://api.frankfurter.dev/v2/rate/USD/CNY";
 const FX_BACKUP = "https://open.er-api.com/v6/latest/USD";

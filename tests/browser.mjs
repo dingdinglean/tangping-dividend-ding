@@ -30,11 +30,15 @@ async function testStaticSnapshots(browser, engine) {
     const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
   });
   await new Promise(r=>snapshotServer.listen(0,"127.0.0.1",r));
+  const snapshotPort=snapshotServer.address().port;
   const context=await browser.newContext({viewport:{width:390,height:844}});
   try {
     await context.route("https://api.frankfurter.dev/**",r=>r.fulfill({json:{rate:7,date:"2026-09-05"}}));
     const page=await context.newPage();const errors=[];page.on("pageerror",e=>errors.push(e.message));
     await page.goto(`http://127.0.0.1:${snapshotServer.address().port}`);
+    // WebKit reports an aborted initial SW registration as a page error.
+    // Finish installation before the fixture's first reload.
+    await page.evaluate(async()=>{const registration=await navigator.serviceWorker.ready;await registration.update();});
     await page.evaluate(()=>localStorage.setItem("tangping-dividend.v1",JSON.stringify({version:1,settings:{autoRefresh:true},assets:[{id:"test",ticker:"QQQI",frequency:"monthly",currentPrice:0}],transactions:[]})));
     await page.reload();
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.alphaVantageApiKey),"");
@@ -46,11 +50,21 @@ async function testStaticSnapshots(browser, engine) {
     await page.evaluate(()=>navigator.serviceWorker.ready);
     await page.reload();
     assert.equal(await snapshotPrice(),105);
+    // Finish the load-time SW check before deliberately removing the network.
+    await page.evaluate(async()=>{const registration=await navigator.serviceWorker.ready;await registration.update();});
+    await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
     const snapshotCachePrice=()=>page.evaluate(async()=>{const cache=await caches.open("tangping-market-snapshots-v2");const response=await cache.match(new URL("./data/market.json",location.href).href);return (await response.json()).symbols.QQQI.price.price;});
-    await context.setOffline(true);
+    // Playwright's WebKit offline flag rejects SW responses before dispatch
+    // (microsoft/playwright#42775). Stop the origin to test actual fallback.
+    if(engine==="WebKit") await new Promise(r=>snapshotServer.close(r));
+    else await context.setOffline(true);
+    assert.equal(await snapshotPrice(),105);
     const cached=await snapshotCachePrice();
     assert.equal(cached,105);
-    await context.setOffline(false);fail=true;
+    if(engine==="WebKit") await new Promise(r=>snapshotServer.listen(snapshotPort,"127.0.0.1",r));
+    else await context.setOffline(false);
+    fail=true;
+    assert.equal(await snapshotPrice(),105);
     assert.equal(await snapshotCachePrice(),105);
     assert.deepEqual(errors,[]);
     console.log(`PASS ${engine} snapshot: no personal key, new network snapshot, offline/503 last-good fallback`);
@@ -58,13 +72,14 @@ async function testStaticSnapshots(browser, engine) {
 }
 let browser;
 try {
-  browser=await chromium.launch({headless:true, ...(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {})});
+  browser=await chromium.launch({headless:true, ...(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {}), ...(process.env.CHROMIUM_EXECUTABLE_PATH ? {executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:["--no-sandbox","--disable-dev-shm-usage"]} : {})});
   const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true});
   const page=await context.newPage(); const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
   await page.goto(base);
   await page.evaluate(data=>localStorage.setItem("tangping-dividend.v1",JSON.stringify(data)),fixture);
   await page.reload(); await page.waitForSelector(".chart-bars");
+  await page.waitForFunction(() => [...document.querySelectorAll(".bar.received")].some(el => el.getBoundingClientRect().height > 10));
   assert.equal(await page.locator(".bar-group").count(),12);
   assert.ok(await page.locator(".bar.received").evaluateAll(bars=>bars.some(el=>el.getBoundingClientRect().height>10)));
   assert.equal(await page.locator(".milestone").count(),0);
@@ -132,7 +147,7 @@ try {
   let legacy=true;
   const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");
   const release=await readFile(new URL("../pwa-release.js",import.meta.url),"utf8");
-  const legacyRelease=release.replaceAll(appVersion,"8.2.0");
+  const legacyRelease=release.replaceAll(appVersion,"7.3.0");
   const upgradeServer=http.createServer(async(req,res)=>{
     const url=new URL(req.url,base);
     if(url.pathname==="/sw.js" || (url.pathname==="/pwa-release.js" && url.search==="")) {
@@ -164,7 +179,7 @@ try {
     assert.equal(navigations,1);
     const keys=await updatePage.evaluate(()=>caches.keys());
     assert.ok(keys.includes(`tangping-dividend-v${appVersion}`));
-    assert.equal(keys.includes("tangping-dividend-v8.2.0"), false);
+    assert.equal(keys.includes("tangping-dividend-v7.3.0"), false);
     const kept=await updatePage.evaluate(()=>({tx:JSON.parse(localStorage.getItem("tangping-dividend.v1")).transactions[0].id,backup:localStorage.getItem("tangping-dividend.backup-before-delete")}));
     assert.equal(kept.tx,"tx-keep");
     assert.equal(kept.backup,"{\"marker\":\"keep-backup\"}");
@@ -172,11 +187,12 @@ try {
   } finally {await updateContext.close(); await new Promise(r=>upgradeServer.close(r));}
   await testStaticSnapshots(browser,"Chromium");
   await browser.close(); browser=null;
-  try { browser=await webkit.launch({headless:true}); }
+  try { browser=await webkit.launch({headless:true, ...(process.env.WEBKIT_EXECUTABLE_PATH ? {executablePath:process.env.WEBKIT_EXECUTABLE_PATH} : {})}); }
   catch(error) { if(process.env.REQUIRE_WEBKIT) throw error; console.log("SKIP WebKit: browser binary unavailable (not a real iPhone verification)"); }
   if(browser) {
     const page=await browser.newPage({viewport:{width:390,height:844}});
     await page.goto(base); await page.evaluate(data=>localStorage.setItem("tangping-dividend.v1",JSON.stringify(data)),fixture); await page.reload();
+    await page.waitForFunction(() => [...document.querySelectorAll(".bar.received")].some(el => el.getBoundingClientRect().height > 10));
     assert.ok(await page.locator(".bar.received").evaluateAll(bars=>bars.some(el=>el.getBoundingClientRect().height>10)));
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     for(const tab of ["home","portfolio","calendar","settings"]) { await page.locator(`[data-tab="${tab}"]`).click(); assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`WebKit horizontal overflow ${tab}`); }

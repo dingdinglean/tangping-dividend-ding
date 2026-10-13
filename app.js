@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.3.0";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.3.0";
-import { APP_VERSION } from "./pwa-release.js?v=7.3.0";
+import { configureMarketEndpoint, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.4.0";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.4.0";
+import { APP_VERSION } from "./pwa-release.js?v=7.4.0";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -65,6 +65,14 @@ let selectedDate = isoDate(new Date());
 let toastTimer = null;
 let refreshInProgress = false;
 let lastAutoCheck = 0;
+// Presentation state only: never persisted with holdings or transactions.
+let selectedIncomeMonth = null;
+let renderedTab = null;
+let renderedModalKey = "";
+let animatePageEntry = false;
+let countAnimationFrame = null;
+const displayedNumbers = new Map();
+let displayedFreedomProgress = null;
 
 // Never replace an in-progress form when a background request completes.
 function renderAfterSync() {
@@ -189,6 +197,85 @@ function money(amountUsd, forceCurrency) {
     currency,
     maximumFractionDigits: 2,
   }).format(amount || 0);
+}
+
+function animatedMoney(key, amountUsd, forceCurrency) {
+  const currency = forceCurrency || state.settings.displayCurrency;
+  const value = number(amountUsd) * (currency === "CNY" ? number(state.settings.exchangeRate, 7.2) : 1);
+  return `<span data-count-key="${key}" data-count-value="${value}" data-count-currency="${currency}" aria-label="${escapeHtml(money(amountUsd, currency))}">${money(amountUsd, currency)}</span>`;
+}
+
+function animateHomeValues() {
+  if (countAnimationFrame !== null) cancelAnimationFrame(countAnimationFrame);
+  countAnimationFrame = null;
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const items = [...document.querySelectorAll("[data-count-key]")].map((element) => {
+    const key = element.dataset.countKey;
+    const target = number(element.dataset.countValue);
+    const currency = element.dataset.countCurrency;
+    const previous = displayedNumbers.get(key);
+    const start = previous?.currency === currency ? previous.value : target;
+    const formatter = new Intl.NumberFormat("zh-CN", { style: "currency", currency, maximumFractionDigits: 2 });
+    return { element, key, target, start, currency, formatter };
+  });
+  const fill = document.querySelector("[data-progress-value]");
+  const progress = fill ? Math.min(100, Math.max(0, number(fill.dataset.progressValue))) / 100 : null;
+  const progressStart = displayedFreedomProgress ?? progress;
+  const write = (fraction) => {
+    for (const item of items) {
+      const value = item.start + (item.target - item.start) * fraction;
+      item.element.textContent = item.formatter.format(value);
+      displayedNumbers.set(item.key, { value, currency: item.currency });
+    }
+    if (fill) {
+      displayedFreedomProgress = progressStart + (progress - progressStart) * fraction;
+      fill.style.transform = `scaleX(${displayedFreedomProgress})`;
+    }
+  };
+  if (reduced?.matches || (!items.some((item) => Math.abs(item.target - item.start) > .005) && progress === progressStart)) {
+    write(1);
+    return;
+  }
+  write(0);
+  const started = performance.now();
+  const step = (now) => {
+    const fraction = reduced?.matches ? 1 : Math.min(1, (now - started) / 360);
+    write(1 - (1 - fraction) ** 3);
+    countAnimationFrame = fraction < 1 ? requestAnimationFrame(step) : null;
+  };
+  countAnimationFrame = requestAnimationFrame(step);
+}
+
+function updateIncomeChartSelection({ animate = true } = {}) {
+  const card = document.querySelector(".chart-card");
+  if (!card) return;
+  const groups = [...card.querySelectorAll("[data-chart-month]")];
+  const group = groups.find((element) => Number(element.dataset.chartMonth) === selectedIncomeMonth);
+  groups.forEach((element) => element.setAttribute("aria-pressed", String(element === group)));
+  const tooltip = card.querySelector(".chart-tooltip");
+  if (!group) {
+    tooltip.classList.remove("is-visible");
+    tooltip.setAttribute("aria-hidden", "true");
+    setTimeout(() => { if (selectedIncomeMonth === null && tooltip.isConnected) tooltip.textContent = ""; }, 180);
+    return;
+  }
+  const total = number(group.dataset.chartTotal);
+  tooltip.innerHTML = `<div class="chart-tooltip-content"><strong>${money(total)}</strong><small>${selectedIncomeMonth + 1}月合计</small></div>`;
+  tooltip.setAttribute("aria-hidden", "false");
+  const plot = card.querySelector(".chart-plot").getBoundingClientRect();
+  const bar = group.querySelector(".bar-growth");
+  const slot = group.querySelector(".bar-slot").getBoundingClientRect();
+  // One measurement per selection/render. Frames animate only transform/opacity.
+  const half = tooltip.offsetWidth / 2;
+  const center = group.getBoundingClientRect().left + group.offsetWidth / 2 - plot.left;
+  const left = Math.max(half + 4, Math.min(plot.width - half - 4, center));
+  const top = Math.max(2, slot.bottom - bar.offsetHeight - plot.top - tooltip.offsetHeight - 8);
+  tooltip.style.transform = `translate3d(${left - half}px, ${top}px, 0)`;
+  tooltip.classList.add("is-visible");
+  const content = tooltip.firstElementChild;
+  if (animate && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    content.animate?.([{ opacity: .2, transform: "translateY(4px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" });
+  }
 }
 
 function number(value, fallback = 0) {
@@ -735,10 +822,15 @@ function getFreedomStatus(monthlyIncomeCny) {
 
 function render() {
   const app = document.querySelector("#app");
+  const modalKey = modal ? `${modal.type}:${modal.transactionId || modal.assetId || ""}` : "";
+  const modalScroll = modalKey === renderedModalKey ? app.querySelector(".modal")?.scrollTop || 0 : 0;
+  renderedModalKey = modalKey;
+  animatePageEntry = renderedTab !== currentTab;
+  renderedTab = currentTab;
   app.innerHTML = `
     <main class="app-shell">
       ${renderTopbar()}
-      <section class="tab-page ${currentTab}-page">
+      <section class="tab-page ${currentTab}-page ${animatePageEntry ? "is-entering" : ""}">
         ${storageReadError ? '<section class="card storage-warning"><p>原有数据暂时无法读取，已停止写入，未清空原始内容。</p><button class="btn" data-action="export-data">导出原始备份</button></section>' : ""}
         ${currentTab === "home" ? renderHome() : ""}
         ${currentTab === "portfolio" ? renderPortfolio() : ""}
@@ -750,6 +842,10 @@ function render() {
     ${modal ? renderModal() : ""}
   `;
   bindEvents();
+  const panel = app.querySelector(".modal");
+  if (panel) panel.scrollTop = modalScroll;
+  animateHomeValues();
+  updateIncomeChartSelection({ animate: false });
 }
 
 function renderTopbar() {
@@ -766,9 +862,20 @@ function renderTopbar() {
         <div class="logo" aria-hidden="true">◔</div>
         <div><h1>${title}</h1><p>${sub}</p></div>
       </div>
-      <button class="icon-btn" data-action="toggle-currency" title="切换人民币/美元">${state.settings.displayCurrency === "CNY" ? "¥" : "$"}</button>
+      <div class="topbar-actions">
+        ${currentTab === "home" ? renderDividendBell() : ""}
+        <button class="icon-btn" data-action="toggle-currency" title="切换人民币/美元">${state.settings.displayCurrency === "CNY" ? "¥" : "$"}</button>
+      </div>
     </header>
   `;
+}
+
+function renderDividendBell() {
+  const count = getPendingDividendTransactions().length;
+  return `<button class="icon-btn dividend-bell" data-action="open-dividend-inbox" aria-label="待确认股息${count ? `，${count} 笔` : "，暂无待办"}" aria-haspopup="dialog">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+    ${count ? `<span class="bell-badge" aria-hidden="true">${count > 99 ? "99+" : count}</span>` : ""}
+  </button>`;
 }
 
 function marketStatusText() {
@@ -818,11 +925,11 @@ function renderHome() {
 
   return `
     <section class="card hero income-hero">
-      <div class="hero-row"><div><div class="eyebrow">被动收入 / 每月 · ${state.settings.displayCurrency}</div><div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : money(monthExpected)}</div><div class="hero-sub">按各标的自身口径估算 ÷ 12${totals.carriedCloseCount ? " · 沿用上一交易日收盘价" : ""}${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div></div><div class="hero-goal"><span>月目标</span><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div></div>
-      <div class="income-facts"><div><span>累计股息</span><strong>${money(totals.received)}</strong></div><div><span>预计年股息</span><strong>${money(totals.annualForecast)}</strong></div></div>
+      <div class="hero-row"><div><div class="eyebrow">被动收入 / 每月 · ${state.settings.displayCurrency}</div><div class="hero-value">${!totals.dividendCoveredCount ? "待更新" : animatedMoney("monthly-income", monthExpected)}</div><div class="hero-sub">按各标的自身口径估算 ÷ 12${totals.carriedCloseCount ? " · 沿用上一交易日收盘价" : ""}${!totals.dividendCoverageComplete ? " · 部分标的待更新" : ""}</div></div><div class="hero-goal"><span>月目标</span><strong>${new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}</strong></div></div>
+      <div class="income-facts"><div><span>累计股息</span><strong>${animatedMoney("received-income", totals.received)}</strong></div><div><span>预计年股息</span><strong>${animatedMoney("annual-forecast", totals.annualForecast)}</strong></div></div>
     </section>
 
-    <div class="grid-2">
+    <div class="grid-2 home-yield-grid">
       <div class="metric-card">
         <div class="metric-label">预期现金流/市值</div>
         <div class="metric-value">${totals.marketValue > 0 && totals.dividendCoverageComplete && totals.priceCoverageComplete ? `${(currentYield * 100).toFixed(2)}%` : "待更新"}</div>
@@ -843,28 +950,30 @@ function renderHome() {
 
 function renderFreedomMilestones(monthlyIncomeCny) {
   const { milestones, current, next, progress } = getFreedomStatus(monthlyIncomeCny);
+  const incomeUsd = monthlyIncomeCny / number(state.settings.exchangeRate, 7.2);
   return `
     <section class="card freedom-card">
-      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? `${escapeHtml(current.icon)} ${escapeHtml(current.name)}` : "从第一步开始"}</h2></div><strong>${displayCnyAmount(monthlyIncomeCny)}<small>/月</small></strong></div>
-      <div class="freedom-next">${next ? `${escapeHtml(next.icon)} ${escapeHtml(next.name)} · ${displayCnyAmount(monthlyIncomeCny)} / ${displayCnyAmount(next.amountCny)}` : "六个里程碑已全部解锁"}</div>
-      <div class="progress-track freedom-progress"><div class="progress-fill" style="width:${progress}%"></div></div>
+      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? `${escapeHtml(current.icon)} ${escapeHtml(current.name)}` : "从第一步开始"}</h2></div><strong>${animatedMoney("freedom-income", incomeUsd)}<small>/月</small></strong></div>
+      <div class="freedom-next">${next ? `${escapeHtml(next.icon)} ${escapeHtml(next.name)} · ${animatedMoney("freedom-next", incomeUsd)} / ${displayCnyAmount(next.amountCny)}` : "六个里程碑已全部解锁"}</div>
+      <div class="progress-track freedom-progress" role="progressbar" aria-label="下一自由里程碑进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.toFixed(1)}"><div class="progress-fill" data-progress-value="${progress}" style="transform:scaleX(${progress / 100})"></div></div>
     </section>`;
 }
 
-function renderPendingDividends(rows) {
+function renderPendingDividends(rows, { heading = true } = {}) {
   if (!rows.length) return "";
   return `
-    <div class="section-title"><h2>待确认到账</h2><small>${rows.length} 笔</small></div>
+    ${heading ? `<div class="section-title"><h2>待确认到账</h2><small>${rows.length} 笔</small></div>` : ""}
     <section class="card pending-list">
       ${rows.map((tx) => {
         const asset = getAsset(tx.assetId);
-        return `<div class="pending-dividend">
+        return `<div class="pending-dividend" data-pending-id="${escapeHtml(tx.id)}">
           <div class="pending-main">
-            <div class="pending-title"><strong>${escapeHtml(asset?.ticker || "未知标的")}</strong><span class="tag warn">待确认</span></div>
+            <div class="pending-title"><strong>${escapeHtml(asset?.ticker || "未知标的")}</strong><span class="tag warn">已宣布 · 待确认</span></div>
+            <p>${Number(String(tx.paymentDate || tx.date).slice(5, 7))}月分红</p>
             <p>计划到账 ${escapeHtml(tx.paymentDate || tx.date)} · 除息 ${escapeHtml(tx.exDate || "—")}</p>
             <p>$${number(tx.perShare).toFixed(4)}/股 × ${number(tx.shareCount).toFixed(4).replace(/\.0+$/, "")} 股 · 税前 ${money(number(tx.grossDividend), "USD")}</p>
           </div>
-          <div class="pending-side"><strong>${money(number(tx.netDividend), "USD")}</strong><small>预计净到账</small><button class="btn yellow compact" data-action="confirm-dividend" data-id="${tx.id}">确认到账</button></div>
+          <div class="pending-side"><strong>${money(number(tx.netDividend))}</strong><small>预计净到账</small><button class="btn yellow compact" data-action="confirm-dividend" data-id="${escapeHtml(tx.id)}">确认收到</button></div>
         </div>`;
       }).join("")}
     </section>`;
@@ -875,6 +984,7 @@ function renderIncomeChart(chart, goalUsd, year = incomeChartYear()) {
   const values = chart.received.map((v, i) => v + chart.announced[i] + chart.forecast[i]);
   const max = Math.max(...values, 1) * 1.12;
   const annualTotal = values.reduce((sum, value) => sum + value, 0);
+  const annualReceived = chart.received.reduce((sum, value) => sum + value, 0);
   const axisLabel = (value) => new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value * (state.settings.displayCurrency === "CNY" ? number(state.settings.exchangeRate, 7.2) : 1));
   const heightFor = (value) => value > 0 ? Math.max(3, value / max * plotHeight) : 0;
   const bars = values.map((_, i) => {
@@ -882,12 +992,12 @@ function renderIncomeChart(chart, goalUsd, year = incomeChartYear()) {
     const a = heightFor(chart.announced[i]);
     const f = heightFor(chart.forecast[i]);
     const total = values[i];
-    return `<div class="bar-group" aria-label="${i + 1} 月 ${money(total)}"><div class="bar-stack ${total > 0 ? "has-value" : ""}"><div class="bar received" style="height:${r}px"></div><div class="bar announced" style="height:${a}px"></div><div class="bar forecast" style="height:${f}px"></div></div><div class="month-label">${i + 1}月</div></div>`;
+    return `<button type="button" class="bar-group" data-chart-month="${i}" data-chart-total="${total}" aria-label="${i + 1} 月 ${money(total)}" aria-pressed="false" style="--bar-delay:${i * 10}ms"><div class="bar-slot"><div class="bar-growth"><div class="bar-stack ${total > 0 ? "has-value" : ""}"><div class="bar received" style="height:${r}px"></div><div class="bar announced" style="height:${a}px"></div><div class="bar forecast" style="height:${f}px"></div></div></div></div><span class="month-label">${i + 1}月</span></button>`;
   }).join("");
   return `
     <section class="card chart-card">
-      <div class="chart-head"><div class="eyebrow">${year} 年股息趋势</div><strong>${money(annualTotal)}</strong></div>
-      <div class="chart-plot"><div class="chart-grid-lines">${[1, 2 / 3, 1 / 3, 0].map((ratio) => `<i><span>${axisLabel(max * ratio)}</span></i>`).join("")}</div><div class="chart-bars">${bars}</div></div>
+      <div class="chart-head"><div class="eyebrow">${year} 年股息趋势</div><div class="chart-year-totals"><strong>${animatedMoney("chart-total", annualTotal)}</strong><small>已收到 ${animatedMoney("year-received", annualReceived)}</small></div></div>
+      <div class="chart-plot"><div class="chart-grid-lines">${[1, 2 / 3, 1 / 3, 0].map((ratio) => `<i><span>${axisLabel(max * ratio)}</span></i>`).join("")}</div><div class="chart-bars ${animatePageEntry ? "is-entering" : ""}">${bars}</div><div class="chart-tooltip" role="status" aria-live="polite" aria-hidden="true"></div></div>
       <div class="legend"><span class="l1">已收到</span><span class="l2">已宣布</span><span class="l3">预测</span></div>
     </section>
   `;
@@ -1032,11 +1142,19 @@ function renderModal() {
   if (modal.type === "asset") return renderAssetModal(modal.assetId);
   if (modal.type === "price") return renderPriceModal(modal.assetId);
   if (modal.type === "confirm-dividend") return renderConfirmDividendModal(modal.transactionId);
+  if (modal.type === "dividend-inbox") return renderDividendInboxModal();
   if (modal.type === "display-settings") return renderDisplaySettingsModal();
   if (modal.type === "theme-settings") return renderThemeSettingsModal();
   if (modal.type === "goal-settings") return renderGoalSettingsModal();
   if (modal.type === "milestone-settings") return renderMilestoneSettingsModal();
   return "";
+}
+
+function renderDividendInboxModal() {
+  const rows = getPendingDividendTransactions();
+  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal dividend-inbox" data-modal-panel role="dialog" aria-modal="true" aria-labelledby="dividendInboxTitle"><div class="modal-handle"></div><div class="modal-head"><h3 id="dividendInboxTitle">待确认股息</h3><button class="icon-btn" data-action="close-modal" aria-label="关闭待确认股息">×</button></div>
+    ${rows.length ? `<p class="settings-hint">${rows.length} 笔已宣布股息等待确认</p>${renderPendingDividends(rows, { heading: false })}` : '<div class="empty inbox-empty"><span class="inbox-check" aria-hidden="true">✓</span><strong>暂无待确认股息</strong><p>已宣布的股息到预计到账日后会出现在这里。</p></div>'}
+  </div></div>`;
 }
 
 function renderTransactionModal() {
@@ -1150,7 +1268,8 @@ function renderConfirmDividendModal(transactionId) {
   if (!tx) return "";
   const initialNetCents = calculatedNetDividendCents(tx.grossDividend, tx.taxAndFees);
   const initialNet = initialNetCents === null || initialNetCents < 0 ? "" : formatUsdCents(initialNetCents);
-  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal" data-modal-panel><div class="modal-handle"></div><div class="modal-head"><h3>确认 ${escapeHtml(asset?.ticker || "")} 股息到账</h3><button class="icon-btn" data-action="close-modal">×</button></div>
+  const done = Boolean(modal?.confirmationDone);
+  return `<div class="modal-backdrop" data-action="close-modal"><div class="modal ${done ? "receipt-confirmed" : ""}" data-modal-panel role="dialog" aria-modal="true" aria-labelledby="confirmDividendTitle"><div class="modal-handle"></div><div class="modal-head"><h3 id="confirmDividendTitle">确认 ${escapeHtml(asset?.ticker || "")} 股息到账</h3><button class="icon-btn" data-action="close-modal" aria-label="关闭到账确认">×</button></div>
     <section class="confirm-summary">
       <div><span>除息日</span><strong>${escapeHtml(tx.exDate || "—")}</strong></div>
       <div><span>计划到账</span><strong>${escapeHtml(tx.paymentDate || tx.date)}</strong></div>
@@ -1161,22 +1280,34 @@ function renderConfirmDividendModal(transactionId) {
     </section>
     <form id="confirmDividendForm" class="form-grid">
       <input type="hidden" name="transactionId" value="${tx.id}" />
-      <div class="form-row"><label>实际到账日期</label><input class="input" type="date" name="actualDate" value="${todayKey()}" required /></div>
+      <div class="form-row"><label>实际到账日期</label><input class="input" type="date" name="actualDate" value="${tx.actualDate || todayKey()}" required /></div>
       <div class="form-row"><label>实际税前股息（USD）</label><input class="input" type="number" name="grossDividend" step="0.01" min="0" value="${number(tx.grossDividend).toFixed(2)}" required /></div>
       <div class="form-row"><label>预扣税与费用（USD）</label><input class="input" type="number" name="taxAndFees" step="0.01" min="0" value="${number(tx.taxAndFees).toFixed(2)}" /></div>
       <div class="form-row"><label>实际净到账（USD）</label><input class="input" type="number" name="netDividend" step="0.01" min="0" value="${initialNet}" required /></div>
       <div class="form-row"><label>备注</label><textarea name="note" placeholder="例如：IBKR 实际到账">${escapeHtml(tx.note || "")}</textarea></div>
-      <button class="btn primary full" type="submit">确认已到账</button>
+      <button class="btn primary full ${done ? "receipt-success" : ""}" type="submit" ${done ? "disabled" : ""}>${done ? "✓ 已收到" : "确认已到账"}</button>
     </form>
   </div></div>`;
 }
 
 function bindEvents() {
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
+    if (currentTab === button.dataset.tab) return;
     currentTab = button.dataset.tab;
+    selectedIncomeMonth = null;
     window.scrollTo(0, 0);
     render();
   }));
+
+  const chart = document.querySelector(".chart-card");
+  chart?.addEventListener("click", (event) => {
+    const bar = event.target.closest("[data-chart-month]");
+    selectedIncomeMonth = bar ? Number(bar.dataset.chartMonth) : null;
+    updateIncomeChartSelection();
+  });
+  chart?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { selectedIncomeMonth = null; updateIncomeChartSelection(); }
+  });
 
   document.querySelectorAll("[data-action]").forEach((element) => element.addEventListener("click", (event) => {
     const action = element.dataset.action;
@@ -1218,12 +1349,13 @@ async function handleAction(action, element) {
     saveState(); render();
   }
   if (action === "open-add") { transactionType = "buy"; modal = { type: "transaction" }; render(); }
-  if (action === "close-modal") { modal = null; render(); }
+  if (action === "close-modal") { modal = modal?.type === "confirm-dividend" && modal.returnToInbox ? { type: "dividend-inbox" } : null; render(); }
+  if (action === "open-dividend-inbox") { modal = { type: "dividend-inbox" }; render(); }
   if (action === "pick-type") { transactionType = element.dataset.type; render(); }
   if (action === "open-asset") { modal = { type: "asset" }; render(); }
   if (action === "asset-detail") { modal = { type: "asset", assetId: element.dataset.id }; render(); }
   if (action === "quick-price") { modal = { type: "price", assetId: element.dataset.id }; render(); }
-  if (action === "confirm-dividend") { modal = { type: "confirm-dividend", transactionId: element.dataset.id }; render(); }
+  if (action === "confirm-dividend") { modal = { type: "confirm-dividend", transactionId: element.dataset.id, returnToInbox: modal?.type === "dividend-inbox" }; render(); }
   if (action === "prev-month") { calendarCursor.setMonth(calendarCursor.getMonth() - 1); render(); }
   if (action === "next-month") { calendarCursor.setMonth(calendarCursor.getMonth() + 1); render(); }
   if (action === "select-date") { selectedDate = element.dataset.date; render(); }
@@ -1282,14 +1414,30 @@ function submitTransaction(event) {
 
 function submitConfirmDividend(event) {
   event.preventDefault();
+  if (modal?.confirmationDone) return;
   const data = Object.fromEntries(new FormData(event.currentTarget));
   const tx = state.transactions.find((item) => item.id === data.transactionId);
   if (!tx || tx.type !== "dividend") return showToast("找不到这笔股息记录");
-  try { confirmDividendRecord(tx, data); } catch (error) { showToast(error.message); return; }
-  saveState();
-  modal = null;
+  if (tx.status !== "announced") return showToast("这笔股息已经确认，请在日历查看");
+  const before = structuredClone(tx);
+  try {
+    confirmDividendRecord(tx, data);
+    saveState();
+  } catch (error) {
+    Object.keys(tx).forEach((key) => delete tx[key]);
+    Object.assign(tx, before);
+    showToast(error.message);
+    return;
+  }
+  const doneModal = { ...modal, confirmationDone: true };
+  modal = doneModal;
   showToast("股息到账已确认");
   render();
+  setTimeout(() => {
+    if (modal !== doneModal) return;
+    modal = doneModal.returnToInbox ? { type: "dividend-inbox" } : null;
+    render();
+  }, 420);
 }
 
 function submitDisplaySettings(event) {
@@ -1723,4 +1871,5 @@ window.addEventListener("focus", () => maybeAutoRefresh());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") maybeAutoRefresh();
 });
+window.addEventListener("resize", () => updateIncomeChartSelection({ animate: false }));
 setInterval(() => maybeAutoRefresh(), SNAPSHOT_POLL_MS);

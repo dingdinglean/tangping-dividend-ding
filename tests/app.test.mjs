@@ -132,6 +132,64 @@ test("chart uses the proportional visual pixel height and doesn't squash bars to
   assert.match(html,/height:85\.714/);
 });
 
+test("chart months are accessible controls and start without a selected amount", () => {
+  const a = app(fixture());
+  const html = a.run("renderIncomeChart(monthlyIncomeData(2026), 100)");
+  assert.equal((html.match(/data-chart-month=/g) || []).length, 12);
+  assert.equal((html.match(/aria-pressed="false"/g) || []).length, 12);
+  assert.match(html, /class="chart-tooltip"[^>]*aria-hidden="true"><\/div>/);
+  assert.match(html, /data-count-key="year-received"/);
+});
+
+test("bell includes only announced receipts that are due, and the inbox never confirms automatically", () => {
+  const a = app(fixture());
+  a.run(`state.transactions.push(
+    { id: "due", assetId: "a", type: "dividend", status: "announced", date: "2026-09-01", netDividend: 50 },
+    { id: "future", assetId: "a", type: "dividend", status: "announced", date: "2026-10-01", netDividend: 60 },
+    { id: "forecast", assetId: "a", type: "dividend", status: "forecast", date: "2026-09-01", netDividend: 70 },
+    { id: "received", assetId: "a", type: "dividend", status: "received", date: "2026-09-01", netDividend: 80 })`);
+  const before = a.run("JSON.stringify(state.transactions)");
+  assert.match(a.run("renderDividendBell()"), /待确认股息，1 笔/);
+  assert.match(a.run("renderDividendInboxModal()"), /data-pending-id="due"/);
+  assert.doesNotMatch(a.run("renderDividendInboxModal()"), /data-pending-id="future"|data-pending-id="forecast"|data-pending-id="received"/);
+  assert.equal(a.run("JSON.stringify(state.transactions)"), before);
+  assert.equal(a.run("modal"), null);
+});
+
+test("confirming saves one existing record, reduces the bell, updates received chart data and returns to the inbox", () => {
+  const a = app(fixture());
+  const timers = [];
+  a.context.setTimeout = callback => { timers.push(callback); return 1; };
+  a.run(`state.transactions.push({id:"due",assetId:"a",type:"dividend",status:"announced",date:"2026-09-04",grossDividend:100,taxAndFees:25,netDividend:75});
+    modal={type:"confirm-dividend",transactionId:"due",returnToInbox:true};
+    submitConfirmDividend({preventDefault(){},currentTarget:{fields:{transactionId:"due",actualDate:"2026-09-04",grossDividend:"100",taxAndFees:"30",netDividend:"70",note:"test"}}})`);
+  assert.equal(a.run("getPendingDividendTransactions().length"), 0);
+  assert.equal(a.run("calculatePortfolio().totals.received"), 70);
+  assert.equal(a.run("monthlyIncomeData(2026).received[8]"), 70);
+  assert.equal(a.run("monthlyIncomeData(2026).announced[8]"), 0);
+  assert.equal(a.run("state.transactions.length"), 2);
+  assert.equal(a.run("modal.confirmationDone"), true);
+  assert.match(a.run('renderConfirmDividendModal("due")'), /✓ 已收到/);
+  const saved = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(saved.transactions.find(tx => tx.id === "due").netDividend, 70);
+  assert.equal(saved.transactions.find(tx => tx.id === "due").status, "received");
+  assert.equal(app(saved).run("calculatePortfolio().totals.received"), 70);
+  timers[0]();
+  assert.equal(a.run("modal.type"), "dividend-inbox");
+  assert.match(a.run("renderDividendInboxModal()"), /暂无待确认股息/);
+});
+
+test("a failed receipt save preserves the announced record instead of showing false success", () => {
+  const a = app(fixture());
+  a.run(`state.transactions.push({id:"due",assetId:"a",type:"dividend",status:"announced",date:"2026-09-04",grossDividend:100,taxAndFees:25,netDividend:75});
+    modal={type:"confirm-dividend",transactionId:"due"}`);
+  const before = a.run('JSON.stringify(state.transactions.find(tx => tx.id === "due"))');
+  a.context.localStorage.setItem = () => { throw new Error("quota"); };
+  a.run('submitConfirmDividend({preventDefault(){},currentTarget:{fields:{transactionId:"due",actualDate:"2026-09-04",grossDividend:"100",taxAndFees:"30",netDividend:"70"}}})');
+  assert.equal(a.run('JSON.stringify(state.transactions.find(tx => tx.id === "due"))'), before);
+  assert.equal(a.run("Boolean(modal.confirmationDone)"), false);
+});
+
 test("unavailable dividend data is insufficient, not a false 0% forecast", () => {
   const saved = fixture();
   saved.assets[0].manualDividendYieldPercent = null;

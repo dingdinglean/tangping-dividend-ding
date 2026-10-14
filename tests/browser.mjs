@@ -120,10 +120,10 @@ try {
   assert.equal(await page.locator(".floating-add").count(),0);
   assert.equal(await page.locator("#marketDataMode,#marketDataEndpoint,#alphaVantageApiKey,#autoRefresh").count(),0);
   assert.equal(await page.getByText("动态数据").count(),0);
-  assert.ok(await page.getByText("躺平股息", { exact: true }).isVisible());
-  assert.ok(await page.getByText("尚未备份，升级前建议导出").isVisible());
-  assert.ok(await page.getByText(`v${appVersion}`).isVisible());
-  assert.equal(await page.locator('[data-action="export-data"] small').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
+  assert.equal(await page.locator(".settings-about").count(), 0);
+  assert.equal(await page.getByText("尚未备份，升级前建议导出").count(), 0);
+  assert.equal(await page.getByText(`v${appVersion}`).count(), 0);
+  assert.ok(await page.locator('[data-action="export-data"]').isVisible());
   assert.equal(await page.locator(".settings-menu-row").count(),7);
   assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
   await page.locator('[data-action="open-milestone-settings"]').click();

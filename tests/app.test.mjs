@@ -129,7 +129,7 @@ test("background completion preserves modal/settings forms", () => {
 test("chart uses the proportional visual pixel height and doesn't squash bars to an enormous goal", () => {
   const a=app(fixture()); const html=a.run('renderIncomeChart(monthlyIncomeData(2026),99999999)');
   assert.equal((html.match(/class="bar-group"/g)||[]).length,12);
-  assert.match(html,/height:85\.714/);
+  assert.match(html,/height:71\.428/);
 });
 
 test("chart months are accessible controls and start without a selected amount", () => {
@@ -281,7 +281,8 @@ test("a prior close still values the holding, and a missing price stays out of t
   assert.match(a.run("renderPortfolio()"), /待更新/);
   const home = a.run("renderHome()");
   assert.match(home, /沿用上一交易日收盘价 · 2026-09-03/);
-  assert.match(home, /按各标的自身口径估算/);
+  assert.doesNotMatch(home, /按各标的自身口径估算/);
+  assert.match(home, /部分标的待更新/);
   const card = a.run("renderAssetCard(calculatePortfolio().positions[0])");
   assert.match(card, /沿用上一交易日收盘价 · 09\/03/);
   assert.match(card, /status-dot stale/);
@@ -293,15 +294,68 @@ test("a prior close still values the holding, and a missing price stays out of t
   assert.doesNotMatch(a.run("renderHome()"), /沿用上一交易日收盘价/);
 });
 
-test("settings keeps the export row and reminds only when no backup exists", () => {
+test("compact settings keeps all seven actions without user-visible release information", () => {
   const a = app(fixture());
   const empty = a.run("renderSettings()");
-  assert.match(empty, /<b>躺平股息<\/b>/);
-  assert.match(empty, new RegExp(`v${APP_VERSION}`));
-  assert.match(empty, /尚未备份，升级前建议导出/);
+  assert.doesNotMatch(empty, /settings-about|行情自动更新，实际到账需本人确认|升级前建议导出/);
+  assert.doesNotMatch(empty, new RegExp(`v${APP_VERSION}`));
+  for (const action of ["open-display-settings", "open-theme-settings", "open-goal-settings", "open-milestone-settings", "export-data", "import-data", "reset-data"]) assert.match(empty, new RegExp(`data-action="${action}"`));
   assert.equal((empty.match(/settings-menu-row/g) || []).length, 7);
   a.run('state.settings.lastBackupAt="2026-09-01T00:00:00.000Z"');
   assert.doesNotMatch(a.run("renderSettings()"), /升级前建议导出/);
+});
+
+test("compact home has three regions, complete money and a bounded monthly goal progress", () => {
+  const a = app(fixture());
+  const before = a.run("JSON.stringify(state)");
+  const html = a.run("renderHome()");
+  assert.equal((html.match(/<section class="card/g) || []).length, 3);
+  assert.match(html, /income-facts/);
+  assert.match(html, /预期现金流\/市值/);
+  assert.doesNotMatch(html, /home-yield-grid|预期现金流\/成本|按各标的自身口径/);
+  for (const key of ["monthly-income", "received-income", "annual-forecast", "chart-total", "year-received"]) assert.match(html, new RegExp(`data-count-key="${key}"`));
+  a.run("state.settings.monthlyGoal=1");
+  assert.match(a.run("renderHome()"), /aria-label="月收入目标进度"[^>]*aria-valuenow="100.0"/);
+  a.run("state.settings.monthlyGoal=1000");
+  assert.equal(a.run("JSON.stringify(state)"), before);
+});
+
+test("cash flow on cost moves to portfolio while retaining its exact formula", () => {
+  const a = app(fixture());
+  const rate = a.run("(calculatePortfolio().totals.annualForecast/calculatePortfolio().totals.cost*100).toFixed(2)");
+  assert.match(a.run("renderPortfolio()"), new RegExp(`预期现金流/成本</span><strong>${rate}%`));
+  a.run('state.settings.displayCurrency="USD"');
+  assert.match(a.run("renderPortfolio()"), new RegExp(`预期现金流/成本</span><strong>${rate}%`));
+});
+
+test("clean topbars retain currency, bell and add controls with SVG navigation", () => {
+  const a = app(fixture());
+  assert.match(a.run("renderTopbar()"), /躺平股息/);
+  assert.doesNotMatch(a.run("renderTopbar()"), /今天离海边|<p>/);
+  for (const action of ["open-dividend-inbox", "toggle-currency", "open-add"]) assert.match(a.run("renderTopbar()"), new RegExp(action));
+  assert.equal((a.run("renderBottomNav()").match(/<svg/g) || []).length, 4);
+  assert.doesNotMatch(a.run("renderBottomNav()"), /open-add/);
+});
+
+test("currency display changes no stored values and milestone progress still uses CNY", () => {
+  const a = app(fixture());
+  const chart = JSON.stringify(a.run("monthlyIncomeData(2026)"));
+  const progress = a.run("getFreedomStatus(700).progress");
+  a.run('state.settings.displayCurrency="USD"');
+  assert.match(a.run("renderHome()"), /data-count-key="monthly-income" data-count-value="100" data-count-currency="USD"/);
+  assert.equal(a.run("getFreedomStatus(700).progress"), progress);
+  assert.equal(JSON.stringify(a.run("monthlyIncomeData(2026)")), chart);
+});
+
+test("clear-data action still requires confirmation and cancellation never writes", () => {
+  const a = app(fixture());
+  const before = a.run("JSON.stringify(state)");
+  let asked = 0;
+  a.context.confirm = () => { asked++; return false; };
+  a.run("resetData()");
+  assert.equal(asked, 1);
+  assert.equal(a.run("JSON.stringify(state)"), before);
+  assert.equal(a.storage.get("tangping-dividend.v1"), JSON.stringify(fixture()));
 });
 
 test("release upgrade rewrites neither the storage key nor saved transactions", () => {
@@ -331,7 +385,7 @@ test("system appearance follows the current system mode and updates when it chan
   lightSystem.run("applyTheme()");
   assert.equal(lightSystem.run("resolvedTheme()"), "light");
   assert.equal(lightSystem.documentElement.dataset.theme, "system");
-  assert.equal(lightSystem.themeColor.content, "#f4f4f6");
+  assert.equal(lightSystem.themeColor.content, "#f5f5f7");
 
   const darkSystem = app(fixture(), { systemDark: true });
   darkSystem.run("applyTheme()");
@@ -341,7 +395,7 @@ test("system appearance follows the current system mode and updates when it chan
   darkSystem.mediaQuery.matches = false;
   darkSystem.mediaQuery.listener();
   assert.equal(darkSystem.run("resolvedTheme()"), "light");
-  assert.equal(darkSystem.themeColor.content, "#f4f4f6");
+  assert.equal(darkSystem.themeColor.content, "#f5f5f7");
 });
 
 test("forced appearance overrides system preference and synchronizes the status color", () => {
@@ -355,7 +409,7 @@ test("forced appearance overrides system preference and synchronizes the status 
   systemDark.run('setTheme("light")');
   assert.equal(systemDark.run("resolvedTheme()"), "light");
   assert.equal(systemDark.documentElement.style.colorScheme, "light");
-  assert.equal(systemDark.themeColor.content, "#f4f4f6");
+  assert.equal(systemDark.themeColor.content, "#f5f5f7");
 });
 
 test("appearance persists locally and unknown legacy values safely fall back to system", () => {
@@ -513,7 +567,7 @@ test("different published yield types stay labeled separately", () => {
     state.assets.push({ id: "s", ticker: "SCHD", frequency: "quarterly", currentPrice: 33.04, priceDate: "2026-09-04", manualDividendYieldPercent: null, dividendRate: 0.0319, dividendRateDate: "2026-06-24", dividendRateKind: "ttm_distribution_yield", dividendRateYieldType: "TTM Distribution Yield", dividendCoverage: "complete", remoteDividends: [] });
     state.transactions.push({ assetId: "s", type: "buy", date: "2026-01-01", shares: 10, price: 30 })`);
   const home = a.run("renderHome()");
-  assert.match(home, /各标的口径不同，不是统一股息率/);
+  assert.doesNotMatch(home, /各标的口径不同，不是统一股息率/);
   assert.match(home, /预期现金流\/市值/);
   assert.doesNotMatch(home, /价格股息率|成本股息率/);
   assert.match(a.run("renderAssetCard(calculatePortfolio().positions[0])"), /Distribution Rate · 08\/31/);

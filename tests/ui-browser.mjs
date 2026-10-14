@@ -98,10 +98,10 @@ async function runUi(browser, engine) {
       await finishMotion(page);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${engine} overflow at ${width}px`);
       assert.ok(await page.evaluate(() => {
-        const grid = document.querySelector(".home-yield-grid").getBoundingClientRect();
+        const hero = document.querySelector(".income-hero").getBoundingClientRect();
         const milestone = document.querySelector(".freedom-card").getBoundingClientRect();
-        return milestone.top - grid.bottom >= 23 && [...document.querySelectorAll(".metric-card")].every(card => card.getBoundingClientRect().bottom - card.querySelector(".metric-foot").getBoundingClientRect().bottom >= 14);
-      }), `${engine} yield-card spacing at ${width}px`);
+        return milestone.top - hero.bottom >= 9 && document.querySelectorAll(".income-facts > div").length === 3 && !document.querySelector(".home-yield-grid");
+      }), `${engine} three-region compact spacing at ${width}px`);
       assert.ok(await page.locator(".chart-grid-lines i span").evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth + 1)), `${engine} clipped chart axis at ${width}px`);
       await checkSelection(page, 1, 0);
       await checkSelection(page, 10, 1155);

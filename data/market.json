@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-14T01:25:30.633Z",
+  "generatedAt": "2026-10-14T07:57:06.145Z",
   "refresh": {
     "target_price_date": "2026-10-13",
-    "generated_at": "2026-10-14T01:25:30.633Z"
+    "generated_at": "2026-10-14T07:57:06.145Z"
   },
   "fx": {
-    "rate": 6.6875,
+    "rate": 6.6871,
     "fx_date": "2026-10-14",
     "source": "Frankfurter",
-    "fetched_at": "2026-10-14T01:25:30.633Z"
+    "fetched_at": "2026-10-14T07:57:06.145Z"
   },
   "symbols": {
     "QQQI": {
@@ -18,7 +18,7 @@
         "price": 55.88,
         "price_date": "2026-10-13",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividends": {
         "data": [
@@ -184,14 +184,14 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividend_rate": {
         "rate": 0.14279999999999998,
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-13"
@@ -202,7 +202,7 @@
         "price": 54.11,
         "price_date": "2026-10-13",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividends": {
         "data": [
@@ -453,14 +453,14 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividend_rate": {
         "rate": 0.12210000000000001,
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-13"
@@ -471,7 +471,7 @@
         "price": 25.18,
         "price_date": "2026-10-13",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividends": {
         "data": [
@@ -482,7 +482,7 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividend_rate": {
         "rate": 0.0042,
@@ -491,7 +491,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-14T01:25:30.633Z",
+        "fetched_at": "2026-10-14T07:57:06.145Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -503,7 +503,7 @@
         "price": 33.37,
         "price_date": "2026-10-13",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividends": {
         "data": [
@@ -549,7 +549,7 @@
           }
         ],
         "source": "Yahoo Finance Dividends",
-        "fetched_at": "2026-10-14T01:25:30.633Z"
+        "fetched_at": "2026-10-14T07:57:06.145Z"
       },
       "dividend_rate": {
         "rate": 0.03161522325442014,
@@ -559,7 +559,7 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-14T01:25:30.633Z",
+        "fetched_at": "2026-10-14T07:57:06.145Z",
         "status": "valid"
       },
       "price_status": "valid",

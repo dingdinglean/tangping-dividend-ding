@@ -1,24 +1,55 @@
-import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.5.0";
-import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.5.0";
+import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.6.0";
+import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.6.0";
 
 const FX_PRIMARY = "https://api.frankfurter.dev/v2/rate/USD/CNY";
 const FX_BACKUP = "https://open.er-api.com/v6/latest/USD";
 let marketEndpoint = "";
 export const SNAPSHOT_PATH = "./data/market.json";
-let snapshotPromise = null; let snapshotLoadedAt = 0;
+let snapshotPromise = null; let snapshotLoadedAt = 0; let lastGoodSnapshot = null;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
 const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
 
 export function snapshotUrls(location = globalThis.location) { const mirror = githubPagesSnapshotMirror(location); return mirror ? [SNAPSHOT_PATH, mirror] : [SNAPSHOT_PATH]; }
-export function configureMarketEndpoint(value = "") { if (value !== marketEndpoint) { snapshotPromise = null; snapshotLoadedAt = 0; } if (!value || value === SNAPSHOT_PATH) { marketEndpoint = value; return; } const url = new URL(value); if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("共享服务请填写无参数的 HTTPS 地址"); marketEndpoint = url.href; }
+export function configureMarketEndpoint(value = "") { if (value !== marketEndpoint) { snapshotPromise = null; snapshotLoadedAt = 0; lastGoodSnapshot = null; } if (!value || value === SNAPSHOT_PATH) { marketEndpoint = value; return; } const url = new URL(value); if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("共享服务请填写无参数的 HTTPS 地址"); marketEndpoint = url.href; }
 async function fetchJson(url, timeoutMs = 18000) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { const response = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" }, cache: "no-store" }); if (!response.ok) throw new Error(response.status === 429 ? "行情请求额度已用完" : `HTTP ${response.status}`); return await response.json(); } catch (error) { if (error?.name === "AbortError") throw new Error("请求超时"); throw error; } finally { clearTimeout(timer); } }
-async function readSnapshotCopy(url) { let cache; const key = globalThis.location ? new URL(url, globalThis.location.href).href : url; try { cache = await globalThis.caches?.open("tangping-market-snapshots-v2"); } catch {} try { const data = await fetchJson(url); if (data?.schemaVersion !== 2 || !data.symbols) throw new Error("invalid snapshot"); try { await cache?.put(key, new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } })); } catch {} return data; } catch (error) { try { const cached = await cache?.match(key); if (cached) return await cached.json(); } catch {} throw error; } }
-async function loadSnapshot() { if (!snapshotPromise || Date.now() - snapshotLoadedAt > 60000) { snapshotLoadedAt = Date.now(); snapshotPromise = Promise.allSettled(snapshotUrls().map(readSnapshotCopy)).then((items) => { const valid = items.filter((item) => item.status === "fulfilled" && item.value?.schemaVersion === 2).map((item) => item.value); if (!valid.length) throw new Error("暂时无法读取静态行情，请检查 Actions 或网络；已有行情仍保留"); return valid.sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt))[0]; }).catch((error) => { snapshotPromise = null; throw error; }); } return snapshotPromise; }
+const snapshotTime = (data) => Date.parse(data?.generatedAt) || 0;
+async function readSnapshotCopy(url) {
+  let cache;
+  const key = globalThis.location ? new URL(url, globalThis.location.href).href : url;
+  try { cache = await globalThis.caches?.open("tangping-market-snapshots-v2"); } catch {}
+  let cached;
+  try { cached = await (await cache?.match(key))?.json(); } catch {}
+  try {
+    // Distinct URLs defeat Pages/Raw CDN caches; offline storage uses one canonical key.
+    const data = await fetchJson(`${url}?snapshot=${Date.now()}`);
+    if (data?.schemaVersion !== 2 || !data.symbols || !snapshotTime(data)) throw new Error("invalid snapshot");
+    if (snapshotTime(cached) > snapshotTime(data)) return cached;
+    try { await cache?.put(key, new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } })); } catch {}
+    return data;
+  } catch (error) {
+    if (cached?.schemaVersion === 2 && cached.symbols && snapshotTime(cached)) return cached;
+    throw error;
+  }
+}
+async function loadSnapshot(force = false) {
+  if (force || !snapshotPromise || Date.now() - snapshotLoadedAt >= 60000) {
+    snapshotLoadedAt = Date.now();
+    snapshotPromise = Promise.allSettled(snapshotUrls().map(readSnapshotCopy)).then((items) => {
+      const valid = items.filter((item) => item.status === "fulfilled").map((item) => item.value);
+      if (lastGoodSnapshot) valid.push(lastGoodSnapshot);
+      if (!valid.length) throw new Error("暂时无法读取静态行情，请检查 Actions 或网络；已有行情仍保留");
+      lastGoodSnapshot = valid.sort((a, b) => snapshotTime(b) - snapshotTime(a))[0];
+      return lastGoodSnapshot;
+    }).catch((error) => { snapshotPromise = null; throw error; });
+  }
+  return snapshotPromise;
+}
+export async function refreshSnapshot() { return (await loadSnapshot(true)).generatedAt; }
 export function parseSnapshot(snapshot, symbol, kind) { if (snapshot?.schemaVersion !== 2 || !snapshot.symbols) throw new Error("静态行情快照格式无效"); if (kind === "FX") { if (!validPrice(snapshot.fx?.rate) || !validDate(snapshot.fx?.fx_date)) throw new Error("USD/CNY 静态数据尚未生成"); return snapshot.fx; } const row = snapshot.symbols[symbol]; if (!row) throw new Error(`${symbol} 静态行情尚未生成`); const map = { PRICE: row.price, DIVIDENDS: row.dividends, DIVIDEND_RATE: row.dividend_rate }; if (!map[kind]) throw new Error(`${symbol} ${kind} 数据尚未生成`); return { ...map[kind], _status: kind === "PRICE" ? row.price_status : map[kind].status || "valid", _expectedDate: row.expected_price_date, _error: row.price_error || null }; }
 function quoteFromRecord(record) { return { price: Number(record.price), tradingDay: record.price_date, priceDate: record.price_date, source: record.source, fetchedAt: record.fetched_at, refreshWarning: record._status === "valid" ? null : "沿用上一交易日收盘价", changePercent: 0 }; }
 // Nasdaq and Yahoo responses do not allow browser reads. The phone only
 // re-reads the static snapshot; Actions keeps those sources on the server.
-export async function fetchAlphaQuote(symbol) { const snapshot = await loadSnapshot(); const record = parseSnapshot(snapshot, symbol, "PRICE"); const expected = latestCompletedUsTradingSession().date; if (record.price_date === expected && record._status === "valid") return quoteFromRecord(record); return quoteFromRecord({ ...record, _status: "stale" }); }
+export async function fetchAlphaQuote(symbol) { const snapshot = await loadSnapshot(); const record = parseSnapshot(snapshot, symbol, "PRICE"); const expected = latestCompletedUsTradingSession().date; if (!validPrice(record.price) || !validDate(record.price_date) || record.price_date > expected) throw new Error(`${symbol} 收盘价或日期无效`); if (record.price_date === expected && record._status === "valid") return quoteFromRecord(record); return quoteFromRecord({ ...record, _status: "stale" }); }
 export async function fetchAlphaDividends(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDENDS"); const dividends = (row.data || []).map((item) => ({ exDate: item.ex_date, declarationDate: "", recordDate: "", paymentDate: item.payment_date || "", amount: Number(item.amount) })).filter((item) => validDate(item.exDate) && validPrice(item.amount)); if (!dividends.length) throw new Error(`${symbol} 未返回有效股息记录`); return { dividends, source: row.source, quality: "exact", fetchedAt: row.fetched_at, refreshWarning: null }; }
 export async function fetchAlphaMonthlyAdjustedDividends() { throw new Error("静态快照未提供月度估算股息"); }
 export async function fetchAlphaOverviewDividend(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDEND_RATE"); if (!validPrice(row.rate) || row.coverage === "insufficient") throw new Error(`${symbol} 股息历史不足 12 个月`); return { annualDividendPerShare: Number(row.annual_per_share || 0), dividendYield: Number(row.rate), dataDate: row.data_date || "", source: row.source, fetchedAt: row.fetched_at || null, quality: row.kind || "snapshot", yieldType: row.yield_type || row.kind || "snapshot", stale: row._status === "stale", refreshWarning: row._status === "stale" ? "股息率来源刷新失败，继续使用上次有效数据" : null, coverage: row.coverage || "complete" }; }

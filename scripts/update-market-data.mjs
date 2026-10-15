@@ -165,7 +165,9 @@ export function summarizePrices(snapshot) {
   const target = snapshot.refresh.target_price_date;
   const valid = SYMBOLS.filter(symbol => snapshot.symbols[symbol]?.price_status === "valid" && snapshot.symbols[symbol]?.price?.price_date === target);
   const missing = SYMBOLS.filter(symbol => !valid.includes(symbol));
-  return { status: !missing.length ? "complete" : valid.length ? "partial" : "failed", valid: valid.length, total: SYMBOLS.length, stale_symbols: missing };
+  const updated = SYMBOLS.filter(symbol => snapshot.refresh.price_attempts.some(entry => entry.symbol === symbol && entry.status === "success"));
+  const failed = SYMBOLS.filter(symbol => !updated.includes(symbol));
+  return { status: !failed.length ? "complete" : valid.length || updated.length ? "partial" : "failed", valid: valid.length, total: SYMBOLS.length, stale_symbols: missing, updated: updated.length, failed_symbols: failed };
 }
 
 export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fetch, now = Date.now(), priceAttempts = 1, retryDelays = [45000, 90000], waiter = sleep, logger = () => {}, alphaMinIntervalMs = 0 } = {}) {
@@ -265,7 +267,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const snapshot = await run({ logger: entry => console.log(JSON.stringify(entry)) });
     const summary = snapshot.refresh.summary;
-    const text = `目标收盘日 ${snapshot.refresh.target_price_date}；有效收盘价 ${summary.valid}/${summary.total}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
+    const text = `目标收盘日 ${snapshot.refresh.target_price_date}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
     console.log(text);
     if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${summary.status}\n\n${text}\n`);
     if (summary.status !== "complete") process.exitCode = 1;

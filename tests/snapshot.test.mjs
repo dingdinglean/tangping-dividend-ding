@@ -234,7 +234,7 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
 test("partial failure has an explicit summary and never rewrites the last valid price date", async () => {
   const previous = { symbols:{ SPYI:{price:{symbol:"SPYI",price:55,price_date:"2026-09-14",source:"test",fetched_at:"2026-09-14T22:00:00Z"}}}};
   const snapshot = await updateSnapshot({previous, now:NOW, apiKey:"test", fetcher:fetcher({alphaFails:["SPYI"],yahooFails:["SPYI"]})});
-  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:3,total:4,stale_symbols:["SPYI"]});
+  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:3,total:4,stale_symbols:["SPYI"],updated:3,failed_symbols:["SPYI"]});
   assert.equal(snapshot.symbols.SPYI.price.price_date,"2026-09-14");
   assert.equal(snapshot.symbols.SPYI.price.price,55);
 });
@@ -284,4 +284,18 @@ test("a delayed ordinary ETF close recalculates TTM with the accepted final clos
   }});
   assert.equal(snapshot.symbols.SCHD.dividend_rate.rate,.02);
   assert.equal(snapshot.symbols.SCHD.price.price,100);
+});
+
+
+test("retaining same-session prices cannot disguise a failed fetch as a successful refresh", async () => {
+  const previous={symbols:Object.fromEntries(["QQQI","SPYI","QNDX","SCHD"].map(symbol=>[symbol,{price:{symbol,price:100,price_date:"2026-09-15",source:"test",fetched_at:"2026-09-15T21:00:00Z"}}]))};
+  const snapshot=await updateSnapshot({previous,now:NOW,fetcher:async()=>{throw new Error("offline");}});
+  assert.equal(snapshot.refresh.summary.status,"partial");
+  assert.equal(snapshot.refresh.summary.updated,0);
+  assert.equal(snapshot.refresh.summary.valid,4);
+  assert.equal(snapshot.refresh.summary.failed_symbols.length,4);
+  for(const row of Object.values(snapshot.symbols)) {
+    assert.equal(row.price_status,"valid");
+    assert.equal(row.price.fetched_at,"2026-09-15T21:00:00.000Z");
+  }
 });

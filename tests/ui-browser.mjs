@@ -1,16 +1,27 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { mkdir, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createMarketService, createServer } from "../server/server.mjs";
 import { APP_VERSION } from "../pwa-release.js";
 
 const { chromium, webkit } = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
-const server = createServer(await createMarketService());
+const appServer = createServer(await createMarketService());
+let liveMarket = false;
+const server = http.createServer((req, res) => {
+  if (!liveMarket && new URL(req.url,"http://localhost").pathname === "/data/market.json") {
+    const fetched_at = "2026-10-13T03:12:09.822Z";
+    res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
+    res.end(JSON.stringify({schemaVersion:2,generatedAt:fetched_at,fx:{rate:7,fx_date:"2026-10-13",source:"test",fetched_at},symbols:{QQQI:{price:{price:100,price_date:"2026-10-12",source:"test",fetched_at},price_status:"valid",dividends:{data:[],source:"test",fetched_at},dividend_rate:{rate:.12,data_date:"2026-10-12",source:"test",kind:"distribution_rate"}}}}));
+  } else appServer.emit("request",req,res);
+});
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const screenshots = process.env.UI_SCREENSHOT_DIR;
 if (screenshots) await mkdir(screenshots, { recursive: true });
 const fresh = "2026-10-13T03:12:09.822Z";
+// Receipt/chart assertions use a fixed public snapshot without live announcement inserts.
+// The separate market case below verifies synchronization against the committed snapshot.
 const fixture = {
   version: 1,
   settings: { displayCurrency: "CNY", exchangeRate: 7, exchangeRateUpdatedAt: fresh, autoRefresh: true, lastMarketRefreshAt: fresh },
@@ -25,24 +36,26 @@ const fixture = {
 };
 const cny = value => new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value);
 
-async function contextFor(browser, data = fixture, options = {}) {
+async function contextFor(browser, data = fixture, { clock = "2026-10-13T03:30:00Z", ...options } = {}) {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, timezoneId: "Asia/Shanghai", ...options });
-  await context.addInitScript(data => {
+  await context.addInitScript(({data, clock}) => {
     const NativeDate = Date;
     window.Date = class extends NativeDate {
-      constructor(...args) { super(...(args.length ? args : ["2026-10-13T03:30:00Z"])); }
-      static now() { return new NativeDate("2026-10-13T03:30:00Z").getTime(); }
+      constructor(...args) { super(...(args.length ? args : [clock])); }
+      static now() { return new NativeDate(clock).getTime(); }
     };
     if (!sessionStorage.getItem("ui-fixture-seeded")) {
       localStorage.setItem("tangping-dividend.v1", JSON.stringify(data));
       sessionStorage.setItem("ui-fixture-seeded", "1");
     }
-  }, data);
+  }, { data, clock });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(base);
   await page.waitForSelector(".chart-bars");
+  // Finish startup synchronization before checking animated DOM nodes.
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.lastMarketRefreshMessage.startsWith("1/1"));
   return { context, page, errors };
 }
 
@@ -168,10 +181,12 @@ async function runUi(browser, engine) {
   } finally { await reduced.context.close(); }
 
   const old = structuredClone(fixture);
+  old.settings.autoRefresh = true;
   old.assets[0].priceDate = "2026-10-09";
-  const market = await contextFor(browser, old);
+  const source = JSON.parse(await readFile(new URL("../data/market.json", import.meta.url), "utf8"));
+  liveMarket = true;
+  const market = await contextFor(browser, old, {clock: source.generatedAt});
   try {
-    const source = JSON.parse(await readFile(new URL("../data/market.json", import.meta.url), "utf8"));
     await market.page.waitForFunction(expected => JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice === expected, source.symbols.QQQI.price.price);
     const saved = await market.page.evaluate(() => JSON.parse(localStorage.getItem("tangping-dividend.v1")));
     assert.equal(saved.assets[0].priceDate, source.symbols.QQQI.price.price_date);
@@ -179,7 +194,7 @@ async function runUi(browser, engine) {
     assert.equal(saved.transactions.find(tx => tx.id === "oct").netDividend, 40);
     assert.deepEqual(market.errors, []);
     console.log(`PASS ${engine}: unchanged automatic snapshot path loads ${source.generatedAt} / close ${saved.assets[0].priceDate}, keeps holdings and confirmed receipts`);
-  } finally { await market.context.close(); }
+  } finally { await market.context.close(); liveMarket = false; }
 }
 
 let browser;

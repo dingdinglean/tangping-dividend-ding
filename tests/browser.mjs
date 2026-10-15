@@ -33,6 +33,7 @@ async function testStaticSnapshots(browser, engine) {
   const snapshotPort=snapshotServer.address().port;
   const context=await browser.newContext({viewport:{width:390,height:844}});
   try {
+    await context.addInitScript(() => { const NativeDate=Date; window.Date=class extends NativeDate { constructor(...args){super(...(args.length?args:["2026-09-19T09:00:00Z"]));} static now(){return new NativeDate("2026-09-19T09:00:00Z").getTime();} }; });
     await context.route("https://api.frankfurter.dev/**",r=>r.fulfill({json:{rate:7,date:"2026-09-05"}}));
     const page=await context.newPage();const errors=[];page.on("pageerror",e=>errors.push(e.message));
     await page.goto(`http://127.0.0.1:${snapshotServer.address().port}`);
@@ -42,10 +43,13 @@ async function testStaticSnapshots(browser, engine) {
     await page.evaluate(()=>localStorage.setItem("tangping-dividend.v1",JSON.stringify({version:1,settings:{autoRefresh:true},assets:[{id:"test",ticker:"QQQI",frequency:"monthly",currentPrice:0}],transactions:[]})));
     await page.reload();
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.alphaVantageApiKey),"");
-    const snapshotPrice=()=>page.evaluate(async()=>{const response=await fetch("./data/market.json",{cache:"no-store"});return (await response.json()).symbols.QQQI.price.price;});
+    const snapshotPrice=()=>page.evaluate(async()=>{const response=await fetch("./data/market.json?snapshot="+Date.now(),{cache:"no-store"});return (await response.json()).symbols.QQQI.price.price;});
     assert.equal(await snapshotPrice(),101);
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===101);
     price=105;
     assert.equal(await snapshotPrice(),105);
+    await page.evaluate(()=>window.dispatchEvent(new Event("online")));
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===105);
     assert.ok(requests>=2);
     await page.evaluate(()=>navigator.serviceWorker.ready);
     await page.reload();
@@ -66,8 +70,11 @@ async function testStaticSnapshots(browser, engine) {
     fail=true;
     assert.equal(await snapshotPrice(),105);
     assert.equal(await snapshotCachePrice(),105);
+    fail=false; price=107;
+    await page.evaluate(()=>window.dispatchEvent(new Event("focus")));
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===107);
     assert.deepEqual(errors,[]);
-    console.log(`PASS ${engine} snapshot: no personal key, new network snapshot, offline/503 last-good fallback`);
+    console.log(`PASS ${engine} snapshot: initial/online/focus sync, query URL offline cache, no personal key, new network snapshot, offline/503 last-good fallback`);
   } finally {await context.close();await new Promise(r=>snapshotServer.close(r));}
 }
 let browser;
@@ -106,8 +113,10 @@ try {
   assert.ok(await page.locator(".floating-add").isVisible());
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
-  await page.locator(".asset-card-compact").click();
-  assert.ok(await page.locator(".asset-detail-summary").isVisible());
+  await page.locator(".asset-toggle").click();
+  assert.equal(await page.locator(".asset-toggle").getAttribute("aria-expanded"), "true");
+  await page.locator('[data-action="asset-detail"]').click();
+  assert.ok(await page.locator(".modal .asset-detail-summary").isVisible());
   assert.ok(await page.locator('[data-action="delete-asset"]').isVisible());
   await page.locator('[data-action="close-modal"]').last().click();
   await page.locator('[data-tab="calendar"]').click();

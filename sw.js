@@ -22,7 +22,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const snapshotUrl = new URL("./data/market.json", self.location.href).href;
   const mirrorUrl = githubPagesSnapshotMirror(self.location);
-  if (url.href === snapshotUrl || (mirrorUrl && url.href === mirrorUrl)) {
+  const canonicalUrl = new URL(url); canonicalUrl.search = ""; canonicalUrl.hash = "";
+  if (canonicalUrl.href === snapshotUrl || (mirrorUrl && canonicalUrl.href === mirrorUrl)) {
     event.respondWith((async () => {
       const cache = await caches.open(SNAPSHOT_CACHE);
       try {
@@ -30,10 +31,15 @@ self.addEventListener("fetch", (event) => {
         if (!response.ok) throw new Error("snapshot unavailable");
         const body = await response.clone().json();
         if (body.schemaVersion !== 2 || !body.symbols || typeof body.symbols !== "object") throw new Error("invalid snapshot");
-        await cache.put(event.request, response.clone());
+        const cached = await cache.match(canonicalUrl.href);
+        if (cached) {
+          const prior = await cached.clone().json();
+          if (Date.parse(prior.generatedAt) > Date.parse(body.generatedAt)) return cached;
+        }
+        await cache.put(canonicalUrl.href, response.clone());
         return response;
       } catch {
-        return await cache.match(event.request) || Response.error();
+        return await cache.match(canonicalUrl.href) || Response.error();
       }
     })());
     return;

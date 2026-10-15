@@ -89,15 +89,16 @@ for (const engine of ["Chromium", "WebKit"]) {
       { name: "iphone17promax-pwa", width: 440, height: 956, safeTop: 62, safeBottom: 34 },
       { name: "iphone375", width: 375, height: 667 },
       { name: "iphone390", width: 390, height: 744 },
+      { name: "iphone402", width: 402, height: 774 },
       { name: "iphone430", width: 430, height: 832 },
       { name: "large-text", width: 440, height: 763, fontSize: 24 },
     ]) {
       const context = await browser.newContext({ viewport: { width: profile.width, height: profile.height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, timezoneId: "Asia/Shanghai", reducedMotion: "reduce" });
-      await context.addInitScript(data => {
+      await context.addInitScript(({data, clock}) => {
         const NativeDate = Date;
-        window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : ["2026-10-14T09:30:00Z"])); } static now() { return new NativeDate("2026-10-14T09:30:00Z").getTime(); } };
+        window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return new NativeDate(clock).getTime(); } };
         if (!sessionStorage.getItem("seeded")) { localStorage.setItem("tangping-dividend.v1", JSON.stringify(data)); sessionStorage.setItem("seeded", "1"); }
-      }, fixture);
+      }, {data:fixture, clock:snapshot.generatedAt});
       const page = await context.newPage();
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
@@ -125,6 +126,22 @@ for (const engine of ["Chromium", "WebKit"]) {
           await settle(page);
           if (tab === "calendar") await page.locator('[data-date="2026-10-14"]').click();
           await validatePage(page, tab, `${engine}/${profile.name}`);
+          if (tab === "portfolio") {
+            const layout = await page.evaluate(() => {
+              const cards = [...document.querySelectorAll(".asset-card-compact")].map(n => ({top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom,height:n.getBoundingClientRect().height}));
+              const dockTop = document.querySelector(".navigation-dock").getBoundingClientRect().top;
+              return {cards,dockTop,oneScreen:cards.length===4 && cards[3].bottom+8<=dockTop && document.documentElement.scrollHeight<=innerHeight+1};
+            });
+            result.profiles.at(-1).portfolio = layout;
+            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),4);
+            if(profile.name.startsWith("iphone17promax")) assert.ok(layout.oneScreen,`${engine}/${profile.name} portfolio does not fit: ${JSON.stringify(layout)}`);
+            await page.locator('.asset-toggle').first().click();
+            assert.equal(await page.locator('.asset-toggle').first().getAttribute('aria-expanded'),'true');
+            assert.ok(await page.locator('.asset-expanded').first().isVisible());
+            assert.ok(await page.locator('[data-action="asset-detail"]').first().isVisible());
+            await page.locator('.asset-toggle').first().click();
+            assert.equal(await page.locator('.asset-toggle').first().getAttribute('aria-expanded'),'false');
+          }
           if (profile.name === "iphone17promax-safari" || (tab === "home" && profile.name === "iphone17promax-pwa")) await page.screenshot({ path: `${output}/${engine.toLowerCase()}-${profile.name}-${tab}.png`, fullPage: tab === "portfolio" || baseline });
           if (profile.name === "iphone17promax-safari") {
             await page.emulateMedia({ colorScheme: "dark" });
@@ -141,7 +158,7 @@ for (const engine of ["Chromium", "WebKit"]) {
         assert.deepEqual(errors, []);
       } finally { await context.close(); }
     }
-    console.log(`PASS ${engine}: six layout profiles, four tabs, dark/light, full amounts, safe-area simulation, tap sizes, ledger persistence`);
+    console.log(`PASS ${engine}: seven layout profiles, four tabs, dark/light, full amounts, safe-area simulation, tap sizes, ledger persistence`);
   } catch (error) {
     if (engine === "WebKit" && !process.env.REQUIRE_WEBKIT && !browser) { console.log(`SKIP WebKit host unavailable: ${error.message.split("\n")[0]}`); continue; }
     throw error;

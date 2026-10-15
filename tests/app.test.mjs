@@ -21,7 +21,7 @@ function app(saved, { systemDark = false } = {}) {
     navigator: { onLine: true }, window: { matchMedia: () => mediaQuery }, document: { visibilityState: "visible", documentElement, querySelector: (selector) => selector === 'meta[name="theme-color"]' ? themeColor : null }, setTimeout, clearTimeout,
     APP_VERSION,
     latestCompletedUsTradingSession: () => ({ date: "2026-09-04" }),
-    configureMarketEndpoint() {}, wait: async () => {}, console });
+    configureMarketEndpoint() {}, refreshSnapshot: async () => "test-snapshot", wait: async () => {}, console });
   vm.runInContext(source, context);
   vm.runInContext('render = () => {}; showToast = () => {};', context);
   return { run: (code) => vm.runInContext(code, context), context, storage, themeColor, documentElement, mediaQuery };
@@ -572,4 +572,34 @@ test("different published yield types stay labeled separately", () => {
   assert.doesNotMatch(home, /价格股息率|成本股息率/);
   assert.match(a.run("renderAssetCard(calculatePortfolio().positions[0])"), /Distribution Rate · 08\/31/);
   assert.match(a.run("renderAssetCard(calculatePortfolio().positions[1])"), /TTM Distribution Yield · 06\/24/);
+});
+
+
+test("a newly published snapshot refreshes already aligned closes without waiting 18 hours", async () => {
+  const a = app(fixture()); let version = "first"; let calls = 0;
+  a.context.refreshSnapshot = async () => version;
+  a.context.fetchAlphaQuote = async () => ({ price: ++calls + 100, priceDate: "2026-09-04", tradingDay: "2026-09-04", source: "test", fetchedAt: new Date().toISOString() });
+  a.context.fetchAlphaDividends = async () => ({ dividends: [{exDate:"2026-09-01",amount:1}], source: "test" });
+  a.context.fetchAlphaOverviewDividend = async () => ({ dividendYield: .12, coverage: "complete" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => ({ dividends: [] });
+  a.context.fetchUsdCnyRate = async () => ({ rate: 7, date: "2026-09-05", fetchedAt: new Date().toISOString() });
+  a.run('state.settings.marketDataMode="snapshot"');
+  await a.run('maybeAutoRefresh()'); assert.equal(calls, 1);
+  a.run('lastAutoCheck=0'); await a.run('maybeAutoRefresh()'); assert.equal(calls, 1);
+  version = "second";
+  a.run('lastAutoCheck=0'); await a.run('maybeAutoRefresh()'); assert.equal(calls, 2);
+  assert.equal(a.run('state.assets[0].currentPrice'), 102);
+});
+
+test("a lagging snapshot cannot replace a newer verified close or claim full price success", async () => {
+  const a = app(fixture());
+  a.context.fetchAlphaQuote = async () => ({ price: 1, priceDate: "2026-09-03", tradingDay: "2026-09-03" });
+  a.context.fetchAlphaDividends = async () => ({ dividends: [{exDate:"2026-09-01",amount:1}], source: "test" });
+  a.context.fetchAlphaOverviewDividend = async () => ({ dividendYield: .12, coverage: "complete" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => ({ dividends: [] });
+  a.context.fetchUsdCnyRate = async () => ({ rate: 7, date: "2026-09-05", fetchedAt: new Date().toISOString() });
+  await a.run('refreshAllData()');
+  assert.equal(a.run('state.assets[0].currentPrice'), 100);
+  assert.equal(a.run('state.assets[0].priceDate'), "2026-09-04");
+  assert.match(a.run('state.settings.lastMarketRefreshMessage'), /快照较旧/);
 });

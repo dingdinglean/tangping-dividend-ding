@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configureMarketEndpoint, fetchAlphaQuote, parseSnapshot, snapshotUrls } from "../market-data.js";
+import { configureMarketEndpoint, fetchAlphaQuote, parseSnapshot, snapshotUrls, refreshSnapshot } from "../market-data.js";
 import { latestCompletedUsTradingSession } from "../market-calendar.js";
 
 const snapshot = { schemaVersion: 2, generatedAt: "2026-09-15T22:00:00.000Z", fx: { rate: 7.2, fx_date: "2026-09-15", source: "Frankfurter", fetched_at: "2026-09-15T22:00:00.000Z" }, symbols: { QQQI: { price: { symbol: "QQQI", price: 100, price_date: "2026-09-15", source: "Yahoo Finance Chart", fetched_at: "2026-09-15T22:00:00.000Z" }, price_status: "valid", expected_price_date: "2026-09-15", dividends: { data: [{ ex_date: "2026-09-01", amount: 1 }], source: "test", fetched_at: "2026-09-15T22:00:00.000Z" }, dividend_rate: { rate: .14, data_date: "2026-08-31", kind: "distribution_rate", source: "NEOS official Distribution Rate" } } } };
@@ -67,4 +67,22 @@ test("browser quote reader uses the snapshot and does not call Nasdaq or Yahoo",
     globalThis.fetch = original;
     resetCache();
   }
+});
+
+
+test("snapshot revalidation bypasses CDN URLs, observes same-day publications, and refuses to regress", async () => {
+  const original=globalThis.fetch; let current=structuredClone(snapshot); const urls=[];
+  const reset=()=>{configureMarketEndpoint("./data/market.json");configureMarketEndpoint("");};
+  globalThis.fetch=async url=>{urls.push(String(url));return {ok:true,json:async()=>structuredClone(current)};};
+  try {
+    reset();
+    assert.equal(await refreshSnapshot(),snapshot.generatedAt);
+    current.generatedAt="2026-09-15T23:00:00.000Z"; current.symbols.QQQI.price.price=105;
+    assert.equal(await refreshSnapshot(),current.generatedAt);
+    assert.equal((await fetchAlphaQuote("QQQI")).price,105);
+    current=structuredClone(snapshot);
+    assert.equal(await refreshSnapshot(),"2026-09-15T23:00:00.000Z");
+    assert.equal((await fetchAlphaQuote("QQQI")).price,105);
+    assert.ok(urls.every(url=>url.includes("?snapshot=")));
+  } finally {globalThis.fetch=original;reset();}
 });

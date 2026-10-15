@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay } from "../market-calendar.js";
-import { updateSnapshot } from "../scripts/update-market-data.mjs";
+import { updateSnapshot, fetchYahooPrice } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
@@ -208,4 +208,80 @@ test("NEOS failure keeps the last distribution rate and marks it stale", async (
   assert.equal(snapshot.symbols.QQQI.dividend_rate.status, "stale");
   assert.equal(snapshot.symbols.SPYI.dividend_rate.coverage, "insufficient");
   assert.equal(snapshot.symbols.SPYI.dividend_rate.status, "unavailable");
+});
+
+
+test("delayed publication retries only unresolved ETFs, with bounded delays and sanitized diagnostics", async () => {
+  const base = fetcher({ alphaFails:["SPYI"], yahooFails:["SPYI"] });
+  const calls = new Map(); const delays = []; const logs = [];
+  const snapshot = await updateSnapshot({ now: NOW, apiKey: "SECRET-ONLY-TEST", priceAttempts: 3, retryDelays: [45000,90000], waiter: async ms => delays.push(ms), logger: entry => logs.push(entry), fetcher: async (url, opts) => {
+    const match = /quote\/(\w+)\/historical/.exec(String(url));
+    if (match) {
+      const ticker = match[1]; calls.set(ticker, (calls.get(ticker)||0)+1);
+      if (ticker === "SPYI" && calls.get(ticker) < 3) throw new Error("https://bad.test/?apikey=SECRET-ONLY-TEST");
+      return response({ data: { tradesTable: { rows: [{date:"09/15/2026",close:"$100"}] } } });
+    }
+    return base(url, opts);
+  } });
+  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1});
+  assert.deepEqual(delays, [45000,90000]);
+  assert.equal(snapshot.refresh.summary.status, "complete");
+  assert.equal(snapshot.refresh.summary.valid, 4);
+  assert.equal(JSON.stringify(logs).includes("SECRET-ONLY-TEST"), false);
+  assert.equal(JSON.stringify(snapshot).includes("SECRET-ONLY-TEST"), false);
+});
+
+test("partial failure has an explicit summary and never rewrites the last valid price date", async () => {
+  const previous = { symbols:{ SPYI:{price:{symbol:"SPYI",price:55,price_date:"2026-09-14",source:"test",fetched_at:"2026-09-14T22:00:00Z"}}}};
+  const snapshot = await updateSnapshot({previous, now:NOW, apiKey:"test", fetcher:fetcher({alphaFails:["SPYI"],yahooFails:["SPYI"]})});
+  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:3,total:4,stale_symbols:["SPYI"]});
+  assert.equal(snapshot.symbols.SPYI.price.price_date,"2026-09-14");
+  assert.equal(snapshot.symbols.SPYI.price.price,55);
+});
+
+test("Alpha Vantage rate limits stop further paid calls and the daily budget persists across runs", async () => {
+  const base=fetcher(); let alphaCalls=0;
+  const limited=async (url, opts)=>{
+    if(String(url).includes("alphavantage")){alphaCalls++;return new Response(JSON.stringify({Information:"API rate limit reached with key SECRET"}));}
+    return base(url,opts);
+  };
+  const snapshot=await updateSnapshot({now:NOW,apiKey:"SECRET",fetcher:limited,priceAttempts:3,waiter:async()=>{}});
+  assert.equal(alphaCalls,1);
+  assert.equal(snapshot.refresh.alpha_vantage_usage.count,1);
+  alphaCalls=0;
+  snapshot.refresh.alpha_vantage_usage.count=25;
+  const next=await updateSnapshot({previous:snapshot,now:NOW+1000,apiKey:"SECRET",fetcher:limited});
+  assert.equal(alphaCalls,0);
+  assert.equal(next.refresh.alpha_vantage_usage.count,25);
+  assert.equal(next.refresh.summary.valid,4); // Yahoo remains independent.
+});
+
+test("Yahoo daily rows select the completed session and cannot promote a live intraday row", async () => {
+  const fetchedAt="2026-09-16T16:00:00Z";
+  const price=await fetchYahooPrice("QQQI", async()=>response({chart:{result:[{timestamp:[dayStamp("2026-09-15"),dayStamp("2026-09-16")],indicators:{quote:[{close:[100,999]}]}}]}}),fetchedAt);
+  assert.equal(price.price_date,"2026-09-15");
+  assert.equal(price.price,100);
+});
+
+
+test("US daylight saving transitions validate the exchange close rather than a fixed UTC hour", () => {
+  for (const [instant, expected] of [
+    ["2026-03-09T19:59:00Z","2026-03-06"], ["2026-03-09T20:00:00Z","2026-03-09"],
+    ["2026-11-02T20:59:00Z","2026-10-30"], ["2026-11-02T21:00:00Z","2026-11-02"],
+    ["2026-11-26T23:00:00Z","2026-11-25"],
+  ]) assert.equal(latestCompletedUsTradingSession(Date.parse(instant)).date,expected);
+});
+
+test("a delayed ordinary ETF close recalculates TTM with the accepted final close", async () => {
+  const base=fetcher({alphaFails:["SCHD"],yahooFails:["SCHD"],nasdaqDividends:{SCHD:[{exOrEffDate:"09/01/2026",amount:"$1"},{exOrEffDate:"09/15/2025",amount:"$1"}]}}); let attempt=0;
+  const previous={symbols:{SCHD:{price:{symbol:"SCHD",price:50,price_date:"2026-09-14",source:"test",fetched_at:"2026-09-14T22:00:00Z"}}}};
+  const snapshot=await updateSnapshot({previous,now:NOW,apiKey:"test",priceAttempts:2,waiter:async()=>{},fetcher:async(url,opts)=>{
+    if(String(url).includes("quote/SCHD/historical")) {
+      if(++attempt===1) throw new Error("network");
+      return response({data:{tradesTable:{rows:[{date:"09/15/2026",close:"$100"}]}}});
+    }
+    return base(url,opts);
+  }});
+  assert.equal(snapshot.symbols.SCHD.dividend_rate.rate,.02);
+  assert.equal(snapshot.symbols.SCHD.price.price,100);
 });

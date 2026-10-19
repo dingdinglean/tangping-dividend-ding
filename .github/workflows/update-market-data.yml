@@ -34,7 +34,7 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
         run: node scripts/update-market-data.mjs
       - name: Commit snapshot only when changed
-        if: ${{ always() && steps.refresh.outcome != 'skipped' }}
+                if: ${{ success() && steps.refresh.outcome == 'success' }}
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |

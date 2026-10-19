@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-19T00:32:25.798Z",
+  "generatedAt": "2026-10-19T08:02:22.172Z",
   "refresh": {
     "target_price_date": "2026-10-16",
-    "generated_at": "2026-10-19T00:32:25.798Z",
+    "generated_at": "2026-10-19T08:02:22.172Z",
     "alpha_vantage_usage": {
       "date": "2026-10-19",
-      "count": 2
+      "count": 4
     },
     "price_attempts": [
       {
@@ -52,10 +52,10 @@
     }
   },
   "fx": {
-    "rate": 6.6826,
+    "rate": 6.6818,
     "fx_date": "2026-10-19",
     "source": "Frankfurter",
-    "fetched_at": "2026-10-19T00:32:25.798Z"
+    "fetched_at": "2026-10-19T08:02:22.172Z"
   },
   "symbols": {
     "QQQI": {
@@ -64,7 +64,7 @@
         "price": 53.62,
         "price_date": "2026-10-16",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividends": {
         "data": [
@@ -230,14 +230,14 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividend_rate": {
         "rate": 0.14279999999999998,
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-16"
@@ -248,7 +248,7 @@
         "price": 53.35,
         "price_date": "2026-10-16",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividends": {
         "data": [
@@ -499,14 +499,14 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividend_rate": {
         "rate": 0.12210000000000001,
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-16"
@@ -517,7 +517,7 @@
         "price": 24.05,
         "price_date": "2026-10-16",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividends": {
         "data": [
@@ -528,7 +528,7 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividend_rate": {
         "rate": 0.0043,
@@ -537,7 +537,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-19T00:32:25.798Z",
+        "fetched_at": "2026-10-19T08:02:22.172Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -549,7 +549,7 @@
         "price": 34.35,
         "price_date": "2026-10-16",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividends": {
         "data": [
@@ -855,7 +855,7 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-19T00:32:25.798Z"
+        "fetched_at": "2026-10-19T08:02:22.172Z"
       },
       "dividend_rate": {
         "rate": 0.030687045123726345,
@@ -865,7 +865,7 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-19T00:32:25.798Z",
+        "fetched_at": "2026-10-19T08:02:22.172Z",
         "status": "valid"
       },
       "price_status": "valid",

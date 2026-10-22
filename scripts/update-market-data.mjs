@@ -3,11 +3,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "../market-calendar.js";
 
-export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD"];
+export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"];
 const ALPHA = "https://www.alphavantage.co/query";
 const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const NASDAQ = "https://api.nasdaq.com/api/quote/";
-const NEOS = new Map([["QQQI", "https://neosfunds.com/qqqi/"], ["SPYI", "https://neosfunds.com/spyi/"]]);
+const NEOS = new Map([["QQQI", "https://neosfunds.com/qqqi/"], ["SPYI", "https://neosfunds.com/spyi/"], ["XQQI", "https://neosfunds.com/xqqi/"]]);
 const STATE_STREET = new Map([["QNDX", "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-nasdaq-100-etf-qndx"]]);
 const DAY = 86400000;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
@@ -20,13 +20,43 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const MONTHS = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
 function isoDate(value) { const text = String(value || "").trim(); if (validDate(text)) return text; const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text); return match ? `${match[3]}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}` : text; }
 
+function optionalFinite(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 function safePrice(row) {
   if (!validPrice(row?.price) || !validDate(row?.price_date) || !row.source || !Number.isFinite(Date.parse(row.fetched_at))) return null;
-  return { symbol: String(row.symbol || ""), price: Number(row.price), price_date: row.price_date, source: String(row.source), fetched_at: new Date(row.fetched_at).toISOString() };
+  const price = { symbol: String(row.symbol || ""), price: Number(row.price), price_date: row.price_date, source: String(row.source), fetched_at: new Date(row.fetched_at).toISOString() };
+  const change = optionalFinite(row.change);
+  const changePercent = optionalFinite(row.change_percent);
+  if (change !== null) price.change = change;
+  if (changePercent !== null) price.change_percent = changePercent;
+  return price;
+}
+function safeHistory(rows) {
+  if (!Array.isArray(rows)) return null;
+  const seen = new Set();
+  const data = [];
+  for (const row of rows) {
+    const date = isoDate(row?.date || row?.price_date);
+    const close = Number(String(row?.close ?? row?.price ?? "").replace(/[$,]/g, "").trim());
+    if (!validDate(date) || !validPrice(close) || seen.has(date)) continue;
+    seen.add(date);
+    data.push({ date, close });
+  }
+  data.sort((a, b) => b.date.localeCompare(a.date));
+  return data.length ? data.slice(0, 120) : null;
 }
 function safeDividends(row) {
-  const data = (row?.data || []).map((item) => ({ ex_date: isoDate(item.ex_date || item.ex_dividend_date || item.exDate), payment_date: isoDate(item.payment_date || item.paymentDate || ""), amount: Number(item.amount) }))
-    .filter((item) => validDate(item.ex_date) && validPrice(item.amount)).sort((a, b) => b.ex_date.localeCompare(a.ex_date));
+  const data = (row?.data || []).map((item) => {
+    const entry = { ex_date: isoDate(item.ex_date || item.ex_dividend_date || item.exDate), payment_date: isoDate(item.payment_date || item.paymentDate || ""), amount: Number(item.amount) };
+    const declaration = isoDate(item.declaration_date || item.declarationDate || "");
+    const record = isoDate(item.record_date || item.recordDate || "");
+    if (validDate(declaration)) entry.declaration_date = declaration;
+    if (validDate(record)) entry.record_date = record;
+    return entry;
+  }).filter((item) => validDate(item.ex_date) && validPrice(item.amount)).sort((a, b) => b.ex_date.localeCompare(a.ex_date));
   return data.length ? { data, source: String(row.source || ""), fetched_at: Number.isFinite(Date.parse(row.fetched_at)) ? new Date(row.fetched_at).toISOString() : null } : null;
 }
 function previousSnapshot(input) {
@@ -36,7 +66,8 @@ function previousSnapshot(input) {
     const price = safePrice(old.price) || (validPrice(legacy?.["05. price"]) && validDate(legacy?.["07. latest trading day"]) ?
       safePrice({ symbol, price: legacy["05. price"], price_date: legacy["07. latest trading day"], source: "Alpha Vantage EOD (legacy)", fetched_at: old.GLOBAL_QUOTE?._fetchedAt || input.generatedAt }) : null);
     const dividends = safeDividends(old.dividends) || safeDividends({ data: old.DIVIDENDS?.data, source: "Alpha Vantage Dividends (legacy)", fetched_at: old.DIVIDENDS?._fetchedAt });
-    result.symbols[symbol] = { ...(price ? { price } : {}), ...(dividends ? { dividends } : {}), ...(old.dividend_rate ? { dividend_rate: old.dividend_rate } : {}) };
+    const history = safeHistory(old.price_history);
+    result.symbols[symbol] = { ...(price ? { price } : {}), ...(history ? { price_history: history } : {}), ...(dividends ? { dividends } : {}), ...(old.dividend_rate ? { dividend_rate: old.dividend_rate } : {}) };
   }
   if (validPrice(input?.fx?.rate) && validDate(input.fx.fx_date) && input.fx.source && Number.isFinite(Date.parse(input.fx.fetched_at))) result.fx = { rate: Number(input.fx.rate), fx_date: input.fx.fx_date, source: String(input.fx.source), fetched_at: new Date(input.fx.fetched_at).toISOString() };
   return result;
@@ -66,7 +97,14 @@ export async function fetchYahooPrice(symbol, fetcher, fetched_at, targetDate = 
   if (!rows.length) throw new Error("invalid_data");
   const row = rows.find(row => row.price_date === targetDate);
   if (!row) throw Object.assign(new Error("price_date_stale"), { priceDate: rows[0].price_date });
-  return { symbol, ...row, source: "Yahoo Finance Chart", fetched_at };
+  const history = safeHistory(rows.filter((item) => item.price_date <= targetDate).map((item) => ({ date: item.price_date, close: item.price })));
+  const previous = history?.find((item) => item.date < targetDate);
+  const quote = { symbol, ...row, source: "Yahoo Finance Chart", fetched_at, ...(history ? { history } : {}) };
+  if (previous) {
+    quote.change = Number((row.price - previous.close).toFixed(4));
+    quote.change_percent = Number(((row.price - previous.close) / previous.close).toFixed(6));
+  }
+  return quote;
 }
 export async function fetchNasdaqHistoricalPrice(symbol, fetcher, fetched_at, targetDate) {
   if (!validDate(targetDate)) throw new Error("invalid_data");
@@ -86,7 +124,14 @@ export async function fetchNasdaqHistoricalPrice(symbol, fetcher, fetched_at, ta
   if (!match) throw Object.assign(new Error("price_date_stale"), { priceDate: rows.map(row => isoDate(row.date)).filter(validDate).sort().at(-1) });
   const price = Number(String(match.close ?? match.closeLast ?? match["close/last"] ?? match.lastSalePrice ?? "").replace(/[$,]/g, "").trim());
   if (!validPrice(price)) throw new Error("invalid_data");
-  return { symbol, price, price_date: targetDate, source: "Nasdaq historical close", fetched_at };
+  const history = safeHistory(rows.map((row) => ({ date: row.date, close: row.close ?? row.closeLast ?? row["close/last"] ?? row.lastSalePrice })).filter((row) => isoDate(row.date) <= targetDate));
+  const previous = history?.find((row) => row.date < targetDate);
+  const quote = { symbol, price, price_date: targetDate, source: "Nasdaq historical close", fetched_at, ...(history ? { history } : {}) };
+  if (previous) {
+    quote.change = Number((price - previous.close).toFixed(4));
+    quote.change_percent = Number(((price - previous.close) / previous.close).toFixed(6));
+  }
+  return quote;
 }
 export async function fetchNasdaqPrice(symbol, fetcher, fetched_at) {
   const url = new URL(`${NASDAQ}${encodeURIComponent(symbol)}/info`); url.search = new URLSearchParams({ assetclass: "etf" }).toString();
@@ -114,6 +159,47 @@ export async function fetchYahooDividends(symbol, fetcher, fetched_at) {
   const url = new URL(`${YAHOO}${encodeURIComponent(symbol)}`); url.search = new URLSearchParams({ range: "2y", interval: "1d", events: "div" }).toString();
   const events = (await json(fetcher, url)).chart?.result?.[0]?.events?.dividends || {};
   const result = safeDividends({ data: Object.values(events).map((row) => ({ ex_date: sessionDateFromTimestamp(Number(row.date) * 1000), amount: row.amount })), source: "Yahoo Finance Dividends", fetched_at }); if (!result) throw new Error("invalid_data"); return result;
+}
+export async function fetchNeosPrice(symbol, fetcher, fetched_at) {
+  const url = NEOS.get(symbol); if (!url) throw new Error("invalid_data");
+  const plain = (await html(fetcher, url)).replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
+  // Closing NAV is published above this block and must never be stored as the market price.
+  const match = /Pricing Information\s+Data as of\s+(\d{1,2}\/\d{1,2}\/\d{4})[\s\S]*?Closing Market Price[\s\S]*?Market Price\s+\$([0-9,.]+)(?:[\s\S]*?Daily Change\s*\(\$\)\s*([+-]?\$?[+-]?[0-9,.]+)[\s\S]*?Daily Change\s*\(%\)\s*([+-]?[0-9,.]+)\s*%)?/i.exec(plain);
+  const price = Number(String(match?.[2] || "").replace(/[$,]/g, ""));
+  if (!match || !validDate(isoDate(match[1])) || !validPrice(price)) throw new Error("invalid_data");
+  const quote = { symbol, price, price_date: isoDate(match[1]), source: "NEOS official Closing Market Price", fetched_at };
+  const change = optionalFinite(String(match[3] || "").replace(/[$,]/g, ""));
+  const changePercent = optionalFinite(match[4]);
+  if (change !== null) quote.change = change;
+  if (changePercent !== null) quote.change_percent = Number((changePercent / 100).toFixed(6));
+  return quote;
+}
+// Read only declared amounts from the official history table. Blank future
+// calendar amounts are never forecasts or confirmed receipts.
+export async function fetchNeosDividends(symbol, fetcher, fetched_at) {
+  const url = NEOS.get(symbol); if (!url) throw new Error("invalid_data");
+  const page = await html(fetcher, url);
+  const data = [];
+  for (const table of page.match(/<table\b[^>]*>[\s\S]*?<\/table>/gi) || []) {
+    const rows = table.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
+    const cells = row => (row.match(/<t[dh]\b[^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map(cell => cell.replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ").trim());
+    const header = rows.findIndex(row => /Declaration Date/i.test(row) && /Ex-Div Date/i.test(row) && /Record Date/i.test(row) && /Payable Date/i.test(row) && /Amount/i.test(row));
+    if (header < 0) continue;
+    for (const row of rows.slice(header + 1)) {
+      const values = cells(row);
+      if (values.length !== 5) continue;
+      const declaration_date = isoDate(values[0]);
+      const ex_date = isoDate(values[1]);
+      const record_date = isoDate(values[2]);
+      const payment_date = isoDate(values[3]);
+      const amount = Number(String(values[4] || "").replace(/[$,\s]/g, ""));
+      // Blank future calendar rows stay unpublished. The 19-23% target is not an amount.
+      if (validDate(declaration_date) && validDate(ex_date) && validDate(record_date) && validDate(payment_date) && validPrice(amount)) data.push({ declaration_date, ex_date, record_date, payment_date, amount });
+    }
+  }
+  const result = safeDividends({ data, source: "NEOS official Distribution History", fetched_at });
+  if (!result) throw new Error("invalid_data");
+  return result;
 }
 export async function fetchNeosDistributionRate(symbol, fetcher, fetched_at) {
   const url = NEOS.get(symbol); if (!url) throw new Error("invalid_data");
@@ -221,18 +307,40 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
         record({ symbol, source, round, status: "error", ...(validDate(e.priceDate) ? { price_date: e.priceDate } : {}), error });
       }
     }
-    const current = price || (old.price?.price_date === session.date ? old.price : null);
-    snapshot.symbols[symbol] = { ...old, ...(price ? { price } : {}), price_status: current ? "valid" : "stale", expected_price_date: session.date };
+    let retained = old.price;
+    if (!price && symbol === "XQQI") {
+      try {
+        const official = await fetchNeosPrice(symbol, fetcher, fetched_at);
+        if (official.price_date === session.date) {
+          price = official;
+          record({ symbol, source: "NEOS", round, status: "success", price_date: price.price_date, price: price.price });
+        } else if (official.price_date < session.date && (!retained || official.price_date > retained.price_date)) retained = official;
+      } catch {}
+    }
+    const fresh = price ? safePrice(price) : null;
+    const retainedPrice = retained ? safePrice(retained) : null;
+    const stored = fresh || retainedPrice;
+    const history = safeHistory(price?.history) || safeHistory(old.price_history);
+    const current = fresh || (retainedPrice?.price_date === session.date ? retainedPrice : null);
+    snapshot.symbols[symbol] = { ...old, ...(stored ? { price: stored } : {}), ...(history ? { price_history: history } : {}), price_status: current ? "valid" : "stale", expected_price_date: session.date };
     if (!current) snapshot.symbols[symbol].price_error = priceError;
     else delete snapshot.symbols[symbol].price_error;
-    return price;
+    return fresh;
   };
   for (const symbol of SYMBOLS) {
     const old = snapshot.symbols[symbol] || {};
     const price = await refreshPrice(symbol, 1);
     let dividends; let dividendsFresh = false;
-    try { dividends = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { dividends = old.dividends; } } }
-    if (dividends) snapshot.symbols[symbol].dividends = dividends;
+    if (symbol === "XQQI") {
+      // Official amounts and payment dates are required for XQQI. Preserve the
+      // prior verified record on failure instead of inventing dates from Yahoo.
+      try { dividends = await fetchNeosDividends(symbol, fetcher, fetched_at); dividendsFresh = true; }
+      catch { dividends = old.dividends; }
+    } else {
+      try { dividends = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { dividends = old.dividends; } } }
+    }
+    if (dividends) snapshot.symbols[symbol].dividends = { ...dividends, status: dividendsFresh ? "valid" : "stale" };
+
     if (NEOS.has(symbol)) { try { snapshot.symbols[symbol].dividend_rate = await fetchNeosDistributionRate(symbol, fetcher, fetched_at); } catch { snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { coverage: "insufficient", source: "NEOS official Distribution Rate", status: "unavailable" }; } }
     else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
   }
@@ -254,10 +362,21 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
   logger({ type: "summary", ...snapshot.refresh.summary });
   return snapshot;
 }
+export function snapshotIsPublishable(snapshot) {
+  const summary = snapshot?.refresh?.summary;
+  const target = snapshot?.refresh?.target_price_date;
+  if (!summary || summary.status !== "complete" || !validDate(target)) return false;
+  return SYMBOLS.every((symbol) => {
+    const row = snapshot.symbols?.[symbol];
+    const dividends = row?.dividends?.data;
+    return row?.price_status === "valid" && validPrice(row?.price?.price) && row?.price?.price_date === target && Array.isArray(dividends) && dividends.length > 0 && dividends.every((item) => validDate(item.ex_date) && validPrice(item.amount) && item.amount !== "");
+  });
+}
 export async function run({ apiKey = process.env.ALPHA_VANTAGE_API_KEY || "", output = fileURLToPath(new URL("../data/market.json", import.meta.url)), ...options } = {}) {
   let previous = {};
   try { previous = JSON.parse(await readFile(output, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw new Error("旧快照读取失败，已停止写入以保留原文件"); }
   const snapshot = await updateSnapshot({ priceAttempts: 3, alphaMinIntervalMs: 12000, ...options, previous, apiKey });
+  if (!snapshotIsPublishable(snapshot)) return snapshot;
   await mkdir(dirname(output), { recursive: true });
   await writeFile(`${output}.tmp`, JSON.stringify(snapshot, null, 2) + "\n");
   await rename(`${output}.tmp`, output);
@@ -270,7 +389,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const text = `目标收盘日 ${snapshot.refresh.target_price_date}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
     console.log(text);
     if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${summary.status}\n\n${text}\n`);
-    if (summary.status !== "complete") process.exitCode = 1;
+    if (!snapshotIsPublishable(snapshot)) process.exitCode = 1;
   } catch {
     console.error("行情快照更新失败，旧文件已保留；请检查网络与配置。");
     process.exitCode = 1;

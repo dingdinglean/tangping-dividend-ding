@@ -72,14 +72,22 @@
         "status": "success",
         "price_date": "2026-10-21",
         "price": 34.66
+      },
+      {
+        "symbol": "XQQI",
+        "source": "Nasdaq",
+        "round": 1,
+        "status": "success",
+        "price_date": "2026-10-21",
+        "price": 48.57
       }
     ],
     "summary": {
       "status": "complete",
-      "valid": 4,
-      "total": 4,
+      "valid": 5,
+      "total": 5,
       "stale_symbols": [],
-      "updated": 4,
+      "updated": 5,
       "failed_symbols": []
     }
   },
@@ -907,6 +915,158 @@
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-21"
+    },
+    "XQQI": {
+      "price": {
+        "symbol": "XQQI",
+        "price": 48.57,
+        "price_date": "2026-10-21",
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-10-22T01:48:02.000Z",
+        "change": 0.7,
+        "change_percent": 0.014623
+      },
+      "price_history": [
+        {
+          "date": "2026-10-21",
+          "close": 48.57
+        },
+        {
+          "date": "2026-10-20",
+          "close": 47.87
+        },
+        {
+          "date": "2026-10-19",
+          "close": 48.0053
+        },
+        {
+          "date": "2026-10-16",
+          "close": 47.21
+        },
+        {
+          "date": "2026-10-15",
+          "close": 48.941
+        },
+        {
+          "date": "2026-10-14",
+          "close": 48.99
+        },
+        {
+          "date": "2026-10-13",
+          "close": 50.2548
+        },
+        {
+          "date": "2026-10-12",
+          "close": 50.45
+        },
+        {
+          "date": "2026-10-09",
+          "close": 50.78
+        },
+        {
+          "date": "2026-10-08",
+          "close": 50.57
+        },
+        {
+          "date": "2026-10-07",
+          "close": 51.25
+        },
+        {
+          "date": "2026-10-06",
+          "close": 52.25
+        },
+        {
+          "date": "2026-10-05",
+          "close": 51.95
+        },
+        {
+          "date": "2026-10-02",
+          "close": 51.51
+        },
+        {
+          "date": "2026-10-01",
+          "close": 50.8975
+        }
+      ],
+      "price_status": "valid",
+      "expected_price_date": "2026-10-21",
+      "dividends": {
+        "data": [
+          {
+            "declaration_date": "2026-10-06",
+            "ex_date": "2026-10-07",
+            "record_date": "2026-10-07",
+            "payment_date": "2026-10-09",
+            "amount": 0.8823
+          },
+          {
+            "declaration_date": "2026-09-01",
+            "ex_date": "2026-09-02",
+            "record_date": "2026-09-02",
+            "payment_date": "2026-09-04",
+            "amount": 0.8403
+          },
+          {
+            "declaration_date": "2026-08-04",
+            "ex_date": "2026-08-05",
+            "record_date": "2026-08-05",
+            "payment_date": "2026-08-07",
+            "amount": 0.8236
+          },
+          {
+            "declaration_date": "2026-07-07",
+            "ex_date": "2026-07-08",
+            "record_date": "2026-07-08",
+            "payment_date": "2026-07-10",
+            "amount": 0.8772
+          },
+          {
+            "declaration_date": "2026-06-02",
+            "ex_date": "2026-06-03",
+            "record_date": "2026-06-03",
+            "payment_date": "2026-06-05",
+            "amount": 0.9216
+          },
+          {
+            "declaration_date": "2026-05-05",
+            "ex_date": "2026-05-06",
+            "record_date": "2026-05-06",
+            "payment_date": "2026-05-08",
+            "amount": 0.856
+          },
+          {
+            "declaration_date": "2026-04-07",
+            "ex_date": "2026-04-08",
+            "record_date": "2026-04-08",
+            "payment_date": "2026-04-10",
+            "amount": 0.7672
+          },
+          {
+            "declaration_date": "2026-03-03",
+            "ex_date": "2026-03-04",
+            "record_date": "2026-03-04",
+            "payment_date": "2026-03-06",
+            "amount": 0.8139
+          },
+          {
+            "declaration_date": "2026-02-03",
+            "ex_date": "2026-02-04",
+            "record_date": "2026-02-04",
+            "payment_date": "2026-02-06",
+            "amount": 0.85
+          }
+        ],
+        "source": "NEOS official Distribution History",
+        "fetched_at": "2026-10-22T01:48:02.000Z",
+        "status": "valid"
+      },
+      "dividend_rate": {
+        "rate": 0.2104,
+        "data_date": "2026-09-30",
+        "source": "NEOS official Distribution Rate",
+        "kind": "distribution_rate",
+        "fetched_at": "2026-10-22T01:48:02.000Z"
+      }
     }
   }
 }

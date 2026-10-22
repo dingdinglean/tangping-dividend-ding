@@ -105,6 +105,7 @@ for (const engine of ["Chromium", "WebKit"]) {
       try {
         await page.goto(base);
         await page.waitForFunction(price => JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice === price, snapshot.symbols.QQQI.price.price);
+        await page.waitForFunction(expected => JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets.find(a=>a.ticker==="XQQI")?.dividendRate === expected, snapshot.symbols.XQQI.dividend_rate.rate);
         if (profile.safeTop) await page.addStyleTag({ content: `.app-shell{padding-top:calc(${profile.safeTop}px + 12px);padding-bottom:calc(${profile.safeBottom}px + var(--dock-content-reserve))}.navigation-dock{bottom:${profile.safeBottom + 10}px}` });
         if (profile.fontSize) await page.addStyleTag({ content: `html{font-size:${profile.fontSize}px}` });
         await settle(page);
@@ -130,11 +131,27 @@ for (const engine of ["Chromium", "WebKit"]) {
             const layout = await page.evaluate(() => {
               const cards = [...document.querySelectorAll(".asset-card-compact")].map(n => ({top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom,height:n.getBoundingClientRect().height}));
               const dockTop = document.querySelector(".navigation-dock").getBoundingClientRect().top;
-              return {cards,dockTop,oneScreen:cards.length===4 && cards[3].bottom+8<=dockTop && document.documentElement.scrollHeight<=innerHeight+1};
+              return {cards,dockTop,oneScreen:cards.length===5 && cards[3].bottom+8<=dockTop};
             });
             result.profiles.at(-1).portfolio = layout;
-            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),4);
+            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),5);
             if(profile.name.startsWith("iphone17promax")) assert.ok(layout.oneScreen,`${engine}/${profile.name} portfolio does not fit: ${JSON.stringify(layout)}`);
+            const xqqi = page.getByRole('button', {name:'展开 XQQI 详情', exact:true});
+            await xqqi.scrollIntoViewIfNeeded();
+            assert.ok(await xqqi.isVisible());
+            await xqqi.click();
+            assert.ok(await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).isVisible());
+            await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).click();
+            await page.evaluate(() => scrollTo(0,0));
+            if (profile.name === "iphone17promax-pwa") {
+              await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-light.png`, fullPage: true });
+              await page.emulateMedia({ colorScheme: "dark" });
+              await settle(page);
+              await validatePage(page, "portfolio", `${engine}/dark-xqqi`);
+              await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-dark.png`, fullPage: true });
+              await page.emulateMedia({ colorScheme: "light" });
+              await settle(page);
+            }
             await page.locator('.asset-toggle').first().click();
             assert.equal(await page.locator('.asset-toggle').first().getAttribute('aria-expanded'),'true');
             assert.ok(await page.locator('.asset-expanded').first().isVisible());

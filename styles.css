@@ -358,6 +358,13 @@ button, .btn, .nav-btn, .floating-add { touch-action: manipulation; }
 .is-expanded .asset-chevron { transform: rotate(180deg); }
 .asset-close-row { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; margin-top: 6px; font-size: .75rem; line-height: 1.4; color: var(--text-secondary); }
 .asset-close-row strong { font-weight: 600; color: var(--text-primary); }
+.price-change { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.distribution-history, .price-history { margin: 0 14px 12px; color: var(--text-secondary); font-size: .75rem; }
+.distribution-history summary, .price-history summary { cursor: pointer; color: var(--text-secondary); }
+.distribution-history ul, .price-history ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.distribution-history li, .price-history li { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.distribution-history li span, .price-history li span { min-width: 0; overflow-wrap: anywhere; }
+.distribution-history strong, .price-history strong { flex: 0 0 auto; color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .price-state { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 .price-state.stale { color: var(--yellow); }
 .asset-toggle .asset-stat-grid { margin-top: 6px; padding-top: 6px; gap: 6px; }

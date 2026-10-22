@@ -3,11 +3,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "../market-calendar.js";
 
-export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD"];
+export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"];
 const ALPHA = "https://www.alphavantage.co/query";
 const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const NASDAQ = "https://api.nasdaq.com/api/quote/";
-const NEOS = new Map([["QQQI", "https://neosfunds.com/qqqi/"], ["SPYI", "https://neosfunds.com/spyi/"]]);
+const NEOS = new Map([["QQQI", "https://neosfunds.com/qqqi/"], ["SPYI", "https://neosfunds.com/spyi/"], ["XQQI", "https://neosfunds.com/xqqi/"]]);
 const STATE_STREET = new Map([["QNDX", "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-nasdaq-100-etf-qndx"]]);
 const DAY = 86400000;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
@@ -115,6 +115,36 @@ export async function fetchYahooDividends(symbol, fetcher, fetched_at) {
   const events = (await json(fetcher, url)).chart?.result?.[0]?.events?.dividends || {};
   const result = safeDividends({ data: Object.values(events).map((row) => ({ ex_date: sessionDateFromTimestamp(Number(row.date) * 1000), amount: row.amount })), source: "Yahoo Finance Dividends", fetched_at }); if (!result) throw new Error("invalid_data"); return result;
 }
+export async function fetchNeosPrice(symbol, fetcher, fetched_at) {
+  const url = NEOS.get(symbol); if (!url) throw new Error("invalid_data");
+  const plain = (await html(fetcher, url)).replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
+  const match = /Pricing Information\s+Data as of\s+(\d{1,2}\/\d{1,2}\/\d{4})[\s\S]*?Closing Market Price[\s\S]*?Market Price\s+\$([0-9,.]+)/i.exec(plain);
+  if (!match || !validDate(isoDate(match[1])) || !validPrice(Number(match[2].replace(/,/g,"")))) throw new Error("invalid_data");
+  return {symbol,price:Number(match[2].replace(/,/g,"")),price_date:isoDate(match[1]),source:"NEOS official Closing Market Price",fetched_at};
+}
+// Read only declared amounts from the official history table. Blank future
+// calendar amounts are never forecasts or confirmed receipts.
+export async function fetchNeosDividends(symbol, fetcher, fetched_at) {
+  const url = NEOS.get(symbol); if (!url) throw new Error("invalid_data");
+  const page = await html(fetcher, url);
+  const data = [];
+  for (const table of page.match(/<table\b[^>]*>[\s\S]*?<\/table>/gi) || []) {
+    const rows = table.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
+    const cells = row => (row.match(/<t[dh]\b[^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map(cell => cell.replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ").trim());
+    const header = rows.findIndex(row => /Declaration Date/i.test(row) && /Ex-Div Date/i.test(row) && /Payable Date/i.test(row) && /Amount/i.test(row));
+    if (header < 0) continue;
+    for (const row of rows.slice(header + 1)) {
+      const values = cells(row);
+      if (values.length !== 5) continue;
+      const ex_date = isoDate(values[1]), payment_date = isoDate(values[3]);
+      const amount = Number(values[4].replace(/[$,\s]/g, ""));
+      if (validDate(ex_date) && validDate(payment_date) && validPrice(amount)) data.push({ ex_date, payment_date, amount });
+    }
+  }
+  const result = safeDividends({ data, source: "NEOS official Distribution History", fetched_at });
+  if (!result) throw new Error("invalid_data");
+  return result;
+}
 export async function fetchNeosDistributionRate(symbol, fetcher, fetched_at) {
   const url = NEOS.get(symbol); if (!url) throw new Error("invalid_data");
   const plain = (await html(fetcher, url)).replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
@@ -221,8 +251,18 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
         record({ symbol, source, round, status: "error", ...(validDate(e.priceDate) ? { price_date: e.priceDate } : {}), error });
       }
     }
-    const current = price || (old.price?.price_date === session.date ? old.price : null);
-    snapshot.symbols[symbol] = { ...old, ...(price ? { price } : {}), price_status: current ? "valid" : "stale", expected_price_date: session.date };
+    let retained = old.price;
+    if (!price && symbol === "XQQI") {
+      try {
+        const official = await fetchNeosPrice(symbol, fetcher, fetched_at);
+        if (official.price_date === session.date) {
+          price = official;
+          record({ symbol, source: "NEOS", round, status: "success", price_date: price.price_date, price: price.price });
+        } else if (official.price_date < session.date && (!retained || official.price_date > retained.price_date)) retained = official;
+      } catch {}
+    }
+    const current = price || (retained?.price_date === session.date ? retained : null);
+    snapshot.symbols[symbol] = { ...old, ...((price || retained) ? { price: price || retained } : {}), price_status: current ? "valid" : "stale", expected_price_date: session.date };
     if (!current) snapshot.symbols[symbol].price_error = priceError;
     else delete snapshot.symbols[symbol].price_error;
     return price;
@@ -231,8 +271,16 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     const old = snapshot.symbols[symbol] || {};
     const price = await refreshPrice(symbol, 1);
     let dividends; let dividendsFresh = false;
-    try { dividends = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { dividends = old.dividends; } } }
-    if (dividends) snapshot.symbols[symbol].dividends = dividends;
+    if (symbol === "XQQI") {
+      // Official amounts and payment dates are required for XQQI. Preserve the
+      // prior verified record on failure instead of inventing dates from Yahoo.
+      try { dividends = await fetchNeosDividends(symbol, fetcher, fetched_at); dividendsFresh = true; }
+      catch { dividends = old.dividends; }
+    } else {
+      try { dividends = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { dividends = old.dividends; } } }
+    }
+    if (dividends) snapshot.symbols[symbol].dividends = { ...dividends, status: dividendsFresh ? "valid" : "stale" };
+
     if (NEOS.has(symbol)) { try { snapshot.symbols[symbol].dividend_rate = await fetchNeosDistributionRate(symbol, fetcher, fetched_at); } catch { snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { coverage: "insufficient", source: "NEOS official Distribution Rate", status: "unavailable" }; } }
     else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
   }

@@ -109,13 +109,13 @@ try {
   await page.emulateMedia({colorScheme:"light"});
   await page.locator('[data-tab="portfolio"]').click();
   assert.equal(await page.locator('[data-action="delete-asset"]').count(),0);
-  assert.ok(await page.locator(".asset-card-compact").isVisible());
+  assert.ok(await page.locator(".asset-card-compact").first().isVisible());
   assert.ok(await page.locator(".floating-add").isVisible());
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
-  await page.locator(".asset-toggle").click();
-  assert.equal(await page.locator(".asset-toggle").getAttribute("aria-expanded"), "true");
-  await page.locator('[data-action="asset-detail"]').click();
+  await page.locator(".asset-toggle").first().click();
+  assert.equal(await page.locator(".asset-toggle").first().getAttribute("aria-expanded"), "true");
+  await page.locator('[data-action="asset-detail"]').first().click();
   assert.ok(await page.locator(".modal .asset-detail-summary").isVisible());
   assert.ok(await page.locator('[data-action="delete-asset"]').isVisible());
   await page.locator('[data-action="close-modal"]').last().click();

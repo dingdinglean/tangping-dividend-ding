@@ -24,6 +24,7 @@ const fresh = "2026-10-13T03:12:09.822Z";
 // The separate market case below verifies synchronization against the committed snapshot.
 const fixture = {
   version: 1,
+  migrations: { xqqi: true },
   settings: { displayCurrency: "CNY", exchangeRate: 7, exchangeRateUpdatedAt: fresh, autoRefresh: true, lastMarketRefreshAt: fresh },
   assets: [{ id: "qqqi", ticker: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 100, priceDate: "2026-10-12", priceUpdatedAt: fresh, priceSource: "test", dividendUpdatedAt: fresh, manualDividendYieldPercent: 12, remoteDividends: [] }],
   transactions: [

@@ -153,7 +153,7 @@ test("v8.2 ledger and delete-backup survive activation and the following app boo
   assert.equal(storage.get(USER_DATA_KEYS[0]), JSON.stringify(v82Ledger));
   assert.equal(storage.get(USER_DATA_KEYS[1]), backupBefore);
   const run = boot(storage);
-  assert.equal(run("stateNeedsMigration"), false);
+  assert.equal(run("stateNeedsMigration"), true);
   run("if (stateNeedsMigration) saveState()");
   const stored = JSON.parse(storage.get(USER_DATA_KEYS[0]));
   assert.equal(stored.transactions[0].id, "buy-v82");

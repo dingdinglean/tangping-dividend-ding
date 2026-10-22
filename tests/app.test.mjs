@@ -27,7 +27,7 @@ function app(saved, { systemDark = false } = {}) {
   return { run: (code) => vm.runInContext(code, context), context, storage, themeColor, documentElement, mediaQuery };
 }
 function fixture() {
-  return { version: 1, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
+  return { version: 1, migrations: { xqqi: true }, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
     assets: [{ id: "a", ticker: "TEST", frequency: "monthly", currentPrice: 100, priceDate: "2026-09-04", manualDividendYieldPercent: 12, remoteDividends: [] }],
     transactions: [{ id: "b", assetId: "a", type: "buy", date: "2026-01-01", shares: 100, price: 90 }] };
 }
@@ -602,4 +602,52 @@ test("a lagging snapshot cannot replace a newer verified close or claim full pri
   assert.equal(a.run('state.assets[0].currentPrice'), 100);
   assert.equal(a.run('state.assets[0].priceDate'), "2026-09-04");
   assert.match(a.run('state.settings.lastMarketRefreshMessage'), /快照较旧/);
+});
+
+
+test("XQQI migration preserves original ledger and backup and runs only once", () => {
+  const saved = fixture(); delete saved.migrations;
+  saved.assets[0].dividendTaxPercent = 10;
+  const a = app(saved);
+  a.storage.set("tangping-dividend.backup-before-delete", "original-backup");
+  assert.equal(a.run("stateNeedsMigration"), true);
+  a.run("saveState()");
+  const migrated = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.deepEqual(migrated.transactions, saved.transactions);
+  for (const [key, value] of Object.entries(saved.assets[0])) assert.deepEqual(migrated.assets[0][key], value);
+  assert.equal(migrated.settings.customSetting, "keep");
+  assert.equal(migrated.assets.filter(row => row.ticker === "XQQI").length, 1);
+  assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI").shares'), 0);
+  const again = app(migrated); again.run("saveState()");
+  assert.deepEqual(JSON.parse(again.storage.get("tangping-dividend.v1")), migrated);
+  assert.equal(a.storage.get("tangping-dividend.backup-before-delete"), "original-backup");
+  migrated.assets = migrated.assets.filter(row => row.ticker !== "XQQI");
+  assert.equal(app(migrated).run('state.assets.some(a => a.ticker === "XQQI")'), false);
+});
+test("manually added XQQI is recognized by normalized ticker or API symbol without changing its ID", () => {
+  for (const fields of [{ticker:" xqqi "}, {ticker:"Custom", apiSymbol:"XQQI"}]) {
+    const saved = fixture(); delete saved.migrations;
+    Object.assign(saved.assets[0], fields);
+    const a = app(saved);
+    assert.equal(a.run("state.assets.length"), 1);
+    assert.equal(a.run("state.assets[0].id"), "a");
+    assert.equal(a.run("state.transactions[0].assetId"), "a");
+  }
+});
+test("XQQI buys, sells and editable tax affect forecasts, never confirmed receipts", () => {
+  const a = app();
+  a.run(`const x = state.assets.find(a => a.ticker === "XQQI"); x.id="x";
+    Object.assign(x, {currentPrice:50,priceDate:"2026-09-04",priceSource:"test",dividendRate:.2,dividendTaxPercent:10});
+    state.transactions.push({id:"xb",assetId:"x",type:"buy",date:"2026-01-01",shares:10,price:40},
+    {id:"xr",assetId:"x",type:"dividend",status:"received",date:"2026-04-01",grossDividend:10,netDividend:7,shareCount:10});`);
+  const item = a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x")');
+  assert.equal(item.shares, 10); assert.equal(item.cost, 400); assert.equal(item.marketValue, 500);
+  assert.equal(item.annualForecast, 90); assert.equal(item.receivedDividends, 7);
+  const before = a.run("JSON.stringify(state.transactions)");
+  a.run('x.dividendTaxPercent=20');
+  assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").annualForecast'),80);
+  assert.equal(a.run("JSON.stringify(state.transactions)"), before);
+  a.run('state.transactions.push({assetId:"x",type:"sell",date:"2026-09-01",shares:4,price:50})');
+  assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").shares'),6);
+  assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").annualForecast'),48);
 });

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay } from "../market-calendar.js";
-import { updateSnapshot, fetchYahooPrice } from "../scripts/update-market-data.mjs";
+import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
@@ -223,10 +223,10 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
     }
     return base(url, opts);
   } });
-  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1});
+  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1,XQQI:1});
   assert.deepEqual(delays, [45000,90000]);
   assert.equal(snapshot.refresh.summary.status, "complete");
-  assert.equal(snapshot.refresh.summary.valid, 4);
+  assert.equal(snapshot.refresh.summary.valid, 5);
   assert.equal(JSON.stringify(logs).includes("SECRET-ONLY-TEST"), false);
   assert.equal(JSON.stringify(snapshot).includes("SECRET-ONLY-TEST"), false);
 });
@@ -234,7 +234,7 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
 test("partial failure has an explicit summary and never rewrites the last valid price date", async () => {
   const previous = { symbols:{ SPYI:{price:{symbol:"SPYI",price:55,price_date:"2026-09-14",source:"test",fetched_at:"2026-09-14T22:00:00Z"}}}};
   const snapshot = await updateSnapshot({previous, now:NOW, apiKey:"test", fetcher:fetcher({alphaFails:["SPYI"],yahooFails:["SPYI"]})});
-  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:3,total:4,stale_symbols:["SPYI"],updated:3,failed_symbols:["SPYI"]});
+  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:4,total:5,stale_symbols:["SPYI"],updated:4,failed_symbols:["SPYI"]});
   assert.equal(snapshot.symbols.SPYI.price.price_date,"2026-09-14");
   assert.equal(snapshot.symbols.SPYI.price.price,55);
 });
@@ -253,7 +253,7 @@ test("Alpha Vantage rate limits stop further paid calls and the daily budget per
   const next=await updateSnapshot({previous:snapshot,now:NOW+1000,apiKey:"SECRET",fetcher:limited});
   assert.equal(alphaCalls,0);
   assert.equal(next.refresh.alpha_vantage_usage.count,25);
-  assert.equal(next.refresh.summary.valid,4); // Yahoo remains independent.
+  assert.equal(next.refresh.summary.valid,5); // Yahoo remains independent.
 });
 
 test("Yahoo daily rows select the completed session and cannot promote a live intraday row", async () => {
@@ -288,14 +288,44 @@ test("a delayed ordinary ETF close recalculates TTM with the accepted final clos
 
 
 test("retaining same-session prices cannot disguise a failed fetch as a successful refresh", async () => {
-  const previous={symbols:Object.fromEntries(["QQQI","SPYI","QNDX","SCHD"].map(symbol=>[symbol,{price:{symbol,price:100,price_date:"2026-09-15",source:"test",fetched_at:"2026-09-15T21:00:00Z"}}]))};
+  const previous={symbols:Object.fromEntries(["QQQI","SPYI","QNDX","SCHD","XQQI"].map(symbol=>[symbol,{price:{symbol,price:100,price_date:"2026-09-15",source:"test",fetched_at:"2026-09-15T21:00:00Z"}}]))};
   const snapshot=await updateSnapshot({previous,now:NOW,fetcher:async()=>{throw new Error("offline");}});
   assert.equal(snapshot.refresh.summary.status,"partial");
   assert.equal(snapshot.refresh.summary.updated,0);
-  assert.equal(snapshot.refresh.summary.valid,4);
-  assert.equal(snapshot.refresh.summary.failed_symbols.length,4);
+  assert.equal(snapshot.refresh.summary.valid,5);
+  assert.equal(snapshot.refresh.summary.failed_symbols.length,5);
   for(const row of Object.values(snapshot.symbols)) {
     assert.equal(row.price_status,"valid");
     assert.equal(row.price.fetched_at,"2026-09-15T21:00:00.000Z");
   }
+});
+
+
+const xqqiHistory = `<table><tr><th>Declaration Date</th><th>Ex-Div Date</th><th>Record Date</th><th>Payable Date</th><th>Amount ($)</th></tr><tr><td>10/06/2026</td><td>10/07/2026</td><td>10/07/2026</td><td>10/09/2026</td><td>$0.8823</td></tr><tr><td>11/03/2026</td><td>11/04/2026</td><td>11/04/2026</td><td>11/06/2026</td><td></td></tr></table>`;
+test("XQQI official history reads real dates and amounts and ignores empty future calendar rows", async () => {
+  const f = async () => ({ok:true,text:async()=>neos("21.04")+xqqiHistory});
+  const history = await fetchNeosDividends("XQQI", f, new Date(NOW).toISOString());
+  assert.deepEqual(history.data,[{ex_date:"2026-10-07",payment_date:"2026-10-09",amount:.8823}]);
+  assert.equal((await fetchNeosDistributionRate("XQQI", f, new Date(NOW).toISOString())).rate,.2104);
+  await assert.rejects(fetchNeosDistributionRate("XQQI", async()=>({ok:true,text:async()=>"Annualized Distribution Target 19-23%"}),new Date(NOW).toISOString()));
+});
+test("XQQI failed sources preserve old price, official dividends, rate and their original timestamps", async () => {
+  const base=fetcher();
+  const first=await updateSnapshot({now:NOW,apiKey:"test",fetcher:async(url,opts)=>String(url).includes("neosfunds.com/xqqi")?{ok:true,text:async()=>neos("21.04")+xqqiHistory}:base(url,opts)});
+  const old=first.symbols.XQQI;
+  const failed=await updateSnapshot({previous:first,now:NOW+86400000,fetcher:async()=>{throw new Error("offline");}});
+  const row=failed.symbols.XQQI;
+  assert.deepEqual(row.price,old.price); assert.equal(row.price_status,"stale");
+  assert.deepEqual(row.dividends.data,old.dividends.data); assert.equal(row.dividends.fetched_at,old.dividends.fetched_at); assert.equal(row.dividends.status,"stale");
+  assert.equal(row.dividend_rate.rate,old.dividend_rate.rate); assert.equal(row.dividend_rate.fetched_at,old.dividend_rate.fetched_at); assert.equal(row.dividend_rate.status,"stale");
+});
+
+test("official stale XQQI close retains its true date and cannot count as a successful current fetch", async () => {
+  const page="Pricing Information Data as of 10/20/2026 Closing NAV Price Net Asset Value $47.89 Closing Market Price Spacer column Market Price $47.87";
+  const f=async url=>{if(String(url).includes("neosfunds.com/xqqi"))return {ok:true,text:async()=>page};throw new Error("offline");};
+  const price=await fetchNeosPrice("XQQI",f,"2026-10-22T00:00:00.000Z");
+  assert.equal(price.price,47.87); assert.equal(price.price_date,"2026-10-20");
+  const snapshot=await updateSnapshot({now:Date.parse("2026-10-22T00:00:00Z"),fetcher:f});
+  assert.deepEqual(snapshot.symbols.XQQI.price,price); assert.equal(snapshot.symbols.XQQI.price_status,"stale");
+  assert.equal(snapshot.refresh.summary.updated,0);
 });

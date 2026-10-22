@@ -2,7 +2,7 @@
 
 移动端美股股息记录 PWA。
 
-- 默认标的：QQQI、SPYI、QNDX、SCHD
+- 默认标的：QQQI、SPYI、QNDX、SCHD、XQQI
 - GitHub Actions 每天生成公开行情快照，App 关闭后仍更新；手机默认不需要 Key 或服务器 URL
 - 启动、回到前台、恢复联网时自动读取最近快照；失败保留旧值与原获取时间
 - 股息到账由用户确认
@@ -48,7 +48,7 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 
 ### 快照内容与额度
 
-- 默认 QQQI、SPYI、QNDX、SCHD。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Alpha Vantage 返回旧日线时自动尝试 Nasdaq 的常规收盘价，再尝试 Yahoo 日线。
+- 默认 QQQI、SPYI、QNDX、SCHD、XQQI。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Alpha Vantage 返回旧日线时自动尝试 Nasdaq 的常规收盘价，再尝试 Yahoo 日线。
 - USD/CNY 单独每日刷新，保存 `rate / fx_date / source / fetched_at`；主源 Frankfurter 失败时使用 Open Exchange Rates。所有行情源失败时保留旧记录并标记 `stale`。页面在价格日期不是最近完成交易日时，仍用上一笔收盘价估算市值和预期现金流，并写明日期和“沿用上一交易日收盘价”；完全没有价格时不计入总市值。
 - QQQI、SPYI 使用 NEOS 官方 `Distribution Rate`；QNDX 在派息历史不足时使用 State Street 的 `30 Day SEC Yield`；SCHD 使用实际 distributions 的 TTM。三者各自保留原指标名称，页面不把它们合成一个“股息率”。覆盖期不足明确显示“数据不足”，来源刷新失败时保留上次数值并标记过期。累计股息始终只来自用户确认的真实到账记录。
 - 文件只包含白名单公开价格、每股派息、日期及刷新状态/计数；脚本不读取浏览器持仓、交易或到账记录，密钥仅从环境变量读取，不写入文件和日志。
@@ -82,3 +82,7 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 App 固定使用 Actions 静态快照，不向普通用户展示 API Key、服务地址或行情模式。旧版本地数据中的个人 Key、服务 URL、持仓、交易和到账记录会被保留，以保证导入导出兼容；市场公告仍然只生成待确认股息，不冒充实际到账。
 
 已验证：[测试记录](docs/TESTING-V7.md)。移动截图使用合成测试数据：[首页](docs/screenshots/home-mobile-v7.png)、[图表](docs/screenshots/chart-mobile-v7.png)、[组合](docs/screenshots/portfolio-mobile-v7.png)、[深色](docs/screenshots/home-dark-v7.png)。
+
+### XQQI（7.7.0）
+
+升级只补充一次零持仓 XQQI；按代码识别已有自定义标的，保留原 ID、交易和设置。删除后不会在下次打开时重新添加。第五卡沿用持仓页自然滚动，前四卡尺寸不变。XQQI 分配率及每股金额、除息日、支付日来自 NEOS 官方；空白未来金额不生成记录。分配率不是保证收益，历史到账仅由本人确认。可编辑预扣税率，留空继续沿用历史到账比例；不追溯改写历史记录。

@@ -61,6 +61,8 @@ test("browser quote reader uses the snapshot and does not call Nasdaq or Yahoo",
     assert.equal(stale.price, 56.27);
     assert.equal(stale.priceDate, "2020-01-02");
     assert.equal(stale.refreshWarning, "沿用上一交易日收盘价");
+    assert.equal(stale.change, null);
+    assert.equal(stale.changePercent, null);
     assert.equal(urls.some((url) => /nasdaq|yahoo/i.test(url)), false);
     assert.ok(urls.length > 0);
   } finally {

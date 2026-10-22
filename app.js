@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.0";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.0";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.0";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.1";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.1";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.1";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -1050,12 +1050,18 @@ function priceStatusText(asset) {
   return `数据截至 ${priceDateOf(asset) || "—"}`;
 }
 
+function knownFinite(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function formatPriceChange(asset) {
-  const percent = Number(asset?.changePercent);
-  if (!Number.isFinite(percent)) return "";
-  const dollars = Number(asset?.priceChange);
+  const percent = knownFinite(asset?.changePercent);
+  if (percent === null) return "";
+  const dollars = knownFinite(asset?.priceChange);
   const percentText = `${percent > 0 ? "+" : ""}${(percent * 100).toFixed(2)}%`;
-  if (!Number.isFinite(dollars)) return percentText;
+  if (dollars === null) return percentText;
   return `${dollars > 0 ? "+" : ""}${dollars.toFixed(2)} (${percentText})`;
 }
 
@@ -1643,8 +1649,8 @@ async function updateAssetMarketData(asset, options = {}) {
       if (priceDateOf(asset) > quoteDate && hasUsableClose(asset)) throw new Error("快照较旧，保留已验证收盘价");
       Object.assign(asset, { currentPrice: quote.price, priceTradingDay: quote.tradingDay, priceDate: quote.priceDate || quote.tradingDay,
         priceUpdatedAt: quote.fetchedAt || new Date().toISOString(), priceSource: quote.source,
-        priceChange: Number.isFinite(Number(quote.change)) ? Number(quote.change) : null,
-        changePercent: Number.isFinite(Number(quote.changePercent)) ? Number(quote.changePercent) : null,
+        priceChange: knownFinite(quote.change),
+        changePercent: knownFinite(quote.changePercent),
         priceHistory: Array.isArray(quote.history) ? quote.history : (asset.priceHistory || []),
         priceLastError: quote.refreshWarning || null });
       quoteOk = (quote.priceDate || quote.tradingDay) === latestSessionDate();

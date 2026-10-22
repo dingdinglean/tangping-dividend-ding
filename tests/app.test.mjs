@@ -681,6 +681,25 @@ test("legacy four-ETF storage gains a zero XQQI holding and keeps the ledger", (
   assert.deepEqual(stored.assets.filter((row) => row.ticker !== "XQQI").map((row) => row.ticker), ["QQQI", "SPYI", "QNDX", "SCHD"]);
 });
 
+test("a missing session change stays blank and a real zero still renders", async () => {
+  const a = app(fixture());
+  a.context.fetchAlphaQuote = async () => ({ price: 54, priceDate: "2026-09-04", tradingDay: "2026-09-04", source: "Alpha Vantage EOD", fetchedAt: "2026-09-04T20:00:00.000Z", change: null, changePercent: null });
+  a.context.fetchAlphaDividends = async () => ({ dividends: [{ exDate: "2026-09-01", amount: 1 }], source: "test", fetchedAt: "2026-09-04T20:00:00.000Z", quality: "exact" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => ({ dividends: [], source: "test" });
+  a.context.fetchAlphaOverviewDividend = async () => ({ dividendYield: 0.14, annualDividendPerShare: 0, dataDate: "2026-08-31", source: "test", quality: "distribution_rate", yieldType: "distribution_rate", coverage: "complete" });
+  await a.run("updateAssetMarketData(state.assets[0])");
+  assert.equal(a.run("state.assets[0].priceChange"), null);
+  assert.equal(a.run("state.assets[0].changePercent"), null);
+  assert.equal(a.run("formatPriceChange(state.assets[0])"), "");
+  assert.doesNotMatch(a.run("renderAssetCard(calculatePortfolio().positions[0])"), /price-change|0\.00 \(0\.00%\)/);
+  a.run('Object.assign(state.assets[0], { priceChange: 0, changePercent: 0 })');
+  assert.equal(a.run("formatPriceChange(state.assets[0])"), "0.00 (0.00%)");
+  a.run('Object.assign(state.assets[0], { priceChange: 0.7, changePercent: 0.014623 })');
+  assert.equal(a.run("formatPriceChange(state.assets[0])"), "+0.70 (+1.46%)");
+  assert.equal(a.run("state.transactions[0].id"), "b");
+  assert.equal(a.run("state.assets[0].currentPrice"), 54);
+});
+
 test("XQQI quote refresh, distributions, tax edit and zero-share display", async () => {
   const saved = fixture();
   delete saved.migrations;

@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.6.0";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.6.0";
-import { APP_VERSION } from "./pwa-release.js?v=7.6.0";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.0";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.0";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.0";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -50,7 +50,9 @@ const defaultState = {
     { id: crypto.randomUUID(), ticker: "SPYI", apiSymbol: "SPYI", name: "NEOS S&P 500 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
     { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "资产增长" },
     { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "股息增长" },
+    { id: crypto.randomUUID(), ticker: "XQQI", apiSymbol: "XQQI", name: "NEOS Boosted Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
   ],
+  migrations: { xqqi: true },
   transactions: [],
 };
 
@@ -123,6 +125,15 @@ function loadState() {
       apiSymbol: asset.apiSymbol || asset.ticker,
       remoteDividends: Array.isArray(asset.remoteDividends) ? asset.remoteDividends : [],
     }));
+    // One-time catalog addition; preserve IDs, ledger, settings and user deletion.
+    merged.migrations = { ...saved.migrations };
+    if (!merged.migrations.xqqi) {
+      if (!merged.assets.some(asset => [asset.ticker, asset.apiSymbol].some(value => String(value || "").trim().toUpperCase() === "XQQI"))) {
+        merged.assets.push({ dividendDataQuality: null, dividendLastError: null, dividendNoData: false, snapshotAnnualDividendPerShare: 0, snapshotDividendYield: 0, ...structuredClone(defaultState.assets.find(asset => asset.ticker === "XQQI")) });
+      }
+      merged.migrations.xqqi = true;
+      stateNeedsMigration = true;
+    }
     return merged;
   } catch {
     storageReadError = true;
@@ -483,6 +494,10 @@ function mergeDividendRows(existingRows, fallbackRows) {
 }
 
 function getObservedNetFactor(item) {
+  const explicit = item.asset.dividendTaxPercent;
+  if (explicit !== null && explicit !== undefined && String(explicit).trim() !== "" && Number.isFinite(Number(explicit))) {
+    return 1 - Math.min(100, Math.max(0, Number(explicit))) / 100;
+  }
   const rows = state.transactions
     .filter((tx) => tx.assetId === item.asset.id && tx.type === "dividend" && tx.status === "received" && number(tx.grossDividend) > 0 && number(tx.netDividend) >= 0)
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -1226,6 +1241,8 @@ function renderAssetModal(assetId) {
       <div class="form-row"><label>股票代码</label><input class="input" name="ticker" maxlength="12" value="${escapeHtml(asset?.ticker || "")}" placeholder="例如 QNDX" required /></div>
       <div class="form-row"><label>名称</label><input class="input" name="name" value="${escapeHtml(asset?.name || "")}" required /></div>
       <div class="form-row"><label>手动股息率（%）</label><input class="input" name="manualDividendYieldPercent" type="number" step="0.01" min="0" value="${asset?.manualDividendYieldPercent ?? ""}" placeholder="留空自动更新" /></div>
+      <div class="form-row"><label>股息预扣税率（%）</label><input class="input" name="dividendTaxPercent" type="number" step="0.01" min="0" max="100" value="${asset?.dividendTaxPercent ?? ""}" placeholder="留空沿用历史到账比例" /></div>
+      <p class="settings-hint">税率仅用于预计收入；实际到账以确认金额为准。Distribution Rate 为历史分配年化口径，不保证收益。</p>
       <details class="advanced-settings">
         <summary>更多设置</summary>
         <div class="form-grid advanced-grid">
@@ -1500,6 +1517,7 @@ function submitAsset(event) {
     type: data.assetType,
     frequency: data.frequency,
     role: data.role,
+    dividendTaxPercent: String(data.dividendTaxPercent ?? "").trim() === "" ? null : Math.min(100, Math.max(0, number(data.dividendTaxPercent))),
     manualDividendYieldPercent: String(data.manualDividendYieldPercent ?? "").trim() === "" ? null : Math.max(0, number(data.manualDividendYieldPercent)),
     currentPrice: number(data.currentPrice),
   };

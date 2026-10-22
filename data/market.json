@@ -1,25 +1,17 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-22T00:56:43.716Z",
+  "generatedAt": "2026-10-22T07:53:13.106Z",
   "refresh": {
     "target_price_date": "2026-10-21",
-    "generated_at": "2026-10-22T00:56:43.716Z",
+    "generated_at": "2026-10-22T07:53:13.106Z",
     "alpha_vantage_usage": {
       "date": "2026-10-22",
-      "count": 12
+      "count": 14
     },
     "price_attempts": [
       {
         "symbol": "QQQI",
         "source": "Nasdaq",
-        "round": 1,
-        "status": "error",
-        "price_date": "2026-10-20",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "QQQI",
-        "source": "Alpha Vantage",
         "round": 1,
         "status": "success",
         "price_date": "2026-10-21",
@@ -29,14 +21,6 @@
         "symbol": "SPYI",
         "source": "Nasdaq",
         "round": 1,
-        "status": "error",
-        "price_date": "2026-10-20",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "SPYI",
-        "source": "Alpha Vantage",
-        "round": 1,
         "status": "success",
         "price_date": "2026-10-21",
         "price": 53.41
@@ -45,14 +29,6 @@
         "symbol": "QNDX",
         "source": "Nasdaq",
         "round": 1,
-        "status": "error",
-        "price_date": "2026-10-20",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "QNDX",
-        "source": "Alpha Vantage",
-        "round": 1,
         "status": "success",
         "price_date": "2026-10-21",
         "price": 24.57
@@ -60,14 +36,6 @@
       {
         "symbol": "SCHD",
         "source": "Nasdaq",
-        "round": 1,
-        "status": "error",
-        "price_date": "2026-10-20",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "SCHD",
-        "source": "Alpha Vantage",
         "round": 1,
         "status": "success",
         "price_date": "2026-10-21",
@@ -92,10 +60,10 @@
     }
   },
   "fx": {
-    "rate": 6.673,
+    "rate": 6.6726,
     "fx_date": "2026-10-22",
     "source": "Frankfurter",
-    "fetched_at": "2026-10-22T00:56:43.716Z"
+    "fetched_at": "2026-10-22T07:53:13.106Z"
   },
   "symbols": {
     "QQQI": {
@@ -103,8 +71,10 @@
         "symbol": "QQQI",
         "price": 54,
         "price_date": "2026-10-21",
-        "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "change": -0.16,
+        "change_percent": -0.002954
       },
       "dividends": {
         "data": [
@@ -275,15 +245,50 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "status": "valid"
       },
       "dividend_rate": {
         "rate": 0.14279999999999998,
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "fetched_at": "2026-10-22T07:53:13.106Z"
       },
+      "price_history": [
+        {
+          "date": "2026-10-21",
+          "close": 54
+        },
+        {
+          "date": "2026-10-20",
+          "close": 54.16
+        },
+        {
+          "date": "2026-10-19",
+          "close": 54.22
+        },
+        {
+          "date": "2026-10-16",
+          "close": 53.62
+        },
+        {
+          "date": "2026-10-15",
+          "close": 54.9
+        },
+        {
+          "date": "2026-10-14",
+          "close": 54.92
+        },
+        {
+          "date": "2026-10-13",
+          "close": 55.88
+        },
+        {
+          "date": "2026-10-12",
+          "close": 56
+        }
+      ],
       "price_status": "valid",
       "expected_price_date": "2026-10-21"
     },
@@ -292,55 +297,82 @@
         "symbol": "SPYI",
         "price": 53.41,
         "price_date": "2026-10-21",
-        "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "change": -0.29,
+        "change_percent": -0.0054
       },
       "dividends": {
         "data": [
           {
+            "ex_date": "2026-10-21",
+            "payment_date": "2026-10-23",
+            "amount": 0.5087,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-10-21"
+          },
+          {
             "ex_date": "2026-09-16",
             "payment_date": "2026-09-18",
-            "amount": 0.5338
+            "amount": 0.5338,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-09-16"
           },
           {
             "ex_date": "2026-08-19",
             "payment_date": "2026-08-21",
-            "amount": 0.5423
+            "amount": 0.5423,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-08-19"
           },
           {
             "ex_date": "2026-07-22",
             "payment_date": "2026-07-24",
-            "amount": 0.53
+            "amount": 0.53,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-07-22"
           },
           {
             "ex_date": "2026-06-16",
             "payment_date": "2026-06-18",
-            "amount": 0.531
+            "amount": 0.531,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-06-16"
           },
           {
             "ex_date": "2026-05-20",
             "payment_date": "2026-05-22",
-            "amount": 0.5353
+            "amount": 0.5353,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-05-20"
           },
           {
             "ex_date": "2026-04-22",
             "payment_date": "2026-04-24",
-            "amount": 0.5247
+            "amount": 0.5247,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-04-22"
           },
           {
             "ex_date": "2026-03-18",
             "payment_date": "2026-03-20",
-            "amount": 0.5104
+            "amount": 0.5104,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-03-18"
           },
           {
             "ex_date": "2026-02-18",
             "payment_date": "2026-02-20",
-            "amount": 0.5219
+            "amount": 0.5219,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-02-18"
           },
           {
             "ex_date": "2026-01-21",
             "payment_date": "2026-01-23",
-            "amount": 0.5309
+            "amount": 0.5309,
+            "declaration_date": "2025-11-21",
+            "record_date": "2026-01-21"
           },
           {
             "ex_date": "2025-12-24",
@@ -350,22 +382,30 @@
           {
             "ex_date": "2025-11-26",
             "payment_date": "2025-11-28",
-            "amount": 0.5216
+            "amount": 0.5216,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-11-26"
           },
           {
             "ex_date": "2025-10-22",
             "payment_date": "2025-10-24",
-            "amount": 0.5268
+            "amount": 0.5268,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-10-22"
           },
           {
             "ex_date": "2025-09-24",
             "payment_date": "2025-09-26",
-            "amount": 0.527
+            "amount": 0.527,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-09-24"
           },
           {
             "ex_date": "2025-08-20",
             "payment_date": "2025-08-22",
-            "amount": 0.5176
+            "amount": 0.5176,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-08-20"
           },
           {
             "ex_date": "2025-07-23",
@@ -375,42 +415,58 @@
           {
             "ex_date": "2025-06-25",
             "payment_date": "2025-06-27",
-            "amount": 0.5047
+            "amount": 0.5047,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-06-25"
           },
           {
             "ex_date": "2025-05-21",
             "payment_date": "2025-05-23",
-            "amount": 0.5063
+            "amount": 0.5063,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-05-21"
           },
           {
             "ex_date": "2025-04-23",
             "payment_date": "2025-04-25",
-            "amount": 0.4616
+            "amount": 0.4616,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-04-23"
           },
           {
             "ex_date": "2025-03-26",
             "payment_date": "2025-03-28",
-            "amount": 0.5065
+            "amount": 0.5065,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-03-26"
           },
           {
             "ex_date": "2025-02-26",
             "payment_date": "2025-02-28",
-            "amount": 0.5142
+            "amount": 0.5142,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-02-26"
           },
           {
             "ex_date": "2025-01-22",
             "payment_date": "2025-01-24",
-            "amount": 0.5167
+            "amount": 0.5167,
+            "declaration_date": "2024-11-20",
+            "record_date": "2025-01-22"
           },
           {
             "ex_date": "2024-12-24",
             "payment_date": "2024-12-26",
-            "amount": 0.5164
+            "amount": 0.5164,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-12-24"
           },
           {
             "ex_date": "2024-11-20",
             "payment_date": "2024-11-21",
-            "amount": 0.5206
+            "amount": 0.5206,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-11-20"
           },
           {
             "ex_date": "2024-10-23",
@@ -420,139 +476,224 @@
           {
             "ex_date": "2024-09-25",
             "payment_date": "2024-09-26",
-            "amount": 0.5147
+            "amount": 0.5147,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-09-25"
           },
           {
             "ex_date": "2024-08-21",
             "payment_date": "2024-08-22",
-            "amount": 0.5564
+            "amount": 0.5564,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-08-21"
           },
           {
             "ex_date": "2024-07-24",
             "payment_date": "2024-07-25",
-            "amount": 0.5088
+            "amount": 0.5088,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-07-24"
           },
           {
             "ex_date": "2024-06-26",
             "payment_date": "2024-06-27",
-            "amount": 0.5051
+            "amount": 0.5051,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-06-26"
           },
           {
             "ex_date": "2024-05-22",
             "payment_date": "2024-05-24",
-            "amount": 0.4997
+            "amount": 0.4997,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-05-23"
           },
           {
             "ex_date": "2024-04-24",
             "payment_date": "2024-04-26",
-            "amount": 0.4892
+            "amount": 0.4892,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-04-25"
           },
           {
             "ex_date": "2024-03-20",
             "payment_date": "2024-03-22",
-            "amount": 0.5014
+            "amount": 0.5014,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-03-21"
           },
           {
             "ex_date": "2024-02-21",
             "payment_date": "2024-02-23",
-            "amount": 0.4967
+            "amount": 0.4967,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-02-22"
           },
           {
             "ex_date": "2024-01-24",
             "payment_date": "2024-01-26",
-            "amount": 0.4896
+            "amount": 0.4896,
+            "declaration_date": "2024-01-08",
+            "record_date": "2024-01-25"
           },
           {
             "ex_date": "2023-12-20",
             "payment_date": "2023-12-22",
-            "amount": 0.4849
+            "amount": 0.4849,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-12-21"
           },
           {
             "ex_date": "2023-11-22",
             "payment_date": "2023-11-27",
-            "amount": 0.4783
+            "amount": 0.4783,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-11-24"
           },
           {
             "ex_date": "2023-10-25",
             "payment_date": "2023-10-27",
-            "amount": 0.465
+            "amount": 0.465,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-10-26"
           },
           {
             "ex_date": "2023-09-20",
             "payment_date": "2023-09-22",
-            "amount": 0.4895
+            "amount": 0.4895,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-09-21"
           },
           {
             "ex_date": "2023-08-23",
             "payment_date": "2023-08-25",
-            "amount": 0.4864
+            "amount": 0.4864,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-08-24"
           },
           {
             "ex_date": "2023-07-26",
             "payment_date": "2023-07-28",
-            "amount": 0.5047
+            "amount": 0.5047,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-07-27"
           },
           {
             "ex_date": "2023-06-22",
             "payment_date": "2023-06-26",
-            "amount": 0.4966
+            "amount": 0.4966,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-06-23"
           },
           {
             "ex_date": "2023-05-24",
             "payment_date": "2023-05-26",
-            "amount": 0.4865
+            "amount": 0.4865,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-05-25"
           },
           {
             "ex_date": "2023-04-26",
             "payment_date": "2023-04-28",
-            "amount": 0.4823
+            "amount": 0.4823,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-04-27"
           },
           {
             "ex_date": "2023-03-22",
             "payment_date": "2023-03-24",
-            "amount": 0.466
+            "amount": 0.466,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-03-23"
           },
           {
             "ex_date": "2023-02-23",
             "payment_date": "2023-02-27",
-            "amount": 0.4716
+            "amount": 0.4716,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-02-24"
           },
           {
             "ex_date": "2023-01-25",
             "payment_date": "2023-01-27",
-            "amount": 0.4755
+            "amount": 0.4755,
+            "declaration_date": "2023-01-05",
+            "record_date": "2023-01-26"
           },
           {
             "ex_date": "2022-12-23",
             "payment_date": "2022-12-28",
-            "amount": 0.461475
+            "amount": 0.461475,
+            "declaration_date": "2022-12-22",
+            "record_date": "2022-12-27"
           },
           {
             "ex_date": "2022-11-23",
             "payment_date": "2022-11-28",
-            "amount": 0.4782
+            "amount": 0.4782,
+            "declaration_date": "2022-11-22",
+            "record_date": "2022-11-25"
           },
           {
             "ex_date": "2022-10-26",
             "payment_date": "2022-10-28",
-            "amount": 0.4647
+            "amount": 0.4647,
+            "declaration_date": "2022-10-25",
+            "record_date": "2022-10-27"
           },
           {
             "ex_date": "2022-09-21",
             "payment_date": "2022-09-23",
-            "amount": 0.4853
+            "amount": 0.4853,
+            "declaration_date": "2022-09-20",
+            "record_date": "2022-09-22"
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "status": "valid"
       },
       "dividend_rate": {
         "rate": 0.12210000000000001,
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "fetched_at": "2026-10-22T07:53:13.106Z"
       },
+      "price_history": [
+        {
+          "date": "2026-10-21",
+          "close": 53.41
+        },
+        {
+          "date": "2026-10-20",
+          "close": 53.7
+        },
+        {
+          "date": "2026-10-19",
+          "close": 53.54
+        },
+        {
+          "date": "2026-10-16",
+          "close": 53.35
+        },
+        {
+          "date": "2026-10-15",
+          "close": 53.82
+        },
+        {
+          "date": "2026-10-14",
+          "close": 53.67
+        },
+        {
+          "date": "2026-10-13",
+          "close": 54.11
+        },
+        {
+          "date": "2026-10-12",
+          "close": 54.1
+        }
+      ],
       "price_status": "valid",
       "expected_price_date": "2026-10-21"
     },
@@ -561,8 +702,10 @@
         "symbol": "QNDX",
         "price": 24.57,
         "price_date": "2026-10-21",
-        "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "change": 0.28,
+        "change_percent": 0.011527
       },
       "dividends": {
         "data": [
@@ -573,7 +716,8 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "status": "valid"
       },
       "dividend_rate": {
         "rate": 0.0044,
@@ -582,9 +726,43 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-22T00:56:43.716Z",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
         "status": "valid"
       },
+      "price_history": [
+        {
+          "date": "2026-10-21",
+          "close": 24.57
+        },
+        {
+          "date": "2026-10-20",
+          "close": 24.29
+        },
+        {
+          "date": "2026-10-19",
+          "close": 24.34
+        },
+        {
+          "date": "2026-10-16",
+          "close": 24.05
+        },
+        {
+          "date": "2026-10-15",
+          "close": 24.67
+        },
+        {
+          "date": "2026-10-14",
+          "close": 24.69
+        },
+        {
+          "date": "2026-10-13",
+          "close": 25.18
+        },
+        {
+          "date": "2026-10-12",
+          "close": 25.27
+        }
+      ],
       "price_status": "valid",
       "expected_price_date": "2026-10-21"
     },
@@ -593,145 +771,201 @@
         "symbol": "SCHD",
         "price": 34.66,
         "price_date": "2026-10-21",
-        "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "change": -0.03,
+        "change_percent": -0.000865
       },
       "dividends": {
         "data": [
           {
             "ex_date": "2026-09-23",
             "payment_date": "2026-09-28",
-            "amount": 0.2665
+            "amount": 0.2665,
+            "declaration_date": "2026-02-18",
+            "record_date": "2026-09-23"
           },
           {
             "ex_date": "2026-06-24",
             "payment_date": "2026-06-29",
-            "amount": 0.2525
+            "amount": 0.2525,
+            "declaration_date": "2026-02-18",
+            "record_date": "2026-06-24"
           },
           {
             "ex_date": "2026-03-25",
             "payment_date": "2026-03-30",
-            "amount": 0.2569
+            "amount": 0.2569,
+            "declaration_date": "2026-02-18",
+            "record_date": "2026-03-25"
           },
           {
             "ex_date": "2025-12-10",
             "payment_date": "2025-12-15",
-            "amount": 0.2782
+            "amount": 0.2782,
+            "declaration_date": "2025-02-18",
+            "record_date": "2025-12-10"
           },
           {
             "ex_date": "2025-09-24",
             "payment_date": "2025-09-29",
-            "amount": 0.2604
+            "amount": 0.2604,
+            "declaration_date": "2025-02-18",
+            "record_date": "2025-09-24"
           },
           {
             "ex_date": "2025-06-25",
             "payment_date": "2025-06-30",
-            "amount": 0.2602
+            "amount": 0.2602,
+            "declaration_date": "2025-02-18",
+            "record_date": "2025-06-25"
           },
           {
             "ex_date": "2025-03-26",
             "payment_date": "2025-03-31",
-            "amount": 0.2488
+            "amount": 0.2488,
+            "declaration_date": "2025-02-18",
+            "record_date": "2025-03-26"
           },
           {
             "ex_date": "2024-12-11",
             "payment_date": "2024-12-16",
-            "amount": 0.2645
+            "amount": 0.2645,
+            "declaration_date": "2024-02-19",
+            "record_date": "2024-12-11"
           },
           {
             "ex_date": "2024-09-25",
             "payment_date": "2024-09-30",
-            "amount": 0.7545
+            "amount": 0.7545,
+            "declaration_date": "2024-02-19",
+            "record_date": "2024-09-25"
           },
           {
             "ex_date": "2024-06-26",
             "payment_date": "2024-07-01",
-            "amount": 0.8241
+            "amount": 0.8241,
+            "declaration_date": "2024-02-19",
+            "record_date": "2024-06-26"
           },
           {
             "ex_date": "2024-03-20",
             "payment_date": "2024-03-25",
-            "amount": 0.611
+            "amount": 0.611,
+            "declaration_date": "2024-02-19",
+            "record_date": "2024-03-21"
           },
           {
             "ex_date": "2023-12-06",
             "payment_date": "2023-12-11",
-            "amount": 0.7423
+            "amount": 0.7423,
+            "declaration_date": "2023-03-10",
+            "record_date": "2023-12-07"
           },
           {
             "ex_date": "2023-09-20",
             "payment_date": "2023-09-25",
-            "amount": 0.6545
+            "amount": 0.6545,
+            "declaration_date": "2023-03-10",
+            "record_date": "2023-09-21"
           },
           {
             "ex_date": "2023-06-21",
             "payment_date": "2023-06-26",
-            "amount": 0.6647
+            "amount": 0.6647,
+            "declaration_date": "2023-03-10",
+            "record_date": "2023-06-22"
           },
           {
             "ex_date": "2023-03-22",
             "payment_date": "2023-03-27",
-            "amount": 0.5965
+            "amount": 0.5965,
+            "declaration_date": "2023-03-10",
+            "record_date": "2023-03-23"
           },
           {
             "ex_date": "2022-12-07",
             "payment_date": "2022-12-12",
-            "amount": 0.7034
+            "amount": 0.7034,
+            "declaration_date": "2022-02-18",
+            "record_date": "2022-12-08"
           },
           {
             "ex_date": "2022-09-21",
             "payment_date": "2022-09-26",
-            "amount": 0.6367
+            "amount": 0.6367,
+            "declaration_date": "2022-02-18",
+            "record_date": "2022-09-22"
           },
           {
             "ex_date": "2022-06-22",
             "payment_date": "2022-06-27",
-            "amount": 0.7038
+            "amount": 0.7038,
+            "declaration_date": "2022-02-18",
+            "record_date": "2022-06-23"
           },
           {
             "ex_date": "2022-03-23",
             "payment_date": "2022-03-28",
-            "amount": 0.5176
+            "amount": 0.5176,
+            "declaration_date": "2022-02-18",
+            "record_date": "2022-03-24"
           },
           {
             "ex_date": "2021-12-08",
             "payment_date": "2021-12-13",
-            "amount": 0.6198
+            "amount": 0.6198,
+            "declaration_date": "2021-02-02",
+            "record_date": "2021-12-09"
           },
           {
             "ex_date": "2021-09-22",
             "payment_date": "2021-09-27",
-            "amount": 0.587
+            "amount": 0.587,
+            "declaration_date": "2021-02-02",
+            "record_date": "2021-09-23"
           },
           {
             "ex_date": "2021-06-23",
             "payment_date": "2021-06-28",
-            "amount": 0.5396
+            "amount": 0.5396,
+            "declaration_date": "2021-02-02",
+            "record_date": "2021-06-24"
           },
           {
             "ex_date": "2021-03-24",
             "payment_date": "2021-03-29",
-            "amount": 0.5026
+            "amount": 0.5026,
+            "declaration_date": "2021-02-02",
+            "record_date": "2021-03-25"
           },
           {
             "ex_date": "2020-12-10",
             "payment_date": "2020-12-15",
-            "amount": 0.6015
+            "amount": 0.6015,
+            "declaration_date": "2020-01-23",
+            "record_date": "2020-12-11"
           },
           {
             "ex_date": "2020-09-23",
             "payment_date": "2020-09-28",
-            "amount": 0.543
+            "amount": 0.543,
+            "declaration_date": "2020-01-23",
+            "record_date": "2020-09-24"
           },
           {
             "ex_date": "2020-06-24",
             "payment_date": "2020-06-29",
-            "amount": 0.442
+            "amount": 0.442,
+            "declaration_date": "2020-01-23",
+            "record_date": "2020-06-25"
           },
           {
             "ex_date": "2020-03-25",
             "payment_date": "2020-03-30",
-            "amount": 0.4419
+            "amount": 0.4419,
+            "declaration_date": "2020-01-23",
+            "record_date": "2020-03-26"
           },
           {
             "ex_date": "2019-12-12",
@@ -900,7 +1134,8 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-22T00:56:43.716Z"
+        "fetched_at": "2026-10-22T07:53:13.106Z",
+        "status": "valid"
       },
       "dividend_rate": {
         "rate": 0.03041257934218119,
@@ -910,9 +1145,43 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-22T00:56:43.716Z",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
         "status": "valid"
       },
+      "price_history": [
+        {
+          "date": "2026-10-21",
+          "close": 34.66
+        },
+        {
+          "date": "2026-10-20",
+          "close": 34.69
+        },
+        {
+          "date": "2026-10-19",
+          "close": 34.24
+        },
+        {
+          "date": "2026-10-16",
+          "close": 34.35
+        },
+        {
+          "date": "2026-10-15",
+          "close": 34.1
+        },
+        {
+          "date": "2026-10-14",
+          "close": 33.71
+        },
+        {
+          "date": "2026-10-13",
+          "close": 33.37
+        },
+        {
+          "date": "2026-10-12",
+          "close": 33.26
+        }
+      ],
       "price_status": "valid",
       "expected_price_date": "2026-10-21"
     },
@@ -922,7 +1191,7 @@
         "price": 48.57,
         "price_date": "2026-10-21",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-22T01:48:02.000Z",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
         "change": 0.7,
         "change_percent": 0.014623
       },
@@ -958,106 +1227,76 @@
         {
           "date": "2026-10-12",
           "close": 50.45
-        },
-        {
-          "date": "2026-10-09",
-          "close": 50.78
-        },
-        {
-          "date": "2026-10-08",
-          "close": 50.57
-        },
-        {
-          "date": "2026-10-07",
-          "close": 51.25
-        },
-        {
-          "date": "2026-10-06",
-          "close": 52.25
-        },
-        {
-          "date": "2026-10-05",
-          "close": 51.95
-        },
-        {
-          "date": "2026-10-02",
-          "close": 51.51
-        },
-        {
-          "date": "2026-10-01",
-          "close": 50.8975
         }
       ],
-      "price_status": "valid",
-      "expected_price_date": "2026-10-21",
       "dividends": {
         "data": [
           {
-            "declaration_date": "2026-10-06",
             "ex_date": "2026-10-07",
-            "record_date": "2026-10-07",
             "payment_date": "2026-10-09",
-            "amount": 0.8823
+            "amount": 0.8823,
+            "declaration_date": "2026-10-06",
+            "record_date": "2026-10-07"
           },
           {
-            "declaration_date": "2026-09-01",
             "ex_date": "2026-09-02",
-            "record_date": "2026-09-02",
             "payment_date": "2026-09-04",
-            "amount": 0.8403
+            "amount": 0.8403,
+            "declaration_date": "2026-09-01",
+            "record_date": "2026-09-02"
           },
           {
-            "declaration_date": "2026-08-04",
             "ex_date": "2026-08-05",
-            "record_date": "2026-08-05",
             "payment_date": "2026-08-07",
-            "amount": 0.8236
+            "amount": 0.8236,
+            "declaration_date": "2026-08-04",
+            "record_date": "2026-08-05"
           },
           {
-            "declaration_date": "2026-07-07",
             "ex_date": "2026-07-08",
-            "record_date": "2026-07-08",
             "payment_date": "2026-07-10",
-            "amount": 0.8772
+            "amount": 0.8772,
+            "declaration_date": "2026-07-07",
+            "record_date": "2026-07-08"
           },
           {
-            "declaration_date": "2026-06-02",
             "ex_date": "2026-06-03",
-            "record_date": "2026-06-03",
             "payment_date": "2026-06-05",
-            "amount": 0.9216
+            "amount": 0.9216,
+            "declaration_date": "2026-06-02",
+            "record_date": "2026-06-03"
           },
           {
-            "declaration_date": "2026-05-05",
             "ex_date": "2026-05-06",
-            "record_date": "2026-05-06",
             "payment_date": "2026-05-08",
-            "amount": 0.856
+            "amount": 0.856,
+            "declaration_date": "2026-05-05",
+            "record_date": "2026-05-06"
           },
           {
-            "declaration_date": "2026-04-07",
             "ex_date": "2026-04-08",
-            "record_date": "2026-04-08",
             "payment_date": "2026-04-10",
-            "amount": 0.7672
+            "amount": 0.7672,
+            "declaration_date": "2026-04-07",
+            "record_date": "2026-04-08"
           },
           {
-            "declaration_date": "2026-03-03",
             "ex_date": "2026-03-04",
-            "record_date": "2026-03-04",
             "payment_date": "2026-03-06",
-            "amount": 0.8139
+            "amount": 0.8139,
+            "declaration_date": "2026-03-03",
+            "record_date": "2026-03-04"
           },
           {
-            "declaration_date": "2026-02-03",
             "ex_date": "2026-02-04",
-            "record_date": "2026-02-04",
             "payment_date": "2026-02-06",
-            "amount": 0.85
+            "amount": 0.85,
+            "declaration_date": "2026-02-03",
+            "record_date": "2026-02-04"
           }
         ],
         "source": "NEOS official Distribution History",
-        "fetched_at": "2026-10-22T01:48:02.000Z",
+        "fetched_at": "2026-10-22T07:53:13.106Z",
         "status": "valid"
       },
       "dividend_rate": {
@@ -1065,8 +1304,10 @@
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-22T01:48:02.000Z"
-      }
+        "fetched_at": "2026-10-22T07:53:13.106Z"
+      },
+      "price_status": "valid",
+      "expected_price_date": "2026-10-21"
     }
   }
 }

@@ -642,12 +642,114 @@ test("XQQI buys, sells and editable tax affect forecasts, never confirmed receip
     {id:"xr",assetId:"x",type:"dividend",status:"received",date:"2026-04-01",grossDividend:10,netDividend:7,shareCount:10});`);
   const item = a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x")');
   assert.equal(item.shares, 10); assert.equal(item.cost, 400); assert.equal(item.marketValue, 500);
-  assert.equal(item.annualForecast, 90); assert.equal(item.receivedDividends, 7);
+  assert.equal(item.annualGross, 100); assert.equal(item.annualForecast, 90); assert.equal(item.receivedDividends, 7);
   const before = a.run("JSON.stringify(state.transactions)");
   a.run('x.dividendTaxPercent=20');
+  assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").annualGross'),100);
   assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").annualForecast'),80);
   assert.equal(a.run("JSON.stringify(state.transactions)"), before);
   a.run('state.transactions.push({assetId:"x",type:"sell",date:"2026-09-01",shares:4,price:50})');
   assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").shares'),6);
+  assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").annualGross'),60);
   assert.equal(a.run('calculatePortfolio().positions.find(p=>p.asset.id==="x").annualForecast'),48);
+});
+
+test("legacy four-ETF storage gains a zero XQQI holding and keeps the ledger", () => {
+  const saved = {
+    version: 1,
+    settings: { displayCurrency: "USD", exchangeRate: 7.1, monthlyGoal: 1800, customSetting: "keep", theme: "dark" },
+    assets: ["QQQI", "SPYI", "QNDX", "SCHD"].map((ticker, index) => ({ id: ticker, ticker, name: `${ticker} name`, currentPrice: 10 + index, priceDate: "2026-09-04", manualDividendYieldPercent: null, remoteDividends: [{ exDate: "2026-08-01", amount: 0.5 }] })),
+    transactions: ["QQQI", "SPYI", "QNDX", "SCHD"].map((ticker) => ({ id: `buy-${ticker}`, assetId: ticker, type: "buy", date: "2026-01-02", shares: 3, price: 20 })),
+  };
+  const before = structuredClone(saved);
+  const a = app(saved);
+  assert.equal(a.run("stateNeedsMigration"), true);
+  a.run("saveState()");
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(a.storage.has("tangping-dividend.v7"), false);
+  assert.deepEqual(stored.transactions, before.transactions);
+  assert.equal(stored.settings.customSetting, "keep");
+  assert.equal(stored.settings.monthlyGoal, 1800);
+  assert.equal(stored.settings.theme, "dark");
+  for (const asset of before.assets) {
+    const next = stored.assets.find((row) => row.id === asset.id);
+    for (const [key, value] of Object.entries(asset)) assert.deepEqual(next[key], value);
+  }
+  const xqqi = stored.assets.find((row) => row.ticker === "XQQI");
+  assert.equal(xqqi.currentPrice, 0);
+  assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI").shares'), 0);
+  assert.deepEqual(stored.assets.filter((row) => row.ticker !== "XQQI").map((row) => row.ticker), ["QQQI", "SPYI", "QNDX", "SCHD"]);
+});
+
+test("XQQI quote refresh, distributions, tax edit and zero-share display", async () => {
+  const saved = fixture();
+  delete saved.migrations;
+  const a = app(saved);
+  const original = JSON.parse(JSON.stringify(saved.assets[0]));
+  a.context.fetchAlphaQuote = async (symbol) => symbol === "XQQI"
+    ? { price: 48.57, priceDate: "2026-09-04", tradingDay: "2026-09-04", source: "Nasdaq historical close", fetchedAt: "2026-09-04T20:00:00.000Z", change: 0.7, changePercent: 0.014623, history: [{ date: "2026-09-04", close: 48.57 }, { date: "2026-09-03", close: 47.87 }] }
+    : { price: 54, priceDate: "2026-09-04", tradingDay: "2026-09-04", source: "test", fetchedAt: "2026-09-04T20:00:00.000Z" };
+  a.context.fetchAlphaDividends = async () => ({ dividends: [
+    { exDate: "2026-08-05", declarationDate: "2026-08-04", recordDate: "2026-08-05", paymentDate: "2026-08-07", amount: 0.8236 },
+    { exDate: "2026-10-07", declarationDate: "2026-10-06", recordDate: "2026-10-07", paymentDate: "2026-10-09", amount: 0.8823 },
+  ], source: "NEOS official Distribution History", fetchedAt: "2026-09-04T20:00:00.000Z", quality: "exact" });
+  a.context.fetchAlphaMonthlyAdjustedDividends = async () => { throw new Error("no monthly estimate"); };
+  a.context.fetchAlphaOverviewDividend = async () => ({ dividendYield: 0.2104, annualDividendPerShare: 0, dataDate: "2026-09-30", source: "NEOS official Distribution Rate", quality: "distribution_rate", yieldType: "distribution_rate", coverage: "complete", fetchedAt: "2026-09-04T20:00:00.000Z" });
+  await a.run('updateAssetMarketData(state.assets.find(asset => asset.ticker === "XQQI"))');
+  const zero = a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI")');
+  assert.equal(zero.shares, 0);
+  assert.equal(zero.asset.currentPrice, 48.57);
+  assert.equal(zero.asset.priceUpdatedAt, "2026-09-04T20:00:00.000Z");
+  assert.equal(zero.asset.remoteDividends.length, 2);
+  assert.equal(zero.annualGross, 0);
+  assert.equal(zero.annualForecast, 0);
+  const card = a.run('renderAssetCard(calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI"))');
+  assert.match(card, /\$48\.57/);
+  assert.match(card, /\+0\.70 \(\+1\.46%\)/);
+  assert.match(card, /0 股/);
+  assert.match(card, /已公布派息 2 笔/);
+  assert.match(card, /\$0\.8823/);
+  assert.match(card, /宣布 2026-10-06/);
+  assert.match(card, /登记 2026-10-07/);
+  assert.doesNotMatch(card, /19-23|19%–23%/);
+  a.run(`const x = state.assets.find(asset => asset.ticker === "XQQI");
+    state.transactions.push({ id: "buy-x", assetId: x.id, type: "buy", date: "2026-02-01", shares: 10, price: 49 });
+    syncDeclaredDividendTransactions(x);`);
+  const pending = a.run('getPendingDividendTransactions().filter(tx => tx.assetId === state.assets.find(asset => asset.ticker === "XQQI").id)');
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].status, "announced");
+  assert.equal(pending[0].exDate, "2026-08-05");
+  assert.equal(pending[0].paymentDate, "2026-08-07");
+  assert.equal(pending[0].perShare, 0.8236);
+  const inbox = a.run('renderPendingDividends(getPendingDividendTransactions())');
+  assert.match(inbox, /XQQI/);
+  assert.match(inbox, /已宣布 · 待确认/);
+  assert.match(inbox, /待确认到账/);
+  const future = a.run('state.transactions.find(tx => tx.exDate === "2026-10-07")');
+  assert.equal(future.status, "announced");
+  assert.equal(a.run('getPendingDividendTransactions().some(tx => tx.exDate === "2026-10-07")'), false);
+  a.run(`submitAsset({ preventDefault() {}, currentTarget: { fields: { assetId: state.assets.find(asset => asset.ticker === "XQQI").id, ticker: "XQQI", apiSymbol: "XQQI", name: "NEOS Boosted Nasdaq-100 High Income ETF", assetType: "ETF", frequency: "monthly", role: "高现金流", manualDividendYieldPercent: "", dividendTaxPercent: "10", currentPrice: "48.57" } } })`);
+  const held = a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI")');
+  assert.equal(held.shares, 10);
+  assert.equal(held.cost, 490);
+  assert.equal(Number(held.marketValue.toFixed(2)), 485.7);
+  assert.equal(Number(held.pnl.toFixed(2)), -4.3);
+  assert.equal(held.asset.dividendTaxPercent, 10);
+  assert.equal(Number(held.annualGross.toFixed(2)), Number((485.7 * 0.2104).toFixed(2)));
+  assert.equal(Number(held.annualForecast.toFixed(2)), Number((held.annualGross * 0.9).toFixed(2)));
+  const chart = a.run("monthlyIncomeData(2026)");
+  assert.ok(chart.announced[7] > 0);
+  assert.ok(chart.forecast.reduce((sum, value) => sum + value, 0) > 0);
+  a.run('state.transactions.find(tx => tx.exDate === "2026-08-05").status = "received"');
+  assert.match(a.run('renderEvent(state.transactions.find(tx => tx.exDate === "2026-08-05"))'), /股息到账/);
+  a.context.fetchAlphaQuote = async () => { throw new Error("offline"); };
+  a.context.fetchAlphaDividends = async () => { throw new Error("offline"); };
+  a.context.fetchAlphaOverviewDividend = async () => { throw new Error("offline"); };
+  await assert.rejects(a.run('updateAssetMarketData(state.assets.find(asset => asset.ticker === "XQQI"))'));
+  assert.equal(a.run('state.assets.find(asset => asset.ticker === "XQQI").currentPrice'), 48.57);
+  assert.equal(a.run('state.assets.find(asset => asset.ticker === "XQQI").priceUpdatedAt'), "2026-09-04T20:00:00.000Z");
+  assert.equal(a.run('state.assets.find(asset => asset.ticker === "XQQI").remoteDividends').length, 2);
+  assert.equal(a.run('state.assets.find(asset => asset.id === "a").ticker'), original.ticker);
+  assert.equal(a.run('state.assets.find(asset => asset.id === "a").currentPrice'), original.currentPrice);
+  assert.equal(a.run('state.transactions.filter(tx => tx.assetId === "a").map(tx => tx.id).join(",")'), "b");
 });

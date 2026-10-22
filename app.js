@@ -717,14 +717,15 @@ function calculatePortfolio() {
     const dividendYield = manualYield !== null ? manualYield : (publishedRate > 0 ? publishedRate : (forwardYield > 0 ? forwardYield : ttmYield));
     // Missing distributions are insufficient data, never evidence of a 0% long-term yield.
     const dividendKnownZero = false;
-    const annualForecast = manualYield !== null
-      ? marketValue * manualYield * getObservedNetFactor(item)
-      : publishedRate > 0 ? marketValue * publishedRate * getObservedNetFactor(item)
-        : estimateAnnualDividend(item, forwardPerShare || ttmPerShare);
+    const netFactor = getObservedNetFactor(item);
+    const perShareGross = forwardPerShare || ttmPerShare;
+    const annualGross = item.shares <= 0 ? 0 : manualYield !== null ? marketValue * manualYield : publishedRate > 0 ? marketValue * publishedRate : perShareGross > 0 ? perShareGross * item.shares : 0;
+    const annualForecast = manualYield !== null || publishedRate > 0 ? annualGross * netFactor : estimateAnnualDividend(item, perShareGross);
     return {
       ...item,
       marketValue,
       pnl,
+      annualGross,
       annualForecast,
       ttmPerShare,
       forwardPerShare,
@@ -1045,8 +1046,32 @@ function priceStatusText(asset) {
   const amount = number(asset.currentPrice) > 0 ? money(number(asset.currentPrice), "USD") : "—";
   if (asset.priceSource === "手动" && hasUsableClose(asset)) return `手动价格 · ${dated} · ${amount}`;
   if (hasLatestValidPrice(asset)) return `收盘价 · ${dated} · ${amount}`;
-  if (hasUsableClose(asset)) return `沿用上一交易日收盘价 · ${dated} · ${amount}`;
+  if (hasUsableClose(asset)) return `沿用上一交易日收盘价 · ${dated} · ${amount} · 更新 ${formatUpdatedAt(asset.priceUpdatedAt)}`;
   return `数据截至 ${priceDateOf(asset) || "—"}`;
+}
+
+function formatPriceChange(asset) {
+  const percent = Number(asset?.changePercent);
+  if (!Number.isFinite(percent)) return "";
+  const dollars = Number(asset?.priceChange);
+  const percentText = `${percent > 0 ? "+" : ""}${(percent * 100).toFixed(2)}%`;
+  if (!Number.isFinite(dollars)) return percentText;
+  return `${dollars > 0 ? "+" : ""}${dollars.toFixed(2)} (${percentText})`;
+}
+
+function renderDistributionHistory(asset) {
+  const rows = (asset.remoteDividends || []).filter((row) => number(row.amount) > 0);
+  if (!rows.length) return "";
+  return `<details class="distribution-history"><summary>已公布派息 ${rows.length} 笔</summary><ul>${rows.slice(0, 24).map((row) => {
+    const facts = [row.declarationDate ? `宣布 ${row.declarationDate}` : "", `除息 ${row.exDate || "—"}`, row.recordDate ? `登记 ${row.recordDate}` : "", row.paymentDate ? `支付 ${row.paymentDate}` : ""].filter(Boolean).join(" · ");
+    return `<li><span>${escapeHtml(facts)}</span><strong>$${number(row.amount).toFixed(4)}</strong></li>`;
+  }).join("")}</ul></details>`;
+}
+
+function renderPriceHistory(asset) {
+  const rows = (Array.isArray(asset.priceHistory) ? asset.priceHistory : []).filter((row) => number(row.close) > 0 && row.date);
+  if (rows.length < 2) return "";
+  return `<details class="price-history"><summary>收盘价记录 ${rows.length} 日</summary><ul>${rows.slice(0, 20).map((row) => `<li><span>${escapeHtml(row.date)}</span><strong>${money(number(row.close), "USD")}</strong></li>`).join("")}</ul></details>`;
 }
 
 function dividendRateCaption(item) {
@@ -1066,6 +1091,7 @@ function renderAssetCard(item) {
   const pnlText = item.priceValid ? money(item.pnl, "USD") : "待更新";
   const expanded = expandedAssetIds.has(asset.id);
   const price = number(asset.currentPrice) > 0 ? money(number(asset.currentPrice), "USD") : "待更新";
+  const changeText = formatPriceChange(asset);
   const fresh = hasLatestValidPrice(asset);
   const status = asset.priceSource === "手动" && fresh ? "手动" : fresh ? "正常" : "过期";
   const detailsId = `asset-details-${escapeHtml(asset.id)}`;
@@ -1073,14 +1099,16 @@ function renderAssetCard(item) {
     <article class="card asset-card asset-card-compact ${expanded ? "is-expanded" : ""}" data-asset-card="${escapeHtml(asset.id)}">
       <button class="asset-toggle" type="button" data-action="toggle-asset" data-id="${escapeHtml(asset.id)}" aria-expanded="${expanded}" aria-controls="${detailsId}" aria-label="${expanded ? "收起" : "展开"} ${escapeHtml(asset.ticker)} 详情">
         <span class="asset-compact-head"><strong class="asset-symbol">${escapeHtml(asset.ticker)}</strong><span class="asset-shares">${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span><span class="asset-compact-yield"><small>收益率</small><strong>${dividendRate}</strong><span class="asset-chevron" aria-hidden="true">⌄</span></span></span>
-        <span class="asset-close-row"><span>收盘 <strong>${price}</strong></span><span>${shortDataDate(priceDateOf(asset))}</span><span class="price-state ${fresh ? "fresh" : "stale"}"><i class="status-dot ${fresh ? "fresh" : "stale"}"></i>${status}</span></span>
+        <span class="asset-close-row"><span>收盘 <strong>${price}</strong></span>${changeText ? `<span class="price-change ${number(asset.priceChange) > 0 ? "positive" : number(asset.priceChange) < 0 ? "negative" : ""}">${changeText}</span>` : ""}<span>${shortDataDate(priceDateOf(asset))}</span><span class="price-state ${fresh ? "fresh" : "stale"}"><i class="status-dot ${fresh ? "fresh" : "stale"}"></i>${status}</span></span>
         <span class="asset-stat-grid"><span><label>已收分红 · USD</label><strong>${money(item.receivedDividends, "USD")}</strong></span><span><label>均价 · USD</label><strong>${item.shares > 0 ? money(avgCost, "USD") : "—"}</strong></span><span><label>净收益 · USD</label><strong class="${item.priceValid ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${pnlText}</strong></span></span>
       </button>
       <div class="asset-expanded" id="${detailsId}" ${expanded ? "" : "hidden"}>
         <p class="asset-name">${escapeHtml(asset.name)}</p>
         <p class="asset-detail-caption">${escapeHtml(priceStatusText(asset))}<br>${escapeHtml(dividendRateCaption(item))}</p>
-        <div class="asset-detail-summary"><div><span>市值</span><strong>${item.priceValid && hasFreshFx() ? money(item.marketValue) : "待更新"}</strong></div><div><span>成本</span><strong>${money(item.cost)}</strong></div><div><span>预计年股息</span><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div><div><span>下次分红</span><strong>${item.nextDividend ? escapeHtml(item.nextDividend.paymentDate || item.nextDividend.exDate) : "暂无已宣布记录"}</strong></div></div>
+        <div class="asset-detail-summary"><div><span>市值</span><strong>${item.priceValid && hasFreshFx() ? money(item.marketValue) : "待更新"}</strong></div><div><span>成本</span><strong>${money(item.cost)}</strong></div><div><span>税前收入</span><strong>${item.shares > 0 && !item.hasDividendEstimate ? "—" : money(item.annualGross)}</strong></div><div><span>税后收入</span><strong>${item.shares > 0 && !item.hasDividendEstimate ? "—" : money(item.annualForecast)}</strong></div><div><span>下次分红</span><strong>${item.nextDividend ? escapeHtml(item.nextDividend.paymentDate || item.nextDividend.exDate) : "暂无已宣布记录"}</strong></div></div>
         <div class="btn-row"><button class="btn" data-action="asset-detail" data-id="${escapeHtml(asset.id)}">编辑标的</button><button class="btn" data-action="refresh-asset" data-id="${escapeHtml(asset.id)}" ${refreshInProgress ? "disabled" : ""}>更新行情</button></div>
+        ${renderDistributionHistory(asset)}
+        ${renderPriceHistory(asset)}
       </div>
     </article>
   `;
@@ -1230,7 +1258,8 @@ function renderAssetModal(assetId) {
       <div><span>成本</span><strong>${money(item.cost)}</strong></div>
       <div><span>浮动盈亏</span><strong class="${item.priceValid && hasFreshFx() ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${item.priceValid && hasFreshFx() ? money(item.pnl) : "待更新"}</strong></div>
       <div><span>已收股息</span><strong>${money(item.receivedDividends)}</strong></div>
-      <div><span>预计年股息</span><strong>${item.hasDividendEstimate ? money(item.annualForecast) : "—"}</strong></div>
+      <div><span>税前收入</span><strong>${item.shares > 0 && !item.hasDividendEstimate ? "—" : money(item.annualGross)}</strong></div>
+      <div><span>税后收入</span><strong>${item.shares > 0 && !item.hasDividendEstimate ? "—" : money(item.annualForecast)}</strong></div>
       <div><span>下次分红</span><strong>${next ? escapeHtml(next.paymentDate || next.exDate) : "暂无已宣布记录"}</strong></div>
     </section>
     <div class="btn-row modal-quick-actions"><button class="btn" data-action="refresh-asset" data-id="${asset.id}" ${refreshInProgress ? "disabled" : ""}>更新行情</button><button class="btn" data-action="quick-price" data-id="${asset.id}">手动价格</button></div>` : "";
@@ -1614,7 +1643,10 @@ async function updateAssetMarketData(asset, options = {}) {
       if (priceDateOf(asset) > quoteDate && hasUsableClose(asset)) throw new Error("快照较旧，保留已验证收盘价");
       Object.assign(asset, { currentPrice: quote.price, priceTradingDay: quote.tradingDay, priceDate: quote.priceDate || quote.tradingDay,
         priceUpdatedAt: quote.fetchedAt || new Date().toISOString(), priceSource: quote.source,
-        changePercent: quote.changePercent, priceLastError: quote.refreshWarning || null });
+        priceChange: Number.isFinite(Number(quote.change)) ? Number(quote.change) : null,
+        changePercent: Number.isFinite(Number(quote.changePercent)) ? Number(quote.changePercent) : null,
+        priceHistory: Array.isArray(quote.history) ? quote.history : (asset.priceHistory || []),
+        priceLastError: quote.refreshWarning || null });
       quoteOk = (quote.priceDate || quote.tradingDay) === latestSessionDate();
       if (!quoteOk) asset.priceLastError = hasUsableClose(asset) ? "沿用上一交易日收盘价" : `数据截至 ${quote.priceDate || quote.tradingDay || "—"}`;
     } catch (error) {

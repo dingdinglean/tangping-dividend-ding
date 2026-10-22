@@ -50,10 +50,10 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 
 - 默认 QQQI、SPYI、QNDX、SCHD、XQQI。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Alpha Vantage 返回旧日线时自动尝试 Nasdaq 的常规收盘价，再尝试 Yahoo 日线。
 - USD/CNY 单独每日刷新，保存 `rate / fx_date / source / fetched_at`；主源 Frankfurter 失败时使用 Open Exchange Rates。所有行情源失败时保留旧记录并标记 `stale`。页面在价格日期不是最近完成交易日时，仍用上一笔收盘价估算市值和预期现金流，并写明日期和“沿用上一交易日收盘价”；完全没有价格时不计入总市值。
-- QQQI、SPYI 使用 NEOS 官方 `Distribution Rate`；QNDX 在派息历史不足时使用 State Street 的 `30 Day SEC Yield`；SCHD 使用实际 distributions 的 TTM。三者各自保留原指标名称，页面不把它们合成一个“股息率”。覆盖期不足明确显示“数据不足”，来源刷新失败时保留上次数值并标记过期。累计股息始终只来自用户确认的真实到账记录。
+- QQQI、SPYI、XQQI 使用 NEOS 官方 `Distribution Rate`；QNDX 在派息历史不足时使用 State Street 的 `30 Day SEC Yield`；SCHD 使用实际 distributions 的 TTM。各自保留原指标名称，页面不把它们合成一个“股息率”。覆盖期不足明确显示“数据不足”，来源刷新失败时保留上次数值并标记过期。累计股息始终只来自用户确认的真实到账记录。
 - 文件只包含白名单公开价格、每股派息、日期及刷新状态/计数；脚本不读取浏览器持仓、交易或到账记录，密钥仅从环境变量读取，不写入文件和日志。
 - 首次快照为空，等待配置 Secret 后真实抓取，不提供假行情。免费套餐未提供某接口时会回退或保留旧值，不承诺实时行情。
-- 同一密钥被其他程序使用、删除预算文件、强制取消流程或 push 失败可能影响共享额度；不要并行使用其他抓取器或清空快照。工作流串行运行，抓取失败后仍尝试提交已保存的预算和状态。
+- 同一密钥被其他程序使用、删除预算文件、强制取消流程或 push 失败可能影响共享额度；不要并行使用其他抓取器或清空快照。工作流串行运行。价格或派息不完整时不写入、也不提交 `data/market.json`，保留上一份完整快照。
 
 ### GitHub Pages 更新与离线
 
@@ -85,4 +85,6 @@ App 固定使用 Actions 静态快照，不向普通用户展示 API Key、服�
 
 ### XQQI（7.7.0）
 
-升级只补充一次零持仓 XQQI；按代码识别已有自定义标的，保留原 ID、交易和设置。删除后不会在下次打开时重新添加。第五卡沿用持仓页自然滚动，前四卡尺寸不变。XQQI 分配率及每股金额、除息日、支付日来自 NEOS 官方；空白未来金额不生成记录。分配率不是保证收益，历史到账仅由本人确认。可编辑预扣税率，留空继续沿用历史到账比例；不追溯改写历史记录。
+升级只补充一次零持仓 XQQI；按代码识别已有自定义标的，保留原 ID、交易和设置。删除后不会在下次打开时重新添加。第五卡沿用持仓页自然滚动，前四卡尺寸不变。行情价只用 Nasdaq / Yahoo 收盘价，或 NEOS 页面的 Closing Market Price；Closing NAV 不会写入市价。涨跌额和涨跌幅、以及最近收盘序列随同一 Actions 快照更新。抓取失败时保留上一笔有效价格和派息，并显示原来的更新时间；价格或派息不完整时工作流以失败退出，不提交 `data/market.json`。
+
+XQQI 自 2026-02 成立以来的已公布分配（宣布日、除息日、登记日、支付日、每股金额）来自 [NEOS 官方页面](https://neosfunds.com/xqqi/)。11 月和 12 月日历行没有金额，不生成记录。页面上的 Distribution Rate（截至 2026-09-30 为 21.04%）按原名称展示；19%–23% 的 Annualized Distribution Target 不是实际收益率。可编辑预扣税率，留空继续沿用历史到账比例；不追溯改写历史记录。税后现金流才进入月度统计、图表和提醒。

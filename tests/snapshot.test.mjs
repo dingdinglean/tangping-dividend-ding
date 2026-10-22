@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay } from "../market-calendar.js";
-import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice } from "../scripts/update-market-data.mjs";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, snapshotIsPublishable, run } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
@@ -305,7 +308,7 @@ const xqqiHistory = `<table><tr><th>Declaration Date</th><th>Ex-Div Date</th><th
 test("XQQI official history reads real dates and amounts and ignores empty future calendar rows", async () => {
   const f = async () => ({ok:true,text:async()=>neos("21.04")+xqqiHistory});
   const history = await fetchNeosDividends("XQQI", f, new Date(NOW).toISOString());
-  assert.deepEqual(history.data,[{ex_date:"2026-10-07",payment_date:"2026-10-09",amount:.8823}]);
+  assert.deepEqual(history.data,[{ex_date:"2026-10-07",payment_date:"2026-10-09",amount:.8823,declaration_date:"2026-10-06",record_date:"2026-10-07"}]);
   assert.equal((await fetchNeosDistributionRate("XQQI", f, new Date(NOW).toISOString())).rate,.2104);
   await assert.rejects(fetchNeosDistributionRate("XQQI", async()=>({ok:true,text:async()=>"Annualized Distribution Target 19-23%"}),new Date(NOW).toISOString()));
 });
@@ -321,11 +324,38 @@ test("XQQI failed sources preserve old price, official dividends, rate and their
 });
 
 test("official stale XQQI close retains its true date and cannot count as a successful current fetch", async () => {
-  const page="Pricing Information Data as of 10/20/2026 Closing NAV Price Net Asset Value $47.89 Closing Market Price Spacer column Market Price $47.87";
+  const page="Annualized Distribution Target 19-23% Pricing Information Data as of 10/20/2026 Closing NAV Price Net Asset Value $47.89 Daily Change ($) $-0.11 Daily Change (%) -0.23% Closing Market Price Spacer column Market Price $47.87 Daily Change ($) $-0.14 Daily Change (%) -0.28%";
   const f=async url=>{if(String(url).includes("neosfunds.com/xqqi"))return {ok:true,text:async()=>page};throw new Error("offline");};
   const price=await fetchNeosPrice("XQQI",f,"2026-10-22T00:00:00.000Z");
-  assert.equal(price.price,47.87); assert.equal(price.price_date,"2026-10-20");
+  assert.equal(price.price,47.87); assert.notEqual(price.price,47.89); assert.equal(price.price_date,"2026-10-20");
+  assert.equal(price.change,-0.14); assert.equal(price.change_percent,-0.0028);
   const snapshot=await updateSnapshot({now:Date.parse("2026-10-22T00:00:00Z"),fetcher:f});
   assert.deepEqual(snapshot.symbols.XQQI.price,price); assert.equal(snapshot.symbols.XQQI.price_status,"stale");
   assert.equal(snapshot.refresh.summary.updated,0);
+  assert.equal(snapshotIsPublishable(snapshot),false);
+});
+
+test("XQQI quote refresh keeps the Nasdaq close, session change and price history", async () => {
+  const now = Date.parse("2026-10-22T01:48:00Z");
+  const snapshot = await updateSnapshot({ now, apiKey: "test", fetcher: fetcher({
+    nasdaqHistorical: { XQQI: [{ date: "10/21/2026", close: "$48.57" }, { date: "10/20/2026", close: "$47.87" }, { date: "10/22/2026", close: "$99.99" }] },
+    alphaFails: ["XQQI"], yahooFails: ["XQQI"],
+  }) });
+  const row = snapshot.symbols.XQQI;
+  assert.equal(row.price.price, 48.57);
+  assert.equal(row.price.price_date, "2026-10-21");
+  assert.equal(row.price.source, "Nasdaq historical close");
+  assert.equal(row.price.change, 0.7);
+  assert.equal(row.price_status, "valid");
+  assert.deepEqual(row.price_history.map(item => item.date), ["2026-10-21", "2026-10-20"]);
+});
+
+test("an incomplete refresh does not replace the last snapshot file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "xqqi-"));
+  const output = join(dir, "market.json");
+  const original = "{\"schemaVersion\":2,\"keep\":true}\n";
+  await writeFile(output, original);
+  const snapshot = await run({ output, now: NOW, priceAttempts: 1, waiter: async () => {}, fetcher: async () => { throw new Error("offline"); } });
+  assert.equal(snapshotIsPublishable(snapshot), false);
+  assert.equal(await readFile(output, "utf8"), original);
 });

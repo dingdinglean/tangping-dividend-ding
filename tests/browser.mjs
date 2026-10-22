@@ -25,6 +25,10 @@ async function testStaticSnapshots(browser, engine) {
         price:{symbol:"QQQI",price,price_date:sessionDate,source:"test",fetched_at:new Date().toISOString()},price_status:"valid",expected_price_date:sessionDate,
         dividends:{data:[{ex_date:sessionDate,payment_date:sessionDate,amount:1}],source:"test",fetched_at:new Date().toISOString()},
         dividend_rate:{rate:.12,data_date:sessionDate,source:"test",kind:"distribution_rate"},
+      },XQQI:{
+        price:{symbol:"XQQI",price:48.57,price_date:sessionDate,source:"test",fetched_at:new Date().toISOString(),change:0.7,change_percent:0.0146},price_status:"valid",expected_price_date:sessionDate,
+        dividends:{data:[{declaration_date:"2026-08-04",ex_date:sessionDate,record_date:sessionDate,payment_date:sessionDate,amount:0.8236}],source:"NEOS official Distribution History",fetched_at:new Date().toISOString()},
+        dividend_rate:{rate:.2104,data_date:sessionDate,source:"NEOS official Distribution Rate",kind:"distribution_rate"},
       }}}));return;
     }
     const upstream=await fetch(base+url.pathname+url.search);res.writeHead(upstream.status,Object.fromEntries(upstream.headers));res.end(Buffer.from(await upstream.arrayBuffer()));
@@ -46,6 +50,7 @@ async function testStaticSnapshots(browser, engine) {
     const snapshotPrice=()=>page.evaluate(async()=>{const response=await fetch("./data/market.json?snapshot="+Date.now(),{cache:"no-store"});return (await response.json()).symbols.QQQI.price.price;});
     assert.equal(await snapshotPrice(),101);
     await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===101);
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets.find(asset=>asset.ticker==="XQQI")?.currentPrice===48.57);
     price=105;
     assert.equal(await snapshotPrice(),105);
     await page.evaluate(()=>window.dispatchEvent(new Event("online")));
@@ -65,6 +70,9 @@ async function testStaticSnapshots(browser, engine) {
     assert.equal(await snapshotPrice(),105);
     const cached=await snapshotCachePrice();
     assert.equal(cached,105);
+    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets.find(asset=>asset.ticker==="XQQI").currentPrice),48.57);
+    const cachedXqqi=await page.evaluate(async()=>{const cache=await caches.open("tangping-market-snapshots-v2");const response=await cache.match(new URL("./data/market.json",location.href).href);return (await response.json()).symbols.XQQI.price.price;});
+    assert.equal(cachedXqqi,48.57);
     if(engine==="WebKit") await new Promise(r=>snapshotServer.listen(snapshotPort,"127.0.0.1",r));
     else await context.setOffline(false);
     fail=true;

@@ -143,6 +143,15 @@ for (const engine of ["Chromium", "WebKit"]) {
             assert.ok(await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).isVisible());
             await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).click();
             await page.evaluate(() => scrollTo(0,0));
+            if (profile.name === "iphone17promax-pwa") {
+              await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-light.png`, fullPage: true });
+              await page.emulateMedia({ colorScheme: "dark" });
+              await settle(page);
+              await validatePage(page, "portfolio", `${engine}/dark-xqqi`);
+              await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-dark.png`, fullPage: true });
+              await page.emulateMedia({ colorScheme: "light" });
+              await settle(page);
+            }
             await page.locator('.asset-toggle').first().click();
             assert.equal(await page.locator('.asset-toggle').first().getAttribute('aria-expanded'),'true');
             assert.ok(await page.locator('.asset-expanded').first().isVisible());

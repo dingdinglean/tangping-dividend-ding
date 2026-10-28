@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { describeAnniversary, normalizeAnniversary } from "./anniversary.mjs";
 import { loadCalendar, loadHolidayDirectory } from "./calendar.mjs";
 import { loadCopyLibrary } from "./copy.mjs";
-import { buildReminder, buildTestMessage } from "./message.mjs";
+import { buildAnniversaryMessage, buildReminder, buildTestMessage, wageSummaryLines } from "./message.mjs";
 import { yuanToCents } from "./money.mjs";
 import { createLogger, deliverMessage } from "./pushplus.mjs";
 import { loadState, rememberCopy, saveState, slotRecord, withSlot } from "./state.mjs";
@@ -32,6 +33,7 @@ export function parseConfig(raw) {
     paidLeaveKeepsSalary: raw.paidLeaveKeepsSalary !== false,
     holidayOverrides: raw.holidayOverrides || [],
     adjustments: raw.adjustments || [],
+    workAnniversary: normalizeAnniversary(raw.workAnniversary),
   };
 }
 
@@ -75,12 +77,20 @@ export async function run(options = {}) {
   const now = shanghaiNow(options.now || new Date());
   const slot = resolveSlot({ event: options.event || "workflow_dispatch", schedule: options.schedule, slot: options.slot });
   const channel = resolveChannel(options.channel, config.channel);
+  const milestone = describeAnniversary(now.date, config.workAnniversary);
   const [year, month] = now.date.split("-").map(Number);
-  const plan = buildMonthPlan({ year, month, calendar, config, adjustments });
-  const workday = isSalaryWorkday(now.date, calendar, adjustments);
+  let plan = null;
+  let workday = false;
+  try {
+    plan = buildMonthPlan({ year, month, calendar, config, adjustments });
+    workday = isSalaryWorkday(now.date, calendar, adjustments);
+  } catch (error) {
+    if (!(milestone.phase === "today" && String(error?.message || "").includes("法定节假日数据"))) throw error;
+  }
   const base = { slot, date: now.date };
+  const anniversaryToday = milestone.phase === "today";
 
-  if (slot !== "test" && !workday && !options.force) {
+  if (slot !== "test" && !workday && !options.force && !anniversaryToday) {
     logger.info(`wage-remind action=skipped reason=not-workday slot=${slot} date=${now.date}`);
     return { ...base, action: "skipped", reason: "not-workday" };
   }
@@ -95,8 +105,14 @@ export async function run(options = {}) {
   }
 
   const previewSlot = slot === "test" ? (now.minutesOfDay < config.workEndMinutes ? "morning" : "evening") : slot;
-  const preview = workday || options.force
-    ? buildReminder({
+  const wageLines = plan && (workday || options.force)
+    ? wageSummaryLines({ slot: previewSlot, now, plan, workEndMinutes: config.workEndMinutes })
+    : [];
+  let message;
+  if (anniversaryToday && slot !== "test") {
+    message = buildAnniversaryMessage({ slot: previewSlot, milestone, wageLines });
+  } else if (plan && (workday || options.force)) {
+    message = buildReminder({
       slot: previewSlot,
       now,
       plan,
@@ -105,9 +121,12 @@ export async function run(options = {}) {
       lines: library[previewSlot],
       recent: state.recent,
       workEndMinutes: config.workEndMinutes,
-    })
-    : null;
-  const message = slot === "test" ? buildTestMessage(preview) : preview;
+      anniversary: config.workAnniversary,
+    });
+  } else {
+    message = null;
+  }
+  if (slot === "test") message = buildTestMessage(message);
 
   if (options.dryRun) {
     logger.info(`wage-remind action=dry-run slot=${slot} date=${now.date} bytes=${message.content.length}`);

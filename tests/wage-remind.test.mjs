@@ -4,9 +4,10 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { calendarDaysBetween, calendarElapsed, countdownLine, describeAnniversary, formatElapsed } from "../wage-remind/lib/anniversary.mjs";
 import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
 import { hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
-import { CONTEXT_LINES, buildReminder, dayContexts, isPreHoliday } from "../wage-remind/lib/message.mjs";
+import { ANNIVERSARY_DAY, CONTEXT_LINES, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
 import { allocateCents, formatYuan, yuanToCents } from "../wage-remind/lib/money.mjs";
 import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/pushplus.mjs";
 import { resolveChannel, resolveSlot, run } from "../wage-remind/lib/run.mjs";
@@ -258,19 +259,24 @@ test("messages follow the workday, the clock and special days", async () => {
 test("copy libraries stay large, gentle, and unique across 14 workdays", async () => {
   const { calendar, library, adjustments } = await fixtures();
   const banned = ["努力奋斗", "为单位奉献", "燃烧自己", "拼搏到底", "工作是人生的意义", "奋斗", "拼搏", "奉献", "内卷", "狼性", "996", "加班"];
-  const blob = JSON.stringify(library) + JSON.stringify(CONTEXT_LINES);
+  const blob = JSON.stringify(library) + JSON.stringify(CONTEXT_LINES) + JSON.stringify(ANNIVERSARY_DAY);
   for (const phrase of banned) assert.equal(blob.includes(phrase), false, phrase);
   assert.ok(library.morning.length >= 50);
   assert.ok(library.evening.length >= 50);
+  const anniversaryCopy = library.morning.filter((line) => line.tags.includes("anniversary"));
+  assert.ok(anniversaryCopy.length >= 4);
+  assert.ok(anniversaryCopy.length < library.morning.length / 2);
   for (const slot of ["morning", "evening"]) {
     let recent = [];
     const ids = [];
+    let anniversaryHits = 0;
     for (let month = 10; month <= 11; month += 1) {
       const plan = planFor(calendar, 2026, month, adjustments);
       for (const day of plan.workdays) {
-        const contexts = dayContexts(day.date, calendar, adjustments, plan);
+        const contexts = reminderContexts({ date: day.date, slot, calendar, adjustments, plan });
         const line = selectCopy(library[slot], { date: day.date, slot, contexts, recent });
         ids.push(line.id);
+        if (line.tags.includes("anniversary")) anniversaryHits += 1;
         recent = rememberCopy(recent, { date: day.date, slot, id: line.id });
         const again = selectCopy(library[slot], { date: day.date, slot, contexts, recent });
         assert.equal(again.id, line.id);
@@ -280,8 +286,146 @@ test("copy libraries stay large, gentle, and unique across 14 workdays", async (
     for (let index = 0; index + 14 <= ids.length; index += 1) {
       assert.equal(new Set(ids.slice(index, index + 14)).size, 14);
     }
+    assert.ok(anniversaryHits > 0);
+    assert.ok(anniversaryHits < ids.length / 2);
   }
   assert.equal(hashText("2026-10-28:morning"), hashText("2026-10-28:morning"));
+});
+
+test("tenth-anniversary countdown uses calendar days and never goes negative", async () => {
+  const { calendar, library, adjustments } = await fixtures();
+  assert.equal(calendarDaysBetween("2019-08-01", "2029-08-01"), 3653);
+  assert.equal(calendarDaysBetween("2026-10-28", "2029-08-01"), 1008);
+  assert.equal(calendarDaysBetween("2026-09-30", "2026-10-08"), 8);
+  assert.equal(calendarDaysBetween("2026-10-30", "2026-11-02"), 3);
+  const beforeHoliday = describeAnniversary("2026-09-30");
+  const afterHoliday = describeAnniversary("2026-10-08");
+  assert.equal(beforeHoliday.daysLeft - afterHoliday.daysLeft, 8);
+  const friday = describeAnniversary("2026-10-30");
+  const monday = describeAnniversary("2026-11-02");
+  assert.equal(friday.daysLeft - monday.daysLeft, 3);
+  assert.equal(countdownLine(describeAnniversary("2026-10-28")), "距离上班十周年：还有1008天");
+  assert.deepEqual(calendarElapsed("2019-08-01", "2019-08-01"), { years: 0, months: 0, days: 0 });
+  assert.deepEqual(calendarElapsed("2019-08-01", "2019-08-31"), { years: 0, months: 0, days: 30 });
+  assert.deepEqual(calendarElapsed("2019-08-01", "2019-09-01"), { years: 0, months: 1, days: 0 });
+  assert.deepEqual(calendarElapsed("2019-08-01", "2020-08-01"), { years: 1, months: 0, days: 0 });
+  assert.deepEqual(calendarElapsed("2019-08-01", "2020-02-29"), { years: 0, months: 6, days: 28 });
+  assert.deepEqual(calendarElapsed("2019-08-01", "2026-10-28"), { years: 7, months: 2, days: 27 });
+  assert.equal(formatElapsed(calendarElapsed("2019-08-01", "2026-10-28")), "7年2个月27天");
+  assert.deepEqual(calendarElapsed("2024-01-31", "2024-03-01"), { years: 0, months: 1, days: 1 });
+
+  const october = planFor(calendar, 2026, 10, adjustments);
+  const morning = buildReminder({
+    slot: "morning",
+    now: { date: "2026-10-28", minutesOfDay: 8 * 60 + 5 },
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.morning,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  assert.match(morning.content, /距离上班十周年：还有1008天/);
+  assert.match(morning.content, /已工作：7年2个月27天/);
+  assert.equal(october.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+
+  const today = describeAnniversary("2029-08-01");
+  assert.equal(today.phase, "today");
+  assert.equal(countdownLine(today), "上班十周年：今天");
+  assert.equal(formatElapsed(today.elapsed), "10年0个月0天");
+  const anniversaryMorning = buildReminder({
+    slot: "morning",
+    now: { date: "2029-08-01", minutesOfDay: 8 * 60 },
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.morning,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  assert.match(anniversaryMorning.content, /上班十周年：今天/);
+  assert.match(anniversaryMorning.content, /已工作：10年0个月0天/);
+  assert.match(anniversaryMorning.content, /不是辞职日/);
+  assert.match(anniversaryMorning.content, /重新选择生活的权利/);
+  assert.equal(anniversaryMorning.content.includes("还有-"), false);
+  assert.equal(anniversaryMorning.copyId, null);
+  const anniversaryEvening = buildReminder({
+    slot: "evening",
+    now: { date: "2029-08-01", minutesOfDay: 18 * 60 },
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.evening,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  assert.match(anniversaryEvening.content, /不是辞职日/);
+  assert.match(anniversaryEvening.content, /不是离职通知/);
+
+  const after = describeAnniversary("2029-08-02");
+  assert.equal(after.phase, "after");
+  assert.equal(after.daysLeft, null);
+  assert.equal(countdownLine(after), "上班十周年已达成");
+  assert.equal(formatElapsed(after.elapsed), "10年0个月1天");
+  assert.equal(countdownLine(after).includes("-"), false);
+  const year2029 = loadCalendar([{
+    year: 2029,
+    days: [{ date: "2029-01-01", name: "元旦", isOffDay: true }],
+  }]);
+  const august = planFor(year2029, 2029, 8, adjustments);
+  const later = buildReminder({
+    slot: "evening",
+    now: { date: "2029-08-02", minutesOfDay: 18 * 60 },
+    plan: august,
+    calendar: year2029,
+    adjustments,
+    lines: library.evening,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  assert.match(later.content, /上班十周年已达成/);
+  assert.match(later.content, /已工作：10年0个月1天/);
+  assert.equal(later.content.includes("还有-"), false);
+  assert.equal(/-\d+天/.test(later.content), false);
+});
+
+test("the anniversary day still sends when that year's holiday file is missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wage-anniversary-"));
+  let content = "";
+  const fetchImpl = async (url, init = {}) => {
+    if (String(url).endsWith("/send")) {
+      content = JSON.parse(init.body).content;
+      return jsonResponse({ code: 200, data: "flow-anniversary" });
+    }
+    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  };
+  const logger = createLogger(["repo-token-123456"], { log() {}, error() {} });
+  const options = {
+    now: new Date("2029-08-01T00:05:00.000Z"),
+    event: "schedule",
+    schedule: "5 0 * * *",
+    token: "repo-token-123456",
+    statePath: join(dir, "state.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+    pollAttempts: 1,
+    pollIntervalMs: 0,
+  };
+  const sent = await run(options);
+  assert.equal(sent.action, "sent");
+  assert.equal(sent.date, "2029-08-01");
+  assert.match(content, /上班十周年：今天/);
+  assert.match(content, /已工作：10年0个月0天/);
+  assert.match(content, /不是辞职日/);
+  assert.match(content, /重新选择/);
+  assert.equal(content.includes("还有-"), false);
+  assert.equal(content.includes("今日待赚"), false);
+  assert.equal(content.includes("元"), false);
+  const again = await run(options);
+  assert.equal(again.reason, "duplicate");
+  await assert.rejects(() => run({ ...options, now: new Date("2029-08-02T00:05:00.000Z") }), /法定节假日数据/);
+  await rm(dir, { recursive: true, force: true });
 });
 
 test("push payload is plain text and logs do not contain the token or salary", async () => {

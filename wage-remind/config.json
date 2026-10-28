@@ -7,6 +7,10 @@
   "eveningEnabled": true,
   "channel": "wechat",
   "paidLeaveKeepsSalary": true,
+  "workAnniversary": {
+    "startedOn": "2019-08-01",
+    "tenYearOn": "2029-08-01"
+  },
   "holidayOverrides": [],
   "adjustments": []
 }

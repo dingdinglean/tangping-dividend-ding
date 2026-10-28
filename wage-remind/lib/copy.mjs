@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const PRIORITY = ["month_end", "pre_holiday", "friday", "wednesday", "monday"];
+const PRIORITY = ["month_end", "pre_holiday", "friday", "wednesday", "monday", "anniversary"];
 
 export async function loadCopyLibrary(path) {
   const library = JSON.parse(await readFile(path, "utf8"));

@@ -1,0 +1,12 @@
+{
+  "timezone": "Asia/Shanghai",
+  "monthlyNetYuan": 1120,
+  "workStart": "08:00",
+  "workEnd": "18:00",
+  "morningEnabled": true,
+  "eveningEnabled": true,
+  "channel": "wechat",
+  "paidLeaveKeepsSalary": true,
+  "holidayOverrides": [],
+  "adjustments": []
+}

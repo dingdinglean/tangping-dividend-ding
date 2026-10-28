@@ -1,0 +1,602 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
+import { hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
+import { CONTEXT_LINES, buildReminder, dayContexts, isPreHoliday } from "../wage-remind/lib/message.mjs";
+import { allocateCents, formatYuan, yuanToCents } from "../wage-remind/lib/money.mjs";
+import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/pushplus.mjs";
+import { resolveChannel, resolveSlot, run } from "../wage-remind/lib/run.mjs";
+import { rememberCopy } from "../wage-remind/lib/state.mjs";
+import { shanghaiNow } from "../wage-remind/lib/time.mjs";
+import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "../wage-remind/lib/wage.mjs";
+
+const root = new URL("..", import.meta.url).pathname;
+const holidayDir = join(root, "wage-remind/data/holidays");
+const copyPath = join(root, "wage-remind/data/copy.json");
+const configPath = join(root, "wage-remind/config.json");
+
+const baseConfig = {
+  monthlyNetCents: yuanToCents(1120),
+  paidLeaveKeepsSalary: true,
+};
+
+async function fixtures() {
+  const files = await loadHolidayDirectory(holidayDir);
+  const calendar = loadCalendar(files);
+  const library = await loadCopyLibrary(copyPath);
+  const adjustments = indexAdjustments([]);
+  return { calendar, library, adjustments };
+}
+
+function planFor(calendar, year, month, adjustments = indexAdjustments([]), config = baseConfig) {
+  return buildMonthPlan({ year, month, calendar, config, adjustments });
+}
+
+function jsonResponse(payload, status = 200) {
+  return { status, async text() { return JSON.stringify(payload); } };
+}
+
+test("money uses integer cents and the last day absorbs the remainder", () => {
+  assert.equal(yuanToCents(1120), 112000);
+  assert.equal(yuanToCents("1120.5"), 112050);
+  assert.equal(yuanToCents(0.01), 1);
+  assert.throws(() => yuanToCents(1120.555), /两位小数/);
+  const shares = allocateCents(100, 18);
+  assert.equal(shares.reduce((sum, value) => sum + value, 0), 100);
+  assert.equal(shares.at(-1) - shares[0], 100 - 5 * 18);
+  assert.equal(formatYuan(6222), "62.22元");
+  assert.equal(formatYuan(6226), "62.26元");
+});
+
+test("Shanghai clock maps the two reminder instants", () => {
+  const morning = shanghaiNow(new Date("2026-10-28T00:05:00.000Z"));
+  const evening = shanghaiNow(new Date("2026-10-28T10:05:00.000Z"));
+  assert.deepEqual(morning, { date: "2026-10-28", minutesOfDay: 8 * 60 + 5 });
+  assert.deepEqual(evening, { date: "2026-10-28", minutesOfDay: 18 * 60 + 5 });
+});
+
+test("statutory holidays, weekends and makeup days", async () => {
+  const { calendar } = await fixtures();
+  assert.equal(classifyDate("2026-10-01", calendar).kind, "holiday");
+  assert.equal(classifyDate("2026-10-07", calendar).kind, "holiday");
+  assert.equal(classifyDate("2026-10-10", calendar).kind, "makeup");
+  assert.equal(classifyDate("2026-10-10", calendar).work, true);
+  assert.equal(classifyDate("2026-10-11", calendar).kind, "weekend");
+  assert.equal(classifyDate("2026-10-17", calendar).kind, "weekend");
+  assert.equal(classifyDate("2026-10-28", calendar).kind, "weekday");
+  assert.equal(classifyDate("2026-02-14", calendar).kind, "makeup");
+  assert.equal(classifyDate("2026-02-16", calendar).kind, "holiday");
+  assert.equal(classifyDate("2026-02-28", calendar).kind, "makeup");
+  assert.equal(classifyDate("2026-01-04", calendar).kind, "makeup");
+  assert.equal(classifyDate("2026-05-01", calendar).kind, "holiday");
+  assert.equal(classifyDate("2026-05-09", calendar).kind, "makeup");
+  assert.equal(classifyDate("2026-09-20", calendar).kind, "makeup");
+  assert.equal(classifyDate("2026-09-25", calendar).kind, "holiday");
+  assert.equal(classifyDate("2025-01-01", calendar).kind, "holiday");
+  assert.equal(classifyDate("2025-01-26", calendar).kind, "makeup");
+  assert.equal(classifyDate("2024-10-01", calendar).work, false);
+  const overridden = loadCalendar(await loadHolidayDirectory(holidayDir), [
+    { date: "2026-10-28", name: "临时放假", isOffDay: true },
+  ]);
+  assert.equal(classifyDate("2026-10-28", overridden).kind, "holiday");
+  assert.throws(() => classifyDate("2027-01-04", calendar), /2027/);
+});
+
+test("every 2026 month sums exactly to the configured salary", async () => {
+  const { calendar } = await fixtures();
+  for (let month = 1; month <= 12; month += 1) {
+    const plan = planFor(calendar, 2026, month);
+    assert.ok(plan.workdays.length > 0);
+    const sum = plan.workdays.reduce((total, day) => total + day.cents, 0);
+    assert.equal(sum, 112000, `2026-${month} summed to ${sum}`);
+    for (const day of plan.workdays) assert.equal(Number.isInteger(day.cents), true);
+    const october = month === 10 ? plan : null;
+    if (october) {
+      assert.equal(october.workdays.some((day) => day.date === "2026-10-10"), true);
+      assert.equal(october.workdays.some((day) => day.date === "2026-10-01"), false);
+      assert.equal(october.workdays.at(-1).date, "2026-10-30");
+      assert.ok(october.workdays.at(-1).cents >= october.workdays[0].cents);
+    }
+  }
+  const february = planFor(calendar, 2026, 2);
+  assert.equal(february.workdays.some((day) => day.date === "2026-02-14"), true);
+  assert.equal(february.workdays.some((day) => day.date === "2026-02-16"), false);
+  assert.equal(february.workdays.some((day) => day.date === "2026-02-28"), true);
+});
+
+test("paid leave keeps the month total and unpaid leave removes that day's original share", async () => {
+  const { calendar } = await fixtures();
+  const original = planFor(calendar, 2026, 10);
+  const share = original.originalByDate.get("2026-10-28");
+  assert.equal(Number.isInteger(share), true);
+  const paid = planFor(calendar, 2026, 10, indexAdjustments([{ date: "2026-10-28", kind: "paid_leave" }]));
+  assert.equal(isSalaryWorkday("2026-10-28", calendar, indexAdjustments([{ date: "2026-10-28", kind: "paid_leave" }])), false);
+  assert.equal(paid.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  assert.equal(paid.workdays.some((day) => day.date === "2026-10-28"), false);
+  assert.ok(paid.workdays[0].cents > original.workdays[0].cents);
+
+  const unpaidAdj = indexAdjustments([{ date: "2026-10-28", kind: "unpaid_leave" }]);
+  const unpaid = planFor(calendar, 2026, 10, unpaidAdj);
+  assert.equal(unpaid.workdays.reduce((sum, day) => sum + day.cents, 0), 112000 - share);
+
+  const deducted = planFor(calendar, 2026, 10, indexAdjustments([{ date: "2026-10-28", kind: "paid_leave" }]), {
+    monthlyNetCents: 112000,
+    paidLeaveKeepsSalary: false,
+  });
+  assert.equal(deducted.workdays.reduce((sum, day) => sum + day.cents, 0), 112000 - share);
+});
+
+test("manual rest, makeup work and explicit overtime", async () => {
+  const { calendar } = await fixtures();
+  const adjustments = indexAdjustments([
+    { date: "2026-10-29", kind: "rest" },
+    { date: "2026-10-11", kind: "work" },
+    { date: "2026-10-13", kind: "overtime", cents: 880 },
+    { date: "2026-10-15", kind: "overtime" },
+  ]);
+  const plan = planFor(calendar, 2026, 10, adjustments);
+  assert.equal(plan.workdays.some((day) => day.date === "2026-10-29"), false);
+  assert.equal(plan.workdays.some((day) => day.date === "2026-10-11"), true);
+  assert.equal(plan.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  const thirteenth = plan.workdays.find((day) => day.date === "2026-10-13");
+  assert.equal(thirteenth.overtimeCents, 880);
+  const withOvertime = plan.workdays.reduce((sum, day) => sum + day.cents + day.overtimeCents, 0);
+  assert.equal(withOvertime, 112000 + 880);
+  assert.equal(plan.workdays.find((day) => day.date === "2026-10-15").overtimeCents, 0);
+  assert.equal(plan.offDayOvertime.length, 0);
+  const weekendOvertime = planFor(calendar, 2026, 10, indexAdjustments([
+    { date: "2026-10-17", kind: "overtime", cents: 500 },
+  ]));
+  assert.equal(weekendOvertime.workdays.some((day) => day.date === "2026-10-17"), false);
+  assert.equal(weekendOvertime.offDayOvertime[0].overtimeCents, 500);
+  assert.throws(() => indexAdjustments([{ date: "2026-10-13", kind: "overtime", cents: 1.5 }]), /整数分/);
+});
+
+test("month boundaries keep their own totals", async () => {
+  const { calendar, adjustments } = await fixtures();
+  const october = planFor(calendar, 2026, 10, adjustments);
+  const november = planFor(calendar, 2026, 11, adjustments);
+  assert.equal(october.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  assert.equal(november.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  const firstNovember = november.workdays[0].date;
+  assert.equal(totalsThrough(october, "2026-10-30").before + totalsThrough(october, "2026-10-30").today, 112000);
+  assert.equal(totalsThrough(november, firstNovember).before, 0);
+  assert.notEqual(firstNovember.slice(0, 7), "2026-10");
+});
+
+test("messages follow the workday, the clock and special days", async () => {
+  const { calendar, library, adjustments } = await fixtures();
+  const october = planFor(calendar, 2026, 10, adjustments);
+  const morningNow = { date: "2026-10-28", minutesOfDay: 8 * 60 + 5 };
+  const morning = buildReminder({
+    slot: "morning",
+    now: morningNow,
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.morning,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  const figures = totalsThrough(october, "2026-10-28");
+  assert.equal(morning.title, "打工自由助手｜早安");
+  assert.match(morning.content, new RegExp(`今日待赚：${formatYuan(figures.today).replace(".", "\\.")}`));
+  assert.match(morning.content, /本月累计：/);
+  assert.match(morning.content, /距离下班：9小时55分钟/);
+  assert.match(morning.content, /这周已经过半|这周过半/);
+  assert.match(morning.content, /不是银行卡到账/);
+  assert.equal(morning.content.includes("周五了。做完今天"), false);
+  assert.equal(library.morning.find((line) => line.id === morning.copyId).tags.includes("wednesday"), true);
+
+  const late = buildReminder({
+    slot: "morning",
+    now: { date: "2026-10-28", minutesOfDay: 18 * 60 + 30 },
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.morning,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  assert.match(late.content, /已经到下班时间/);
+
+  const evening = buildReminder({
+    slot: "evening",
+    now: { date: "2026-10-28", minutesOfDay: 18 * 60 + 5 },
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.evening,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  assert.equal(evening.title, "打工自由助手｜下班啦");
+  assert.match(evening.content, /今日模拟到账：/);
+  assert.match(evening.content, /本月剩余工作日：/);
+  const eveningTotal = figures.before + figures.today;
+  assert.match(evening.content, new RegExp(formatYuan(eveningTotal).replace(".", "\\.")));
+  assert.equal(evening.content.includes(formatYuan(figures.before)), eveningTotal === figures.before);
+
+  const monday = buildReminder({
+    slot: "morning", now: { date: "2026-10-12", minutesOfDay: 8 * 60 }, plan: october, calendar, adjustments,
+    lines: library.morning, recent: [], workEndMinutes: 18 * 60,
+  });
+  assert.match(monday.content, /周一/);
+  const friday = buildReminder({
+    slot: "evening", now: { date: "2026-10-16", minutesOfDay: 18 * 60 }, plan: october, calendar, adjustments,
+    lines: library.evening, recent: [], workEndMinutes: 18 * 60,
+  });
+  assert.match(friday.content, /周末/);
+  const makeupFriday = buildReminder({
+    slot: "morning", now: { date: "2026-10-09", minutesOfDay: 8 * 60 }, plan: october, calendar, adjustments,
+    lines: library.morning, recent: [], workEndMinutes: 18 * 60,
+  });
+  assert.equal(makeupFriday.content.includes("周五了。做完今天，周末把时间还给自己。"), false);
+
+  const september = planFor(calendar, 2026, 9, adjustments);
+  assert.equal(isPreHoliday("2026-09-24", calendar, adjustments), true);
+  const beforeHoliday = buildReminder({
+    slot: "morning", now: { date: "2026-09-24", minutesOfDay: 8 * 60 }, plan: september, calendar, adjustments,
+    lines: library.morning, recent: [], workEndMinutes: 18 * 60,
+  });
+  assert.match(beforeHoliday.content, /假期/);
+
+  const monthEnd = buildReminder({
+    slot: "evening", now: { date: "2026-10-30", minutesOfDay: 18 * 60 }, plan: october, calendar, adjustments,
+    lines: library.evening, recent: [], workEndMinutes: 18 * 60,
+  });
+  assert.match(monthEnd.content, /本月最后一个工作日/);
+  assert.match(monthEnd.content, /本月剩余工作日：0天/);
+  assert.match(monthEnd.content, /1120\.00元/);
+  assert.equal(library.evening.find((line) => line.id === monthEnd.copyId).tags.includes("month_end"), true);
+});
+
+test("copy libraries stay large, gentle, and unique across 14 workdays", async () => {
+  const { calendar, library, adjustments } = await fixtures();
+  const banned = ["努力奋斗", "为单位奉献", "燃烧自己", "拼搏到底", "工作是人生的意义", "奋斗", "拼搏", "奉献", "内卷", "狼性", "996", "加班"];
+  const blob = JSON.stringify(library) + JSON.stringify(CONTEXT_LINES);
+  for (const phrase of banned) assert.equal(blob.includes(phrase), false, phrase);
+  assert.ok(library.morning.length >= 50);
+  assert.ok(library.evening.length >= 50);
+  for (const slot of ["morning", "evening"]) {
+    let recent = [];
+    const ids = [];
+    for (let month = 10; month <= 11; month += 1) {
+      const plan = planFor(calendar, 2026, month, adjustments);
+      for (const day of plan.workdays) {
+        const contexts = dayContexts(day.date, calendar, adjustments, plan);
+        const line = selectCopy(library[slot], { date: day.date, slot, contexts, recent });
+        ids.push(line.id);
+        recent = rememberCopy(recent, { date: day.date, slot, id: line.id });
+        const again = selectCopy(library[slot], { date: day.date, slot, contexts, recent });
+        assert.equal(again.id, line.id);
+      }
+    }
+    assert.ok(ids.length >= 14);
+    for (let index = 0; index + 14 <= ids.length; index += 1) {
+      assert.equal(new Set(ids.slice(index, index + 14)).size, 14);
+    }
+  }
+  assert.equal(hashText("2026-10-28:morning"), hashText("2026-10-28:morning"));
+});
+
+test("push payload is plain text and logs do not contain the token or salary", async () => {
+  const logs = [];
+  const calls = [];
+  const token = "super-token-value";
+  const secret = "super-secret-value";
+  const logger = createLogger([token, secret], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  let customerCalls = 0;
+  const fetchImpl = async (url, init = {}) => {
+    const href = String(url);
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ href, body, headers: init.headers || {} });
+    if (href.endsWith("/send")) return jsonResponse({ code: 200, data: "flow-100" });
+    customerCalls += 1;
+    return jsonResponse({ code: 200, data: { status: customerCalls === 1 ? 1 : 2, errorMessage: "" } });
+  };
+  const result = await deliverMessage({
+    fetchImpl,
+    sleep: async () => {},
+    token,
+    secretKey: secret,
+    channel: "wechat",
+    title: "打工自由助手｜早安",
+    content: "今日待赚：SALARY_1120元",
+    logger,
+    pollAttempts: 3,
+    pollIntervalMs: 0,
+  });
+  assert.equal(result.status, 2);
+  const sent = calls.find((call) => call.href.endsWith("/send"));
+  assert.deepEqual(Object.keys(sent.body).sort(), ["channel", "content", "template", "title", "token"]);
+  assert.equal(sent.body.template, "txt");
+  assert.equal(sent.body.channel, "wechat");
+  assert.equal(sent.body.token, token);
+  assert.equal(JSON.stringify(sent.body).includes(secret), false);
+  assert.equal(calls.some((call) => call.href.includes("/sendMessageResult")), true);
+  const logged = logs.join("\n");
+  assert.equal(logged.includes(token), false);
+  assert.equal(logged.includes(secret), false);
+  assert.equal(logged.includes("SALARY_1120"), false);
+  assert.match(logged, /status=2/);
+});
+
+test("HTTP 200 is not delivery, failures retry, and open API is the fallback", async () => {
+  const pendingLogs = [];
+  const logger = createLogger(["tok-abcdef1234567890"], { log: (line) => pendingLogs.push(line), error: (line) => pendingLogs.push(line) });
+  let sends = 0;
+  const stuck = async (url) => {
+    if (String(url).endsWith("/send")) {
+      sends += 1;
+      return jsonResponse({ code: 200, data: "flow-stuck" });
+    }
+    return jsonResponse({ code: 200, data: { status: 0, errorMessage: "still waiting 1120 tok-abcdef1234567890" } });
+  };
+  await assert.rejects(() => deliverMessage({
+    fetchImpl: stuck,
+    sleep: async () => {},
+    token: "tok-abcdef1234567890",
+    channel: "wechat",
+    title: "t",
+    content: "c",
+    logger,
+    pollAttempts: 2,
+    pollIntervalMs: 0,
+  }), /未被确认送达/);
+  assert.equal(sends, 1);
+  assert.equal(pendingLogs.join("\n").includes("tok-abcdef1234567890"), false);
+  assert.equal(pendingLogs.join("\n").includes("1120"), false);
+
+  let attempt = 0;
+  const retry = async (url) => {
+    if (String(url).endsWith("/send")) {
+      attempt += 1;
+      return jsonResponse({ code: 200, data: `flow-${attempt}` });
+    }
+    return jsonResponse({ code: 200, data: { status: attempt === 1 ? 3 : 2, errorMessage: "nope" } });
+  };
+  const recovered = await deliverMessage({
+    fetchImpl: retry,
+    sleep: async () => {},
+    token: "tok-abcdef1234567890",
+    channel: "clawbot",
+    title: "t",
+    content: "c",
+    logger,
+    maxAttempts: 3,
+    pollAttempts: 1,
+    pollIntervalMs: 0,
+  });
+  assert.equal(recovered.status, 2);
+  assert.equal(attempt, 2);
+
+  const openCalls = [];
+  const fallback = async (url, init = {}) => {
+    const href = String(url);
+    openCalls.push({ href, body: init.body ? JSON.parse(init.body) : null, headers: init.headers || {} });
+    if (href.endsWith("/send")) return jsonResponse({ code: 200, data: "flow-open" });
+    if (href.includes("/customer/")) return jsonResponse({ code: 302, msg: "未登录" });
+    if (href.endsWith("/getAccessKey")) return jsonResponse({ code: 200, data: { accessKey: "access-key-value", expiresIn: 7200 } });
+    assert.equal(init.headers["access-key"], "access-key-value");
+    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  };
+  const viaOpen = await deliverMessage({
+    fetchImpl: fallback,
+    sleep: async () => {},
+    token: "tok-abcdef1234567890",
+    secretKey: "secret-key-value",
+    channel: "wechat",
+    title: "t",
+    content: "c",
+    logger,
+    pollAttempts: 1,
+    pollIntervalMs: 0,
+  });
+  assert.equal(viaOpen.status, 2);
+  assert.equal(openCalls.some((call) => call.href.endsWith("/getAccessKey") && call.body.secretKey === "secret-key-value"), true);
+  assert.equal(JSON.stringify(openCalls.find((call) => call.href.endsWith("/send")).body).includes("secret-key-value"), false);
+  assert.match(safeReason("balance 1120 token tok-abcdef1234567890", logger.redact), /balance # token \[redacted\]/);
+
+  await assert.rejects(() => deliverMessage({
+    fetchImpl: async (url) => String(url).endsWith("/send")
+      ? jsonResponse({ code: 200, data: "flow-no-secret" })
+      : jsonResponse({ code: 302, msg: "未登录" }),
+    sleep: async () => {},
+    token: "tok-abcdef1234567890",
+    channel: "wechat",
+    title: "t",
+    content: "c",
+    logger,
+    pollAttempts: 1,
+  }), /未被确认送达/);
+});
+
+test("a workday send is recorded once and skipped the second time", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
+  const logs = [];
+  const logger = createLogger(["repo-token-123456"], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  let sends = 0;
+  const fetchImpl = async (url) => {
+    if (String(url).endsWith("/send")) {
+      sends += 1;
+      return jsonResponse({ code: 200, data: `flow-${sends}` });
+    }
+    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  };
+  const options = {
+    now: new Date("2026-10-28T00:05:00.000Z"),
+    event: "schedule",
+    schedule: "5 0 * * *",
+    token: "repo-token-123456",
+    statePath: join(dir, "state.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+    pollAttempts: 1,
+    pollIntervalMs: 0,
+  };
+  const first = await run(options);
+  assert.equal(first.action, "sent");
+  assert.equal(first.slot, "morning");
+  const state = JSON.parse(await readFile(options.statePath, "utf8"));
+  assert.equal(state.sent["2026-10-28"].morning.status, "sent");
+  assert.equal(JSON.stringify(state).includes("repo-token-123456"), false);
+  assert.equal(JSON.stringify(state).includes("1120"), false);
+  const second = await run(options);
+  assert.equal(second.reason, "duplicate");
+  assert.equal(sends, 1);
+  const weekend = await run({ ...options, now: new Date("2026-10-31T00:05:00.000Z") });
+  assert.equal(weekend.reason, "not-workday");
+  const holiday = await run({ ...options, now: new Date("2026-09-30T16:05:00.000Z") });
+  assert.equal(holiday.date, "2026-10-01");
+  assert.equal(holiday.reason, "not-workday");
+  const makeup = await run({ ...options, now: new Date("2026-10-10T00:05:00.000Z"), schedule: "5 0 * * *" });
+  assert.equal(makeup.action, "sent");
+  assert.equal(sends, 2);
+  assert.equal(logs.join("\n").includes("repo-token-123456"), false);
+  assert.equal(logs.join("\n").includes("元"), false);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("pending delivery is reconciled instead of sent twice", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
+  const statePath = join(dir, "state.json");
+  let phase = "accept-only";
+  let sends = 0;
+  const fetchImpl = async (url) => {
+    const href = String(url);
+    if (href.endsWith("/send")) {
+      sends += 1;
+      return jsonResponse({ code: 200, data: "flow-pending" });
+    }
+    if (phase === "accept-only") return jsonResponse({ code: 200, data: { status: 0, errorMessage: "" } });
+    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  };
+  const logger = createLogger(["repo-token-123456"], { log() {}, error() {} });
+  const options = {
+    now: new Date("2026-10-28T10:05:00.000Z"),
+    event: "schedule",
+    schedule: "5 10 * * *",
+    token: "repo-token-123456",
+    statePath,
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+    pollAttempts: 1,
+    pollIntervalMs: 0,
+  };
+  await assert.rejects(() => run(options), /未被确认送达/);
+  const pending = JSON.parse(await readFile(statePath, "utf8"));
+  assert.equal(pending.sent["2026-10-28"].evening.status, "pending");
+  assert.equal(sends, 1);
+  phase = "done";
+  const reconciled = await run(options);
+  assert.equal(reconciled.action, "sent");
+  assert.equal(reconciled.resent, false);
+  assert.equal(sends, 1);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("flags, test sends and slot parsing stay isolated from the salary ledger", async () => {
+  assert.equal(resolveSlot({ event: "schedule", schedule: "5 0 * * *" }), "morning");
+  assert.equal(resolveSlot({ event: "schedule", schedule: "5 10 * * *" }), "evening");
+  assert.equal(resolveSlot({ event: "workflow_dispatch", slot: "test" }), "test");
+  assert.equal(resolveChannel("", "wechat"), "wechat");
+  assert.equal(resolveChannel("clawbot", "wechat"), "clawbot");
+  assert.throws(() => resolveChannel("sms", "wechat"), /wechat 或 clawbot/);
+
+  const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
+  const custom = JSON.parse(await readFile(configPath, "utf8"));
+  custom.morningEnabled = false;
+  const customPath = join(dir, "config.json");
+  await writeFile(customPath, JSON.stringify(custom));
+  const skipped = await run({
+    now: new Date("2026-10-28T00:05:00.000Z"),
+    event: "workflow_dispatch",
+    slot: "morning",
+    configPath: customPath,
+    statePath: join(dir, "state.json"),
+    dryRun: true,
+    logger: createLogger([], { log() {}, error() {} }),
+  });
+  assert.equal(skipped.reason, "disabled");
+
+  let sends = 0;
+  const fetchImpl = async (url, init = {}) => {
+    if (String(url).endsWith("/send")) {
+      sends += 1;
+      const body = JSON.parse(init.body);
+      assert.equal(body.template, "txt");
+      assert.equal(body.title, "打工自由助手｜测试");
+      assert.match(body.content, /【测试】/);
+      assert.equal(body.content.includes("今日待赚"), false);
+      return jsonResponse({ code: 200, data: "flow-test" });
+    }
+    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  };
+  const testRun = await run({
+    now: new Date("2026-10-31T02:00:00.000Z"),
+    event: "workflow_dispatch",
+    slot: "test",
+    token: "repo-token-123456",
+    statePath: join(dir, "state.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger: createLogger(["repo-token-123456"], { log() {}, error() {} }),
+    pollAttempts: 1,
+  });
+  assert.equal(testRun.action, "sent");
+  assert.equal(sends, 1);
+  const state = JSON.parse(await readFile(join(dir, "state.json"), "utf8"));
+  assert.equal(state.sent["2026-10-31"], undefined);
+
+  const names = [];
+  async function walk(dirName) {
+    for (const entry of await readdir(dirName, { withFileTypes: true })) {
+      const path = join(dirName, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.name.endsWith(".mjs")) names.push(path);
+    }
+  }
+  await walk(join(root, "wage-remind"));
+  const source = (await Promise.all(names.map((path) => readFile(path, "utf8")))).join("\n");
+  assert.equal(source.includes("app.js"), false);
+  assert.equal(source.includes("market-data.js"), false);
+  assert.equal(source.includes("data/market.json"), false);
+  assert.equal(source.includes("tangping-dividend"), false);
+  const workflow = await readFile(join(root, ".github/workflows/wage-remind.yml"), "utf8");
+  assert.equal(workflow.includes("git commit"), false);
+  assert.equal(workflow.includes("data/market.json"), false);
+  const market = await readFile(join(root, ".github/workflows/update-market-data.yml"), "utf8");
+  assert.equal(market.includes("wage-remind"), false);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("dry run prints no salary and no token", () => {
+  const dir = spawnSync("mktemp", ["-d"]);
+  const statePath = `${String(dir.stdout).trim()}/state.json`;
+  const result = spawnSync(process.execPath, ["wage-remind/cli.mjs"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      WAGE_DRY_RUN: "1",
+      WAGE_EVENT: "workflow_dispatch",
+      WAGE_SLOT: "morning",
+      WAGE_NOW: "2026-10-28T00:05:00.000Z",
+      WAGE_STATE_PATH: statePath,
+      PUSHPLUS_TOKEN: "cli-token-should-not-print",
+    },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.match(output, /action=dry-run/);
+  assert.equal(output.includes("cli-token-should-not-print"), false);
+  assert.equal(output.includes("元"), false);
+  assert.equal(output.includes("1120"), false);
+});

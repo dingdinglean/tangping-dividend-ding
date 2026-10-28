@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 .market-cache/
 server/.env
 test-results/
+
+# Wage reminder runtime state. Kept in Actions cache, never committed.
+wage-remind/.state/

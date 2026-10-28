@@ -1,5 +1,5 @@
-import { countdownLine, describeAnniversary, tenureLine } from "./anniversary.mjs";
-import { addDays, formatDuration, weekdayOf } from "./time.mjs";
+import { describeAnniversary } from "./anniversary.mjs";
+import { addDays, weekdayOf } from "./time.mjs";
 import { assertYearCovered } from "./calendar.mjs";
 import { hashText, selectCopy } from "./copy.mjs";
 import { isLastWorkday, isSalaryWorkday, totalsThrough } from "./wage.mjs";
@@ -19,13 +19,13 @@ function notificationText(lines) {
 
 export function buildNotificationTitle({ slot, todayAmount = null, todayCents = undefined, fallback = "" }) {
   const amount = todayAmount !== null && todayAmount !== undefined ? todayAmount : todayCents;
+  const mark = slot === "evening" ? "💚" : "☀️";
   if (amount == null) {
     const plain = String(fallback || "").replace(/[\r\n｜|]/g, "").trim();
-    return plain || (slot === "evening" ? "下班啦" : "今日待赚");
+    return plain || `${mark} ${slot === "evening" ? "今日收入" : "今日待赚"}`;
   }
   const money = formatYuan(amount);
-  const title = slot === "evening" ? `下班啦 +${money}` : `今日待赚 ${money}`;
-  return title.replace(/[\r\n]/g, "");
+  return slot === "evening" ? `${mark} 今日收入 +${money}` : `${mark} 今日待赚 ${money}`;
 }
 
 const CONTEXT_LINES = {
@@ -45,18 +45,12 @@ const CONTEXT_LINES = {
   },
 };
 
-const FOOTER = "—— 以上为按工作日估算的模拟收入，不是银行卡到账。";
-
 const ANNIVERSARY_DAY = {
   morning: [
-    "这十年的付出是真实的，也都算数。",
-    "今天是上班十周年，不是辞职日，也没有人替你决定下一步。",
-    "你拥有重新选择生活的权利：继续、换一种方式，或者只是先把今天过完。",
+    "今天是上班十周年，不是辞职日。这十年的班都算数。留下、离开，或先歇一歇，都可以慢慢决定，不必今天做完。",
   ],
   evening: [
-    "十年的班，到这个纪念日为止，值得被好好承认。",
-    "这不是离职通知。今天不是辞职日。",
-    "留下、离开，或先休息一阵，都是你的权利。选择可以慢慢做。",
+    "十年的班到今天为止，值得被承认。这不是离职通知，也不是辞职日。接下来怎么过，可以慢慢选，不必今晚决定。",
   ],
 };
 
@@ -77,29 +71,32 @@ function datedOnPlan(plan, date) {
   return [...plan.workdays, ...plan.offDayOvertime].some((row) => row.date === date);
 }
 
-export function wageSummaryLines({ slot, now, plan, workEndMinutes }) {
-  const { before, today, remaining } = totalsThrough(plan, now.date);
+export function countdownNotice(milestone) {
+  if (milestone.phase === "after") return "⏳ 十周年倒计时：已达成";
+  if (milestone.phase === "today") return "⏳ 十周年倒计时：今天";
+  return `⏳ 十周年倒计时：${milestone.daysLeft}天`;
+}
+
+export function cumulativeLine(slot, now, plan) {
+  const { before, today } = totalsThrough(plan, now.date);
   const earned = slot === "morning" ? before : ratAdd(before, today);
-  if (slot === "morning") {
-    return [
-      `本月累计 ${formatYuan(earned)}`,
-      `距离下班：${formatDuration(workEndMinutes - now.minutesOfDay)}`,
-    ];
-  }
-  return [
-    `本月累计 ${formatYuan(earned)}`,
-    `本月剩余工作日：${remaining}天`,
-  ];
+  return `💰 本月累计：${formatYuan(earned)}`;
+}
+
+export function wageSummaryLines({ slot, now, plan }) {
+  return [cumulativeLine(slot, now, plan)];
 }
 
 export function buildAnniversaryMessage({ slot, milestone, wageLines = [], todayAmount = null, todayCents = undefined }) {
-  const paragraphs = ANNIVERSARY_DAY[slot] || ANNIVERSARY_DAY.morning;
+  const memorial = (ANNIVERSARY_DAY[slot] || ANNIVERSARY_DAY.morning)[0];
   const amount = todayAmount !== null && todayAmount !== undefined ? todayAmount : todayCents;
-  const lines = [...wageLines, countdownLine(milestone), tenureLine(milestone), ...paragraphs];
-  if (wageLines.length) lines.push(FOOTER);
   return {
-    title: buildNotificationTitle({ slot, todayAmount: amount ?? null, fallback: "上班十周年" }),
-    content: notificationText(lines),
+    title: buildNotificationTitle({
+      slot,
+      todayAmount: amount ?? null,
+      fallback: slot === "evening" ? "💚 上班十周年" : "☀️ 上班十周年",
+    }),
+    content: notificationText([...wageLines, countdownNotice(milestone), memorial]),
     copyId: null,
     contexts: ["anniversary-day"],
   };
@@ -133,52 +130,43 @@ export function dayContexts(date, calendar, adjustments, plan) {
   return contexts;
 }
 
-export function buildReminder({ slot, now, plan, calendar, adjustments, lines, recent, workEndMinutes, anniversary }) {
+export function buildReminder({ slot, now, plan, calendar, adjustments, lines, recent, anniversary }) {
   const milestone = describeAnniversary(now.date, anniversary);
   const figures = totalsThrough(plan, now.date);
   const onPlan = datedOnPlan(plan, now.date);
-  const summary = onPlan ? wageSummaryLines({ slot, now, plan, workEndMinutes }) : [];
   if (milestone.phase === "today") {
     return buildAnniversaryMessage({
       slot,
       milestone,
-      wageLines: summary,
+      wageLines: onPlan ? wageSummaryLines({ slot, now, plan }) : [],
       todayAmount: onPlan ? figures.today : null,
     });
   }
   const contexts = reminderContexts({ date: now.date, slot, calendar, adjustments, plan, anniversary });
   const line = selectCopy(lines, { date: now.date, slot, contexts, recent });
+  const body = [countdownNotice(milestone), line.text];
+  if (onPlan) body.unshift(cumulativeLine(slot, now, plan));
   return {
     title: buildNotificationTitle({ slot, todayAmount: onPlan ? figures.today : null }),
-    content: notificationText([
-      ...summary,
-      countdownLine(milestone),
-      tenureLine(milestone),
-      line.text,
-      FOOTER,
-    ]),
+    content: notificationText(body),
     copyId: line.id,
     contexts,
   };
 }
 
-export function buildTestMessage(preview) {
-  const lead = "【测试】这条只用来确认推送通道，不计入额外收入，也不改写今日早晚的发送记录。";
+export function buildTestMessage(preview, slot = "morning") {
+  const title = preview?.title || (slot === "evening" ? "💚 确认推送" : "☀️ 确认推送");
   if (!preview) {
     return {
-      title: "确认推送通道",
-      content: notificationText([
-        lead,
-        "今天不是计薪工作日，所以这里不展示模拟工资。能看到这段文字，说明通道是通的。",
-        FOOTER,
-      ]),
+      title,
+      content: "【测试】\n今天不是计薪日。",
     };
   }
   return {
     title: preview.title,
-    content: notificationText([lead, preview.content]),
+    content: notificationText(["【测试】", preview.content]),
     copyId: preview.copyId,
   };
 }
 
-export { FOOTER, CONTEXT_LINES, ANNIVERSARY_DAY };
+export { CONTEXT_LINES, ANNIVERSARY_DAY };

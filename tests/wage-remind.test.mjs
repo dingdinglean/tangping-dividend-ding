@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { calendarDaysBetween, calendarElapsed, countdownLine, describeAnniversary, formatElapsed } from "../wage-remind/lib/anniversary.mjs";
 import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
 import { hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
-import { ANNIVERSARY_DAY, CONTEXT_LINES, TITLE_LIMIT, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
-import { allocateCents, formatYuan, yuanToCents } from "../wage-remind/lib/money.mjs";
+import { ANNIVERSARY_DAY, CONTEXT_LINES, TITLE_LIMIT, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts, shortComfort } from "../wage-remind/lib/message.mjs";
+import { formatYuan, ratAdd, ratCmp, ratEq, ratSub, rational, yuanToCents } from "../wage-remind/lib/money.mjs";
 import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/serverchan.mjs";
 import { resolveSlot, run } from "../wage-remind/lib/run.mjs";
 import { rememberCopy } from "../wage-remind/lib/state.mjs";
@@ -20,10 +20,23 @@ const holidayDir = join(root, "wage-remind/data/holidays");
 const copyPath = join(root, "wage-remind/data/copy.json");
 const configPath = join(root, "wage-remind/config.json");
 
+const MONTH_CENTS = yuanToCents(11200);
+
 const baseConfig = {
-  monthlyNetCents: yuanToCents(1120),
+  monthlyNetCents: MONTH_CENTS,
   paidLeaveKeepsSalary: true,
 };
+
+function sumBase(plan) {
+  return plan.workdays.reduce((total, day) => ratAdd(total, day.cents), rational(0, 1));
+}
+
+function sumWithOvertime(plan) {
+  return [...plan.workdays, ...plan.offDayOvertime].reduce(
+    (total, day) => ratAdd(total, ratAdd(day.cents, rational(day.overtimeCents || 0, 1))),
+    rational(0, 1),
+  );
+}
 
 async function fixtures() {
   const files = await loadHolidayDirectory(holidayDir);
@@ -41,16 +54,17 @@ function jsonResponse(payload, status = 200) {
   return { status, async text() { return JSON.stringify(payload); } };
 }
 
-test("money uses integer cents and the last day absorbs the remainder", () => {
-  assert.equal(yuanToCents(1120), 112000);
-  assert.equal(yuanToCents("1120.5"), 112050);
+test("money keeps an exact fraction and rounds only for display", () => {
+  assert.equal(yuanToCents(11200), 1120000);
+  assert.equal(yuanToCents("11200.5"), 1120050);
   assert.equal(yuanToCents(0.01), 1);
-  assert.throws(() => yuanToCents(1120.555), /两位小数/);
-  const shares = allocateCents(100, 18);
-  assert.equal(shares.reduce((sum, value) => sum + value, 0), 100);
-  assert.equal(shares.at(-1) - shares[0], 100 - 5 * 18);
-  assert.equal(formatYuan(6222), "62.22元");
-  assert.equal(formatYuan(6226), "62.26元");
+  assert.throws(() => yuanToCents(11200.555), /两位小数/);
+  assert.equal(formatYuan(rational(1120000, 18)), "¥622.22");
+  assert.equal(formatYuan(rational(15 * 1120000, 18)), "¥9333.33");
+  assert.equal(formatYuan(rational(16 * 1120000, 18)), "¥9955.56");
+  assert.equal(formatYuan(rational(17 * 1120000, 18)), "¥10577.78");
+  assert.equal(formatYuan(rational(18 * 1120000, 18)), "¥11200.00");
+  assert.equal(formatYuan(rational(1120000, 1)), "¥11200.00");
 });
 
 test("Shanghai clock maps the two reminder instants", () => {
@@ -92,15 +106,15 @@ test("every 2026 month sums exactly to the configured salary", async () => {
   for (let month = 1; month <= 12; month += 1) {
     const plan = planFor(calendar, 2026, month);
     assert.ok(plan.workdays.length > 0);
-    const sum = plan.workdays.reduce((total, day) => total + day.cents, 0);
-    assert.equal(sum, 112000, `2026-${month} summed to ${sum}`);
-    for (const day of plan.workdays) assert.equal(Number.isInteger(day.cents), true);
+    assert.ok(ratEq(sumBase(plan), rational(MONTH_CENTS, 1)), `2026-${month}`);
+    assert.ok(ratEq(plan.workdays[0].cents, plan.workdays.at(-1).cents));
     const october = month === 10 ? plan : null;
     if (october) {
-      assert.equal(october.workdays.some((day) => day.date === "2026-10-10"), true);
-      assert.equal(october.workdays.some((day) => day.date === "2026-10-01"), false);
-      assert.equal(october.workdays.at(-1).date, "2026-10-30");
-      assert.ok(october.workdays.at(-1).cents >= october.workdays[0].cents);
+      assert.deepEqual(october.workdays.map((day) => day.date), [
+        "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-12", "2026-10-13", "2026-10-14",
+        "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22",
+        "2026-10-23", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30",
+      ]);
     }
   }
   const february = planFor(calendar, 2026, 2);
@@ -113,22 +127,22 @@ test("paid leave keeps the month total and unpaid leave removes that day's origi
   const { calendar } = await fixtures();
   const original = planFor(calendar, 2026, 10);
   const share = original.originalByDate.get("2026-10-28");
-  assert.equal(Number.isInteger(share), true);
+  assert.ok(ratEq(share, rational(MONTH_CENTS, 18)));
   const paid = planFor(calendar, 2026, 10, indexAdjustments([{ date: "2026-10-28", kind: "paid_leave" }]));
   assert.equal(isSalaryWorkday("2026-10-28", calendar, indexAdjustments([{ date: "2026-10-28", kind: "paid_leave" }])), false);
-  assert.equal(paid.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  assert.ok(ratEq(sumBase(paid), rational(MONTH_CENTS, 1)));
   assert.equal(paid.workdays.some((day) => day.date === "2026-10-28"), false);
-  assert.ok(paid.workdays[0].cents > original.workdays[0].cents);
+  assert.equal(ratCmp(paid.workdays[0].cents, original.workdays[0].cents), 1);
 
   const unpaidAdj = indexAdjustments([{ date: "2026-10-28", kind: "unpaid_leave" }]);
   const unpaid = planFor(calendar, 2026, 10, unpaidAdj);
-  assert.equal(unpaid.workdays.reduce((sum, day) => sum + day.cents, 0), 112000 - share);
+  assert.ok(ratEq(sumBase(unpaid), ratSub(rational(MONTH_CENTS, 1), share)));
 
   const deducted = planFor(calendar, 2026, 10, indexAdjustments([{ date: "2026-10-28", kind: "paid_leave" }]), {
-    monthlyNetCents: 112000,
+    monthlyNetCents: MONTH_CENTS,
     paidLeaveKeepsSalary: false,
   });
-  assert.equal(deducted.workdays.reduce((sum, day) => sum + day.cents, 0), 112000 - share);
+  assert.ok(ratEq(sumBase(deducted), ratSub(rational(MONTH_CENTS, 1), share)));
 });
 
 test("manual rest, makeup work and explicit overtime", async () => {
@@ -142,11 +156,10 @@ test("manual rest, makeup work and explicit overtime", async () => {
   const plan = planFor(calendar, 2026, 10, adjustments);
   assert.equal(plan.workdays.some((day) => day.date === "2026-10-29"), false);
   assert.equal(plan.workdays.some((day) => day.date === "2026-10-11"), true);
-  assert.equal(plan.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  assert.ok(ratEq(sumBase(plan), rational(MONTH_CENTS, 1)));
   const thirteenth = plan.workdays.find((day) => day.date === "2026-10-13");
   assert.equal(thirteenth.overtimeCents, 880);
-  const withOvertime = plan.workdays.reduce((sum, day) => sum + day.cents + day.overtimeCents, 0);
-  assert.equal(withOvertime, 112000 + 880);
+  assert.ok(ratEq(sumWithOvertime(plan), rational(MONTH_CENTS + 880, 1)));
   assert.equal(plan.workdays.find((day) => day.date === "2026-10-15").overtimeCents, 0);
   assert.equal(plan.offDayOvertime.length, 0);
   const weekendOvertime = planFor(calendar, 2026, 10, indexAdjustments([
@@ -161,11 +174,13 @@ test("month boundaries keep their own totals", async () => {
   const { calendar, adjustments } = await fixtures();
   const october = planFor(calendar, 2026, 10, adjustments);
   const november = planFor(calendar, 2026, 11, adjustments);
-  assert.equal(october.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
-  assert.equal(november.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  assert.ok(ratEq(sumBase(october), rational(MONTH_CENTS, 1)));
+  assert.ok(ratEq(sumBase(november), rational(MONTH_CENTS, 1)));
   const firstNovember = november.workdays[0].date;
-  assert.equal(totalsThrough(october, "2026-10-30").before + totalsThrough(october, "2026-10-30").today, 112000);
-  assert.equal(totalsThrough(november, firstNovember).before, 0);
+  const octoberEnd = totalsThrough(october, "2026-10-30");
+  assert.ok(ratEq(ratAdd(octoberEnd.before, octoberEnd.today), rational(MONTH_CENTS, 1)));
+  assert.equal(formatYuan(ratAdd(octoberEnd.before, octoberEnd.today)), "¥11200.00");
+  assert.ok(ratEq(totalsThrough(november, firstNovember).before, rational(0, 1)));
   assert.notEqual(firstNovember.slice(0, 7), "2026-10");
 });
 
@@ -184,18 +199,30 @@ test("messages follow the workday, the clock and special days", async () => {
     workEndMinutes: 18 * 60,
   });
   const figures = totalsThrough(october, "2026-10-28");
-  assert.match(morning.title, /待赚/);
-  assert.match(morning.title, /还有1008天/);
-  assert.ok([...morning.title].length <= TITLE_LIMIT);
+  const morningCopy = library.morning.find((line) => line.id === morning.copyId);
+  assert.match(morning.title, /^今日待赚 ¥622\.22｜/);
+  assert.equal([...morning.title].length <= TITLE_LIMIT, true);
   assert.equal(morning.title.includes("\n"), false);
-  assert.match(morning.content, /打工自由助手｜早安/);
-  assert.match(morning.content, new RegExp(`今日待赚：${formatYuan(figures.today).replace(".", "\\.")}`));
-  assert.match(morning.content, /本月累计：/);
+  assert.equal(morning.title.includes("测试"), false);
+  assert.equal(morning.title.includes("打工自由助手"), false);
+  assert.equal(morning.title.includes("周三了"), false);
+  assert.equal(morning.title.includes("还有1008天"), false);
+  assert.equal(morning.title.includes(morningCopy.text), false);
+  assert.equal(morningCopy.text.includes(morning.title.split("｜")[1]), true);
+  assert.match(morning.content, /今日待赚 ¥622\.22/);
+  assert.match(morning.content, /本月累计 ¥9333\.33/);
+  assert.equal(morning.content.includes("¥9955.56"), false);
   assert.match(morning.content, /距离下班：9小时55分钟/);
+  assert.match(morning.content, /距离上班十周年：还有1008天/);
+  assert.match(morning.content, /已工作：7年2个月27天/);
   assert.match(morning.content, /这周已经过半|这周过半/);
   assert.match(morning.content, /不是银行卡到账/);
+  assert.equal(morning.content.split(morningCopy.text).length - 1, 1);
   assert.equal(morning.content.includes("周五了。做完今天"), false);
-  assert.equal(library.morning.find((line) => line.id === morning.copyId).tags.includes("wednesday"), true);
+  assert.equal(morning.content.includes("打工自由助手"), false);
+  assert.equal(morningCopy.tags.includes("wednesday"), true);
+  assert.equal(formatYuan(figures.today), "¥622.22");
+  assert.equal(formatYuan(figures.before), "¥9333.33");
 
   const late = buildReminder({
     slot: "morning",
@@ -219,14 +246,22 @@ test("messages follow the workday, the clock and special days", async () => {
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.match(evening.title, /到账/);
-  assert.match(evening.title, /还有1008天/);
-  assert.ok([...evening.title].length <= TITLE_LIMIT);
-  assert.match(evening.content, /今日模拟到账：/);
-  assert.match(evening.content, /本月剩余工作日：/);
-  const eveningTotal = figures.before + figures.today;
-  assert.match(evening.content, new RegExp(formatYuan(eveningTotal).replace(".", "\\.")));
-  assert.equal(evening.content.includes(formatYuan(figures.before)), eveningTotal === figures.before);
+  const eveningCopy = library.evening.find((line) => line.id === evening.copyId);
+  assert.match(evening.title, /^下班到账 \+¥622\.22｜/);
+  assert.equal([...evening.title].length <= TITLE_LIMIT, true);
+  assert.equal(evening.title.includes("测试"), false);
+  assert.equal(evening.title.includes("打工自由助手"), false);
+  assert.equal(evening.title.includes("周三了"), false);
+  assert.equal(evening.title.includes("还有1008天"), false);
+  assert.equal(evening.title.includes(eveningCopy.text), false);
+  assert.equal(eveningCopy.text.includes(evening.title.split("｜")[1]), true);
+  assert.match(evening.content, /下班到账 \+¥622\.22/);
+  assert.match(evening.content, /本月累计 ¥9955\.56/);
+  assert.equal(evening.content.includes("¥9333.33"), false);
+  assert.match(evening.content, /本月剩余工作日：2天/);
+  assert.match(evening.content, /距离上班十周年：还有1008天/);
+  assert.equal(evening.content.split(eveningCopy.text).length - 1, 1);
+  assert.equal(formatYuan(ratAdd(figures.before, figures.today)), "¥9955.56");
 
   const monday = buildReminder({
     slot: "morning", now: { date: "2026-10-12", minutesOfDay: 8 * 60 }, plan: october, calendar, adjustments,
@@ -256,10 +291,18 @@ test("messages follow the workday, the clock and special days", async () => {
     slot: "evening", now: { date: "2026-10-30", minutesOfDay: 18 * 60 }, plan: october, calendar, adjustments,
     lines: library.evening, recent: [], workEndMinutes: 18 * 60,
   });
-  assert.match(monthEnd.content, /本月最后一个工作日/);
+  assert.match(monthEnd.content, /本月最后一个工作日|一个月的班上完了|月末/);
   assert.match(monthEnd.content, /本月剩余工作日：0天/);
-  assert.match(monthEnd.content, /1120\.00元/);
+  assert.match(monthEnd.content, /本月累计 ¥11200\.00/);
+  assert.match(monthEnd.title, /^下班到账 \+¥622\.22｜/);
+  assert.equal([...monthEnd.title].length <= TITLE_LIMIT, true);
   assert.equal(library.evening.find((line) => line.id === monthEnd.copyId).tags.includes("month_end"), true);
+  const monthEndMorning = buildReminder({
+    slot: "morning", now: { date: "2026-10-30", minutesOfDay: 8 * 60 }, plan: october, calendar, adjustments,
+    lines: library.morning, recent: [], workEndMinutes: 18 * 60,
+  });
+  assert.match(monthEndMorning.content, /本月累计 ¥10577\.78/);
+  assert.match(monthEndMorning.title, /^今日待赚 ¥622\.22｜/);
 });
 
 test("copy libraries stay large, gentle, and unique across 14 workdays", async () => {
@@ -269,6 +312,7 @@ test("copy libraries stay large, gentle, and unique across 14 workdays", async (
   for (const phrase of banned) assert.equal(blob.includes(phrase), false, phrase);
   assert.ok(library.morning.length >= 50);
   assert.ok(library.evening.length >= 50);
+  assert.ok(library.morning.length + library.evening.length >= 100);
   const anniversaryCopy = library.morning.filter((line) => line.tags.includes("anniversary"));
   assert.ok(anniversaryCopy.length >= 4);
   assert.ok(anniversaryCopy.length < library.morning.length / 2);
@@ -302,14 +346,15 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
   const { calendar, library, adjustments } = await fixtures();
   const crowded = buildNotificationTitle({
     slot: "morning",
-    todayCents: 112000,
-    milestone: describeAnniversary("2019-08-01"),
-    comfort: "照常做完就好，不必把今天过成一场考核。",
+    todayAmount: rational(MONTH_CENTS, 1),
+    comfort: "照常做完就好不必把今天过成一场考核也不必向任何人证明",
   });
-  assert.equal([...crowded].length <= TITLE_LIMIT, true);
-  assert.match(crowded, /待赚1120\.00/);
-  assert.match(crowded, /还有3653天/);
+  assert.equal([...crowded].length, TITLE_LIMIT);
+  assert.match(crowded, /^今日待赚 ¥11200\.00｜/);
+  assert.equal(crowded.includes("3653"), false);
+  assert.equal(crowded.includes("十周年"), false);
   assert.equal(crowded.includes("\n"), false);
+  assert.notEqual(crowded.split("｜")[1], "照常做完就好不必把今天过成一场考核也不必向任何人证明");
   assert.equal(calendarDaysBetween("2019-08-01", "2029-08-01"), 3653);
   assert.equal(calendarDaysBetween("2026-10-28", "2029-08-01"), 1008);
   assert.equal(calendarDaysBetween("2026-09-30", "2026-10-08"), 8);
@@ -343,7 +388,7 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
   });
   assert.match(morning.content, /距离上班十周年：还有1008天/);
   assert.match(morning.content, /已工作：7年2个月27天/);
-  assert.equal(october.workdays.reduce((sum, day) => sum + day.cents, 0), 112000);
+  assert.ok(ratEq(sumBase(october), rational(MONTH_CENTS, 1)));
 
   const today = describeAnniversary("2029-08-01");
   assert.equal(today.phase, "today");
@@ -359,8 +404,12 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.match(anniversaryMorning.title, /十周年今天/);
-  assert.match(anniversaryMorning.title, /不是辞职日/);
+  assert.equal(anniversaryMorning.title.includes("十周年今天"), false);
+  assert.equal(anniversaryMorning.title.includes("测试"), false);
+  assert.equal(anniversaryMorning.title.includes("打工自由助手"), false);
+  assert.equal(anniversaryMorning.title.includes("还有"), false);
+  assert.notEqual(anniversaryMorning.title, ANNIVERSARY_DAY.morning[0]);
+  assert.equal(anniversaryMorning.content.split(ANNIVERSARY_DAY.morning[0]).length - 1, 1);
   assert.ok([...anniversaryMorning.title].length <= TITLE_LIMIT);
   assert.match(anniversaryMorning.content, /上班十周年：今天/);
   assert.match(anniversaryMorning.content, /已工作：10年0个月0天/);
@@ -459,15 +508,15 @@ test("Server酱 payload is title plus desp and logs omit the sendkey and salary"
     if (href.endsWith(".send")) {
       return jsonResponse({ code: 0, message: "", data: { pushid: "88", readkey: "read-key-value" } });
     }
-    return jsonResponse({ code: 0, data: { id: "88", title: body?.title || "hidden 1120" } });
+    return jsonResponse({ code: 0, data: { id: "88", title: body?.title || "hidden 880" } });
   };
-  const title = "待赚62.22｜还有1008天｜做完即可";
+  const title = "今日待赚 ¥622.22｜做完即可";
   const result = await deliverMessage({
     fetchImpl,
     sleep: async () => {},
     sendKey,
     title,
-    desp: "今日待赚：62.22元\n本月累计：0.00元",
+    desp: "今日待赚 ¥622.22\n本月累计 ¥9333.33",
     logger,
   });
   assert.equal(result.code, 0);
@@ -475,17 +524,17 @@ test("Server酱 payload is title plus desp and logs omit the sendkey and salary"
   const sent = calls.find((call) => call.href.endsWith(".send"));
   assert.deepEqual(Object.keys(sent.body).sort(), ["desp", "title"]);
   assert.equal(sent.body.title, title);
-  assert.match(sent.body.desp, /今日待赚：62\.22元/);
+  assert.match(sent.body.desp, /今日待赚 ¥622\.22/);
   assert.equal(sent.href.includes(sendKey), true);
   assert.equal(JSON.stringify(sent.body).includes(sendKey), false);
   assert.equal(calls.some((call) => call.href.includes("/push?")), true);
   const logged = logs.join("\n");
   assert.equal(logged.includes(sendKey), false);
   assert.equal(logged.includes("read-key-value"), false);
-  assert.equal(logged.includes("62.22"), false);
-  assert.equal(logged.includes("1120"), false);
+  assert.equal(logged.includes("622.22"), false);
+  assert.equal(logged.includes("11200"), false);
   assert.match(logged, /code=0/);
-  assert.match(safeReason(`balance 1120 key ${sendKey}`, logger.redact), /balance # key \[redacted\]/);
+  assert.match(safeReason(`balance 880 key ${sendKey}`, logger.redact), /balance # key \[redacted\]/);
 });
 
 test("a non-zero Server酱 code is not delivery, and transport errors retry once", async () => {
@@ -496,18 +545,19 @@ test("a non-zero Server酱 code is not delivery, and transport errors retry once
   await assert.rejects(() => deliverMessage({
     fetchImpl: async () => {
       rejected += 1;
-      return jsonResponse({ code: 40001, message: `错误的Key ${sendKey} 额度 1120` });
+      return jsonResponse({ code: 40001, message: `错误的Key ${sendKey} 额度 880` });
     },
     sleep: async () => {},
     sendKey,
-    title: "待赚62.22｜还有1008天｜做完即可",
+    title: "今日待赚 ¥622.22｜做完即可",
     desp: "正文",
     logger,
     maxAttempts: 2,
   }), /拒绝/);
   assert.equal(rejected, 1);
   assert.equal(logs.join("\n").includes(sendKey), false);
-  assert.equal(logs.join("\n").includes("1120"), false);
+  assert.equal(logs.join("\n").includes("11200"), false);
+  assert.equal(logs.join("\n").includes("622.22"), false);
 
   let attempt = 0;
   const recovered = await deliverMessage({
@@ -518,7 +568,7 @@ test("a non-zero Server酱 code is not delivery, and transport errors retry once
     },
     sleep: async () => {},
     sendKey,
-    title: "到账62.22｜还有1008天｜班结束了",
+    title: "下班到账 +¥622.22｜今天辛苦了",
     desp: "正文",
     logger,
     maxAttempts: 2,
@@ -565,7 +615,7 @@ test("a workday send is recorded once and skipped the second time", async () => 
   const state = JSON.parse(await readFile(options.statePath, "utf8"));
   assert.equal(state.sent["2026-10-28"].morning.status, "sent");
   assert.equal(JSON.stringify(state).includes("SCT1234567890abcdef"), false);
-  assert.equal(JSON.stringify(state).includes("1120"), false);
+  assert.equal(JSON.stringify(state).includes("11200"), false);
   const second = await run(options);
   assert.equal(second.reason, "duplicate");
   assert.equal(sends, 1);
@@ -637,7 +687,8 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
       sends += 1;
       const body = JSON.parse(init.body);
       assert.deepEqual(Object.keys(body).sort(), ["desp", "title"]);
-      assert.equal(body.title, "通道测试｜不记工资｜不是正式提醒");
+      assert.equal(body.title, "不记工资｜只确认通道");
+      assert.equal(body.title.includes("测试"), false);
       assert.ok([...body.title].length <= TITLE_LIMIT);
       assert.match(body.desp, /【测试】/);
       assert.equal(body.desp.includes("今日待赚"), false);
@@ -704,5 +755,97 @@ test("dry run prints no salary and no token", () => {
   assert.match(output, /action=dry-run/);
   assert.equal(output.includes("SCT1234567890abcdef"), false);
   assert.equal(output.includes("元"), false);
-  assert.equal(output.includes("1120"), false);
+  assert.equal(output.includes("¥"), false);
+  assert.equal(output.includes("11200"), false);
+  assert.equal(output.includes("622.22"), false);
+});
+
+test("titles rotate short comfort from the library and the default salary is 11200", async () => {
+  const config = JSON.parse(await readFile(configPath, "utf8"));
+  assert.equal(config.monthlyNetYuan, 11200);
+  const { calendar, library, adjustments } = await fixtures();
+  const october = planFor(calendar, 2026, 10, adjustments);
+  const tails = new Set();
+  const room = TITLE_LIMIT - [..."今日待赚 ¥622.22｜"].length;
+  for (const day of october.workdays) {
+    const message = buildReminder({
+      slot: "morning",
+      now: { date: day.date, minutesOfDay: 8 * 60 },
+      plan: october,
+      calendar,
+      adjustments,
+      lines: library.morning,
+      recent: [],
+      workEndMinutes: 18 * 60,
+    });
+    assert.match(message.title, /^今日待赚 ¥622\.22｜/);
+    assert.equal([...message.title].length <= TITLE_LIMIT, true);
+    assert.equal(/测试|打工自由助手|周[一二三四五六日]了|morning|evening/.test(message.title), false);
+    const copy = library.morning.find((line) => line.id === message.copyId).text;
+    const tail = message.title.split("｜")[1];
+    assert.equal(tail, shortComfort(copy, room));
+    assert.equal(copy.includes(tail), true);
+    assert.notEqual(tail, copy.replace(/[。！？\s]+$/g, ""));
+    assert.equal(message.content.split(copy).length - 1, 1);
+    assert.match(message.content, /本月累计 /);
+    assert.match(message.content, /距离上班十周年/);
+    tails.add(tail);
+  }
+  assert.ok(tails.size > 2);
+  const bundled = [
+    JSON.stringify(config),
+    await readFile(join(root, "wage-remind/README.md"), "utf8"),
+    await readFile(join(root, "wage-remind/lib/message.mjs"), "utf8"),
+    await readFile(join(root, "wage-remind/lib/wage.mjs"), "utf8"),
+    await readFile(join(root, "wage-remind/lib/money.mjs"), "utf8"),
+  ].join("\n");
+  assert.equal(/(^|[^0-9])1120([^0-9]|$)/.test(bundled), false);
+});
+
+test("a manual test on a workday keeps the wage title and marks only the body", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
+  const { calendar, library, adjustments } = await fixtures();
+  const october = planFor(calendar, 2026, 10, adjustments);
+  const preview = buildReminder({
+    slot: "morning",
+    now: { date: "2026-10-28", minutesOfDay: 8 * 60 + 5 },
+    plan: october,
+    calendar,
+    adjustments,
+    lines: library.morning,
+    recent: [],
+    workEndMinutes: 18 * 60,
+  });
+  let body;
+  const fetchImpl = async (url, init = {}) => {
+    if (String(url).endsWith(".send")) {
+      body = JSON.parse(init.body);
+      return jsonResponse({ code: 0, data: {} });
+    }
+    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  };
+  const sent = await run({
+    now: new Date("2026-10-28T00:05:00.000Z"),
+    event: "workflow_dispatch",
+    slot: "test",
+    sendKey: "SCT1234567890abcdef",
+    statePath: join(dir, "state.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger: createLogger(["SCT1234567890abcdef"], { log() {}, error() {} }),
+    pollAttempts: 1,
+  });
+  assert.equal(sent.action, "sent");
+  assert.equal(body.title, preview.title);
+  assert.match(body.title, /^今日待赚 ¥622\.22｜/);
+  assert.equal(body.title.includes("测试"), false);
+  assert.match(body.desp, /【测试】/);
+  assert.match(body.desp, /本月累计 ¥9333\.33/);
+  assert.match(body.desp, /距离上班十周年：还有1008天/);
+  const copy = library.morning.find((line) => line.id === preview.copyId).text;
+  assert.equal(body.desp.split(copy).length - 1, 1);
+  assert.equal(body.title.includes(copy), false);
+  const state = JSON.parse(await readFile(join(dir, "state.json"), "utf8"));
+  assert.equal(state.sent["2026-10-28"], undefined);
+  await rm(dir, { recursive: true, force: true });
 });

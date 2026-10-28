@@ -3,28 +3,56 @@ import { addDays, formatDuration, weekdayOf } from "./time.mjs";
 import { assertYearCovered } from "./calendar.mjs";
 import { hashText, selectCopy } from "./copy.mjs";
 import { isLastWorkday, isSalaryWorkday, totalsThrough } from "./wage.mjs";
-import { formatYuan } from "./money.mjs";
+import { formatYuan, ratAdd } from "./money.mjs";
 
 export const TITLE_LIMIT = 32;
 
-function compactComfort(text, room) {
-  const cleaned = String(text || "做完即可").replace(/[\r\n｜|]/g, "").trim();
-  const sentence = cleaned.split(/[。！？]/)[0] || "做完即可";
-  return [...sentence].slice(0, Math.max(0, room)).join("");
+const BARE_DAY = /^(?:周[一二三四五六日天]|星期[一二三四五六日天])(?:了|见|早上|晚上|下班|的班)?$/;
+
+function clausesOf(text) {
+  return String(text || "")
+    .replace(/[\r\n｜|]/g, "")
+    .split(/[。！？!?；;，,、]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
-export function buildNotificationTitle({ slot, todayCents, milestone, comfort }) {
-  const amount = todayCents == null
-    ? "今日休息"
-    : `${slot === "evening" ? "到账" : "待赚"}${formatYuan(todayCents).replace(/元$/, "")}`;
-  const countdown = milestone.phase === "today"
-    ? "十周年今天"
-    : milestone.phase === "after"
-      ? "十周年已达成"
-      : `还有${milestone.daysLeft}天`;
-  const prefix = `${amount}｜${countdown}｜`;
-  const title = `${prefix}${compactComfort(comfort, TITLE_LIMIT - [...prefix].length)}`.replace(/[\r\n]/g, "");
-  return [...title].slice(0, TITLE_LIMIT).join("");
+export function shortComfort(text, room) {
+  const limit = Math.max(0, room);
+  const cleaned = String(text || "").replace(/[\r\n｜|]/g, "").trim();
+  const full = cleaned.replace(/[。！？!?；;，,、\s]+$/g, "");
+  const parts = clausesOf(cleaned).filter((part) => !BARE_DAY.test(part) && part !== "测试" && part !== "打工自由助手");
+  const fitting = parts.filter((part) => part !== full && [...part].length >= 2 && [...part].length <= limit);
+  const preferred = fitting.find((part) => !/^(?:周|星期)/.test(part)) || fitting[0];
+  let phrase = preferred || "";
+  if (!phrase) {
+    const source = parts[0] || full || "做完即可";
+    const cap = Math.min(limit, Math.max(0, [...source].length - (source === full ? 1 : 0)));
+    phrase = [...source].slice(0, cap).join("");
+  }
+  if ([...phrase].length > limit) phrase = [...phrase].slice(0, limit).join("");
+  if ((phrase === full || phrase === cleaned) && phrase.length > 0) {
+    phrase = [...phrase].slice(0, Math.max(0, Math.min(limit, [...phrase].length - 1))).join("");
+  }
+  if (phrase) return phrase;
+  return [..."做完即可"].slice(0, limit).join("");
+}
+
+function amountLead(slot, todayAmount) {
+  const money = formatYuan(todayAmount);
+  return slot === "evening" ? `下班到账 +${money}` : `今日待赚 ${money}`;
+}
+
+export function buildNotificationTitle({ slot, todayAmount = null, todayCents = undefined, comfort }) {
+  const amount = todayAmount !== null && todayAmount !== undefined ? todayAmount : todayCents;
+  if (amount == null) return shortComfort(comfort, TITLE_LIMIT);
+  const lead = amountLead(slot, amount);
+  const prefix = `${lead}｜`;
+  const room = TITLE_LIMIT - [...prefix].length;
+  if (room <= 0) return [...lead].slice(0, TITLE_LIMIT).join("");
+  const phrase = shortComfort(comfort, room);
+  const title = phrase ? `${prefix}${phrase}` : lead;
+  return [...title].slice(0, TITLE_LIMIT).join("").replace(/[\r\n]/g, "");
 }
 
 const CONTEXT_LINES = {
@@ -74,26 +102,31 @@ export function reminderContexts({ date, slot, calendar, adjustments, plan, anni
   return contexts;
 }
 
+function datedOnPlan(plan, date) {
+  return [...plan.workdays, ...plan.offDayOvertime].some((row) => row.date === date);
+}
+
 export function wageSummaryLines({ slot, now, plan, workEndMinutes }) {
   const { before, today, remaining } = totalsThrough(plan, now.date);
+  const earned = slot === "morning" ? before : ratAdd(before, today);
   if (slot === "morning") {
     return [
-      `今日待赚：${formatYuan(today)}`,
-      `本月累计：${formatYuan(before)}`,
+      `今日待赚 ${formatYuan(today)}`,
+      `本月累计 ${formatYuan(earned)}`,
       `距离下班：${formatDuration(workEndMinutes - now.minutesOfDay)}`,
     ];
   }
   return [
-    `今日模拟到账：${formatYuan(today)}`,
-    `本月累计：${formatYuan(before + today)}`,
+    `下班到账 +${formatYuan(today)}`,
+    `本月累计 ${formatYuan(earned)}`,
     `本月剩余工作日：${remaining}天`,
   ];
 }
 
-export function buildAnniversaryMessage({ slot, milestone, wageLines = [], todayCents = null }) {
+export function buildAnniversaryMessage({ slot, milestone, wageLines = [], todayAmount = null, todayCents = undefined }) {
   const paragraphs = ANNIVERSARY_DAY[slot] || ANNIVERSARY_DAY.morning;
-  const heading = slot === "morning" ? "打工自由助手｜早安" : "打工自由助手｜下班啦";
-  const body = [heading];
+  const amount = todayAmount !== null && todayAmount !== undefined ? todayAmount : todayCents;
+  const body = [];
   for (const line of wageLines) body.push(line);
   if (wageLines.length) body.push("");
   body.push(countdownLine(milestone));
@@ -105,7 +138,7 @@ export function buildAnniversaryMessage({ slot, milestone, wageLines = [], today
     body.push(FOOTER);
   }
   return {
-    title: buildNotificationTitle({ slot, todayCents, milestone, comfort: "不是辞职日" }),
+    title: buildNotificationTitle({ slot, todayAmount: amount ?? null, comfort: paragraphs[0] }),
     content: body.join("\n"),
     copyId: null,
     contexts: ["anniversary-day"],
@@ -142,24 +175,35 @@ export function dayContexts(date, calendar, adjustments, plan) {
 
 export function buildReminder({ slot, now, plan, calendar, adjustments, lines, recent, workEndMinutes, anniversary }) {
   const milestone = describeAnniversary(now.date, anniversary);
-  const summary = wageSummaryLines({ slot, now, plan, workEndMinutes });
-  const todayCents = totalsThrough(plan, now.date).today;
+  const figures = totalsThrough(plan, now.date);
+  const onPlan = datedOnPlan(plan, now.date);
+  const summary = onPlan ? wageSummaryLines({ slot, now, plan, workEndMinutes }) : [];
   if (milestone.phase === "today") {
-    return buildAnniversaryMessage({ slot, milestone, wageLines: summary, todayCents });
+    return buildAnniversaryMessage({
+      slot,
+      milestone,
+      wageLines: summary,
+      todayAmount: onPlan ? figures.today : null,
+    });
   }
   const contexts = reminderContexts({ date: now.date, slot, calendar, adjustments, plan, anniversary });
   const line = selectCopy(lines, { date: now.date, slot, contexts, recent });
-  const notes = CONTEXT_ORDER.filter((name) => contexts.includes(name)).map((name) => CONTEXT_LINES[slot][name]);
-  const body = [...summary, countdownLine(milestone), tenureLine(milestone), ""];
-  for (const note of notes) body.push(note);
-  if (notes.length) body.push("");
+  const notes = CONTEXT_ORDER
+    .filter((name) => contexts.includes(name) && !line.tags.includes(name))
+    .map((name) => CONTEXT_LINES[slot][name])
+    .filter((note) => note !== line.text && !line.text.includes(note));
+  const body = [...summary, "", countdownLine(milestone), tenureLine(milestone)];
+  if (notes.length) {
+    body.push("");
+    for (const note of notes) body.push(note);
+  }
+  body.push("");
   body.push(line.text);
   body.push("");
   body.push(FOOTER);
-  const heading = slot === "morning" ? "打工自由助手｜早安" : "打工自由助手｜下班啦";
   return {
-    title: buildNotificationTitle({ slot, todayCents, milestone, comfort: line.text }),
-    content: [heading, ...body].join("\n"),
+    title: buildNotificationTitle({ slot, todayAmount: figures.today, comfort: line.text }),
+    content: body.join("\n"),
     copyId: line.id,
     contexts,
   };
@@ -169,12 +213,12 @@ export function buildTestMessage(preview) {
   const lead = "【测试】这条只用来确认推送通道，不计入额外收入，也不改写今日早晚的发送记录。";
   if (!preview) {
     return {
-      title: "通道测试｜不记工资｜不是正式提醒",
-      content: `${lead}\n今天不是计薪工作日，所以这里不展示模拟工资。能看到这段纯文本，说明通道是通的。\n\n${FOOTER}`,
+      title: "不记工资｜只确认通道",
+      content: `${lead}\n今天不是计薪工作日，所以这里不展示模拟工资。能看到这段文字，说明通道是通的。\n\n${FOOTER}`,
     };
   }
   return {
-    title: [...`测试｜${preview.title}`].slice(0, TITLE_LIMIT).join(""),
+    title: preview.title,
     content: `${lead}\n\n${preview.content}`,
     copyId: preview.copyId,
   };

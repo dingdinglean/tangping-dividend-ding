@@ -104,7 +104,7 @@ export async function run(options = {}) {
       slot: previewSlot,
       milestone,
       wageLines,
-      todayCents: wageLines.length ? totalsThrough(plan, now.date).today : null,
+      todayAmount: wageLines.length ? totalsThrough(plan, now.date).today : null,
     });
   } else if (plan && (workday || options.force)) {
     message = buildReminder({

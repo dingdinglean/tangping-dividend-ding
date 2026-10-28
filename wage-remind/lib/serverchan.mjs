@@ -1,7 +1,7 @@
 const SEND_HOST = "https://sctapi.ftqq.com";
 
 /**
- * Server酱 Turbo 免费会员（2026-07-28 官方 FAQ）：
+ * Server酱 Turbo 免费会员（官方文档 2026-07-28，sct.ftqq.com/docs）：
  * 注册即为免费会员，每天最多 5 条；不使用订阅会员的 1000 条额度，也不调用付费接口。
  * 本提醒每个工作日最多早上、晚上各 1 条，合计 2 条，留出手动测试的余量。
  * 失败重试最多再请求 1 次，避免把每天 5 条额度打光。
@@ -9,6 +9,11 @@ const SEND_HOST = "https://sctapi.ftqq.com";
  * 官方成功标准是 HTTP 响应里的 JSON code === 0。没有单独的「微信客户端已展示」免费查询。
  * 若响应带 pushid 和 readkey，会再 GET /push 确认服务端留存了这条消息；
  * 查不到也不重发，因为重发会再占一条免费额度，而且可能重复通知。
+ *
+ * 请求只带 title 和 desp。channel 的编号在用户控制台，写死会改掉已选的微信通道。
+ * openid 群发是订阅会员功能，且只用于测试号和企业微信。short 是卡片短描述，
+ * 但免费会员的微信卡片只显示标题，服务号即使订阅也不展开正文。这些参数都不能
+ * 让免费微信预览多看到金额，所以不传，也不据此重试。
  */
 export const FREE_DAILY_LIMIT = 5;
 export const TITLE_LIMIT = 32;

@@ -6,7 +6,7 @@ import { loadCalendar, loadHolidayDirectory } from "./calendar.mjs";
 import { loadCopyLibrary } from "./copy.mjs";
 import { buildAnniversaryMessage, buildReminder, buildTestMessage, wageSummaryLines } from "./message.mjs";
 import { yuanToCents } from "./money.mjs";
-import { createLogger, deliverMessage } from "./bark.mjs";
+import { createLogger, deliverMessage, iconForSlot } from "./bark.mjs";
 import { loadState, rememberCopy, saveState, slotRecord, withSlot } from "./state.mjs";
 import { parseClock, shanghaiNow } from "./time.mjs";
 import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "./wage.mjs";
@@ -121,7 +121,7 @@ export async function run(options = {}) {
   } else {
     message = null;
   }
-  if (slot === "test") message = buildTestMessage(message);
+  if (slot === "test") message = buildTestMessage(message, previewSlot);
 
   if (options.dryRun) {
     logger.info(`wage-remind action=dry-run slot=${slot} date=${now.date} bytes=${message.content.length}`);
@@ -135,6 +135,7 @@ export async function run(options = {}) {
     deviceKey: options.deviceKey,
     title: message.title,
     body: message.content,
+    icon: iconForSlot(previewSlot),
     logger,
     maxAttempts: options.maxAttempts,
   });

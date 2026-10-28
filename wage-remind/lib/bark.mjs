@@ -19,6 +19,15 @@ export const BARK_LEVEL = "active";
 export const BARK_SOUND = "bell";
 export const DEFAULT_MAX_ATTEMPTS = 3;
 
+const ICON_REV = "d087b6fc9203aa864a1c1605a04e03befdb1593d";
+const ICON_BASE = `https://cdn.jsdelivr.net/gh/dingdinglean/tangping-dividend-ding@${ICON_REV}/wage-remind/assets`;
+export const BARK_ICON_MORNING = `${ICON_BASE}/morning-sun.png`;
+export const BARK_ICON_EVENING = `${ICON_BASE}/evening-wallet.png`;
+
+export function iconForSlot(slot) {
+  return slot === "evening" ? BARK_ICON_EVENING : BARK_ICON_MORNING;
+}
+
 export class FatalSendError extends Error {}
 
 export function createLogger(secrets, sink = console) {
@@ -66,8 +75,8 @@ function isTransient(status, code) {
   return code === 429 || (typeof code === "number" && code >= 500);
 }
 
-export function barkPayload({ deviceKey, title, body }) {
-  return {
+export function barkPayload({ deviceKey, title, body, icon }) {
+  const payload = {
     device_key: String(deviceKey),
     title: String(title || "").replace(/[\r\n]/g, "").trim(),
     body: String(body || "").replace(/\r\n/g, "\n").trim(),
@@ -75,6 +84,11 @@ export function barkPayload({ deviceKey, title, body }) {
     level: BARK_LEVEL,
     sound: BARK_SOUND,
   };
+  if (icon) {
+    if (!/^https:\/\/\S+$/.test(icon)) throw new FatalSendError("Bark 图标地址无效");
+    payload.icon = icon;
+  }
+  return payload;
 }
 
 export async function deliverMessage({
@@ -83,12 +97,13 @@ export async function deliverMessage({
   deviceKey,
   title,
   body,
+  icon,
   logger,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
 }) {
   assertDeviceKey(deviceKey);
   const log = logger || createLogger([deviceKey]);
-  const payload = barkPayload({ deviceKey, title, body });
+  const payload = barkPayload({ deviceKey, title, body, icon });
   if (!payload.title || !payload.body) throw new FatalSendError("Bark 标题或正文为空");
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {

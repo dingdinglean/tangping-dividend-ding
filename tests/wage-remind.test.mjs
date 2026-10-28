@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { calendarDaysBetween, calendarElapsed, countdownLine, describeAnniversary, formatElapsed } from "../wage-remind/lib/anniversary.mjs";
 import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
-import { hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
+import { comfortHanCount, hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
+import { BARK_ICON_EVENING, BARK_ICON_MORNING } from "../wage-remind/lib/bark.mjs";
 import { ANNIVERSARY_DAY, CONTEXT_LINES, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
 import { formatYuan, ratAdd, ratCmp, ratEq, ratSub, rational, yuanToCents } from "../wage-remind/lib/money.mjs";
 import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/bark.mjs";
@@ -205,7 +206,7 @@ test("messages follow the workday, the clock and special days", async () => {
   });
   const figures = totalsThrough(october, "2026-10-28");
   const morningCopy = library.morning.find((line) => line.id === morning.copyId);
-  assert.equal(morning.title, "今日待赚 ¥622.22");
+  assert.equal(morning.title, "☀️ 今日待赚 ¥622.22");
   assert.equal(morning.title.includes("\n"), false);
   assert.equal(morning.title.includes("|"), false);
   assert.equal(morning.title.includes("｜"), false);
@@ -214,14 +215,19 @@ test("messages follow the workday, the clock and special days", async () => {
   assert.equal(morning.title.includes("周三了"), false);
   assert.equal(morning.title.includes("还有1008天"), false);
   assert.equal(morning.title.includes(morningCopy.text), false);
-  assert.equal(morning.content.includes("今日待赚 ¥622.22"), false);
-  assert.match(morning.content, /本月累计 ¥9333\.33/);
+  assert.equal(morning.content.includes("今日待赚"), false);
+  assert.equal(morning.content, [
+    "💰 本月累计：¥9333.33",
+    "⏳ 十周年倒计时：1008天",
+    morningCopy.text,
+  ].join("\n"));
   assert.equal(morning.content.includes("¥9955.56"), false);
-  assert.match(morning.content, /距离下班：9小时55分钟/);
-  assert.match(morning.content, /距离上班十周年：还有1008天/);
-  assert.match(morning.content, /已工作：7年2个月27天/);
+  assert.equal(morning.content.includes("距离下班"), false);
+  assert.equal(morning.content.includes("已工作"), false);
+  assert.equal(morning.content.includes("不是银行卡到账"), false);
+  assert.equal(morning.content.includes("以上为按工作日估算"), false);
   assert.match(morning.content, /这周已经过半|这周过半/);
-  assert.match(morning.content, /不是银行卡到账/);
+  assert.equal(comfortHanCount(morningCopy.text) >= 40 && comfortHanCount(morningCopy.text) <= 70, true);
   assert.equal(morning.content.split(morningCopy.text).length - 1, 1);
   assert.equal(morning.content.includes("周五了。做完今天"), false);
   assert.equal(morning.content.includes("打工自由助手"), false);
@@ -239,7 +245,8 @@ test("messages follow the workday, the clock and special days", async () => {
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.match(late.content, /已经到下班时间/);
+  assert.equal(late.content.includes("距离下班"), false);
+  assert.match(late.content, /💰 本月累计：¥9333\.33/);
 
   const evening = buildReminder({
     slot: "evening",
@@ -252,19 +259,26 @@ test("messages follow the workday, the clock and special days", async () => {
     workEndMinutes: 18 * 60,
   });
   const eveningCopy = library.evening.find((line) => line.id === evening.copyId);
-  assert.equal(evening.title, "下班啦 +¥622.22");
+  assert.equal(evening.title, "💚 今日收入 +¥622.22");
   assert.equal(evening.title.includes("测试"), false);
+  assert.equal(evening.title.includes("下班啦"), false);
   assert.equal(evening.title.includes("打工自由助手"), false);
   assert.equal(evening.title.includes("周三了"), false);
   assert.equal(evening.title.includes("还有1008天"), false);
   assert.equal(evening.title.includes("｜"), false);
   assert.equal(evening.title.includes(eveningCopy.text), false);
-  assert.equal(evening.content.includes("下班啦 +¥622.22"), false);
+  assert.equal(evening.content, [
+    "💰 本月累计：¥9955.56",
+    "⏳ 十周年倒计时：1008天",
+    eveningCopy.text,
+  ].join("\n"));
+  assert.equal(evening.content.includes("今日收入"), false);
   assert.equal(evening.content.includes("下班到账"), false);
-  assert.match(evening.content, /本月累计 ¥9955\.56/);
   assert.equal(evening.content.includes("¥9333.33"), false);
-  assert.match(evening.content, /本月剩余工作日：2天/);
-  assert.match(evening.content, /距离上班十周年：还有1008天/);
+  assert.equal(evening.content.includes("本月剩余工作日"), false);
+  assert.equal(evening.content.includes("已工作"), false);
+  assert.equal(evening.content.includes("不是银行卡到账"), false);
+  assert.equal(comfortHanCount(eveningCopy.text) >= 40 && comfortHanCount(eveningCopy.text) <= 70, true);
   assert.equal(evening.content.split(eveningCopy.text).length - 1, 1);
   assert.equal(formatYuan(ratAdd(figures.before, figures.today)), "¥9955.56");
 
@@ -297,16 +311,16 @@ test("messages follow the workday, the clock and special days", async () => {
     lines: library.evening, recent: [], workEndMinutes: 18 * 60,
   });
   assert.match(monthEnd.content, /本月最后一个工作日|一个月的班上完了|月末/);
-  assert.match(monthEnd.content, /本月剩余工作日：0天/);
-  assert.match(monthEnd.content, /本月累计 ¥11200\.00/);
-  assert.equal(monthEnd.title, "下班啦 +¥622.22");
+  assert.equal(monthEnd.content.includes("本月剩余工作日"), false);
+  assert.match(monthEnd.content, /💰 本月累计：¥11200\.00/);
+  assert.equal(monthEnd.title, "💚 今日收入 +¥622.22");
   assert.equal(library.evening.find((line) => line.id === monthEnd.copyId).tags.includes("month_end"), true);
   const monthEndMorning = buildReminder({
     slot: "morning", now: { date: "2026-10-30", minutesOfDay: 8 * 60 }, plan: october, calendar, adjustments,
     lines: library.morning, recent: [], workEndMinutes: 18 * 60,
   });
-  assert.match(monthEndMorning.content, /本月累计 ¥10577\.78/);
-  assert.equal(monthEndMorning.title, "今日待赚 ¥622.22");
+  assert.match(monthEndMorning.content, /💰 本月累计：¥10577\.78/);
+  assert.equal(monthEndMorning.title, "☀️ 今日待赚 ¥622.22");
 });
 
 test("copy libraries stay large, gentle, and unique across 14 workdays", async () => {
@@ -317,6 +331,12 @@ test("copy libraries stay large, gentle, and unique across 14 workdays", async (
   assert.ok(library.morning.length >= 50);
   assert.ok(library.evening.length >= 50);
   assert.ok(library.morning.length + library.evening.length >= 100);
+  for (const line of [...library.morning, ...library.evening]) {
+    const count = comfortHanCount(line.text);
+    assert.equal(count >= 40 && count <= 70, true, line.id);
+  }
+  assert.equal(JSON.stringify(library).includes("不是银行卡到账"), false);
+  assert.equal(JSON.stringify(library).includes("以上为按工作日估算"), false);
   const anniversaryCopy = library.morning.filter((line) => line.tags.includes("anniversary"));
   assert.ok(anniversaryCopy.length >= 4);
   assert.ok(anniversaryCopy.length < library.morning.length / 2);
@@ -353,7 +373,7 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     todayAmount: rational(MONTH_CENTS, 1),
     comfort: "照常做完就好不必把今天过成一场考核也不必向任何人证明",
   });
-  assert.equal(crowded, "今日待赚 ¥11200.00");
+  assert.equal(crowded, "☀️ 今日待赚 ¥11200.00");
   assert.equal(crowded.includes("3653"), false);
   assert.equal(crowded.includes("十周年"), false);
   assert.equal(crowded.includes("\n"), false);
@@ -390,8 +410,8 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.match(morning.content, /距离上班十周年：还有1008天/);
-  assert.match(morning.content, /已工作：7年2个月27天/);
+  assert.match(morning.content, /⏳ 十周年倒计时：1008天/);
+  assert.equal(morning.content.includes("已工作"), false);
   assert.ok(ratEq(sumBase(october), rational(MONTH_CENTS, 1)));
 
   const today = describeAnniversary("2029-08-01");
@@ -408,7 +428,7 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.equal(anniversaryMorning.title, "上班十周年");
+  assert.equal(anniversaryMorning.title, "☀️ 上班十周年");
   assert.equal(anniversaryMorning.title.includes("十周年今天"), false);
   assert.equal(anniversaryMorning.title.includes("测试"), false);
   assert.equal(anniversaryMorning.title.includes("打工自由助手"), false);
@@ -416,10 +436,11 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
   assert.equal(anniversaryMorning.title.includes("｜"), false);
   assert.notEqual(anniversaryMorning.title, ANNIVERSARY_DAY.morning[0]);
   assert.equal(anniversaryMorning.content.split(ANNIVERSARY_DAY.morning[0]).length - 1, 1);
-  assert.match(anniversaryMorning.content, /上班十周年：今天/);
-  assert.match(anniversaryMorning.content, /已工作：10年0个月0天/);
+  assert.match(anniversaryMorning.content, /⏳ 十周年倒计时：今天/);
+  assert.equal(anniversaryMorning.content.includes("已工作"), false);
+  assert.equal(anniversaryMorning.content.includes("不是银行卡到账"), false);
   assert.match(anniversaryMorning.content, /不是辞职日/);
-  assert.match(anniversaryMorning.content, /重新选择生活的权利/);
+  assert.equal(anniversaryMorning.content.split("\n").length, 2);
   assert.equal(anniversaryMorning.content.includes("还有-"), false);
   assert.equal(anniversaryMorning.copyId, null);
   const anniversaryEvening = buildReminder({
@@ -456,8 +477,8 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.match(later.content, /上班十周年已达成/);
-  assert.match(later.content, /已工作：10年0个月1天/);
+  assert.match(later.content, /⏳ 十周年倒计时：已达成/);
+  assert.equal(later.content.includes("已工作"), false);
   assert.equal(later.content.includes("还有-"), false);
   assert.equal(/-\d+天/.test(later.content), false);
 });
@@ -486,10 +507,10 @@ test("the anniversary day still sends when that year's holiday file is missing",
   const sent = await run(options);
   assert.equal(sent.action, "sent");
   assert.equal(sent.date, "2029-08-01");
-  assert.match(content, /上班十周年：今天/);
-  assert.match(content, /已工作：10年0个月0天/);
+  assert.match(content, /⏳ 十周年倒计时：今天/);
+  assert.equal(content.includes("已工作"), false);
   assert.match(content, /不是辞职日/);
-  assert.match(content, /重新选择/);
+  assert.equal(content.includes("不是银行卡到账"), false);
   assert.equal(content.includes("还有-"), false);
   assert.equal(content.includes("今日待赚"), false);
   assert.equal(content.includes("元"), false);
@@ -512,14 +533,15 @@ test("Bark payload is a JSON post and logs omit the device key and salary", asyn
     });
     return jsonResponse({ code: 200, message: "success", timestamp: 1700000000 });
   };
-  const title = "今日待赚 ¥622.22";
-  const notice = "本月累计 ¥9333.33\n距离上班十周年：还有1008天\n做完即可。";
+  const title = "☀️ 今日待赚 ¥622.22";
+  const notice = "💰 本月累计：¥9333.33\n⏳ 十周年倒计时：1008天\n做完即可。";
   const result = await deliverMessage({
     fetchImpl,
     sleep: async () => {},
     deviceKey: DEVICE_KEY,
     title,
     body: notice,
+    icon: BARK_ICON_MORNING,
     logger,
   });
   assert.equal(result.code, 200);
@@ -530,10 +552,13 @@ test("Bark payload is a JSON post and logs omit the device key and salary", asyn
   assert.equal(sent.href, "https://api.day.app/push");
   assert.equal(sent.href.includes(DEVICE_KEY), false);
   assert.equal(sent.headers["content-type"], "application/json; charset=utf-8");
-  assert.deepEqual(Object.keys(sent.body).sort(), ["body", "device_key", "group", "level", "sound", "title"]);
+  assert.deepEqual(Object.keys(sent.body).sort(), ["body", "device_key", "group", "icon", "level", "sound", "title"]);
   assert.equal(sent.body.device_key === DEVICE_KEY, true);
   assert.equal(sent.body.title, title);
   assert.equal(sent.body.body, notice);
+  assert.equal(sent.body.icon, BARK_ICON_MORNING);
+  assert.match(sent.body.icon, /^https:\/\/cdn\.jsdelivr\.net\/gh\/dingdinglean\/tangping-dividend-ding@[0-9a-f]{40}\/wage-remind\/assets\/morning-sun\.png$/);
+  assert.equal(sent.body.icon.includes(DEVICE_KEY), false);
   assert.equal(sent.body.group, "打工自由助手");
   assert.equal(sent.body.level, "active");
   assert.equal(sent.body.sound, "bell");
@@ -648,7 +673,13 @@ test("a workday send is recorded once and skipped the second time", async () => 
     assert.equal(body.group, "打工自由助手");
     assert.equal(body.level, "active");
     assert.equal(body.sound, "bell");
-    if (sends === 1) assert.equal(body.title, "今日待赚 ¥622.22");
+    if (sends === 1) {
+      assert.equal(body.title, "☀️ 今日待赚 ¥622.22");
+      assert.equal(body.icon, BARK_ICON_MORNING);
+      assert.match(body.body, /💰 本月累计：¥9333\.33/);
+      assert.match(body.body, /⏳ 十周年倒计时：1008天/);
+      assert.equal(body.body.includes("不是银行卡到账"), false);
+    }
     return jsonResponse({ code: 200, message: "success", timestamp: 1 });
   };
   const options = {
@@ -683,9 +714,14 @@ test("a workday send is recorded once and skipped the second time", async () => 
       assert.equal(body.group, "打工自由助手");
       assert.equal(body.level, "active");
       assert.equal(body.sound, "bell");
+      assert.equal(body.icon, BARK_ICON_EVENING);
+      assert.match(body.icon, /evening-wallet\.png$/);
       assert.equal("call" in body, false);
-      assert.match(body.body, /本月累计 ¥9955\.56/);
-      assert.match(body.body, /距离上班十周年：还有1008天/);
+      assert.match(body.body, /💰 本月累计：¥9955\.56/);
+      assert.match(body.body, /⏳ 十周年倒计时：1008天/);
+      assert.equal(body.body.includes("距离下班"), false);
+      assert.equal(body.body.includes("已工作"), false);
+      assert.equal(body.body.includes("不是银行卡到账"), false);
       assert.equal(body.body.includes(eveningTitle), false);
       assertNoSecret(body.body);
       return jsonResponse({ code: 200, message: "success", timestamp: 1 });
@@ -693,7 +729,7 @@ test("a workday send is recorded once and skipped the second time", async () => 
   });
   assert.equal(evening.action, "sent");
   assert.equal(evening.slot, "evening");
-  assert.equal(eveningTitle, "下班啦 +¥622.22");
+  assert.equal(eveningTitle, "💚 今日收入 +¥622.22");
   const second = await run(options);
   assert.equal(second.reason, "duplicate");
   assert.equal(sends, 2);
@@ -764,8 +800,9 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
     assert.equal(String(url), "https://api.day.app/push");
     sends += 1;
     const body = JSON.parse(init.body);
-    assert.deepEqual(Object.keys(body).sort(), ["body", "device_key", "group", "level", "sound", "title"]);
-    assert.equal(body.title, "确认推送通道");
+    assert.deepEqual(Object.keys(body).sort(), ["body", "device_key", "group", "icon", "level", "sound", "title"]);
+    assert.equal(body.title, "☀️ 确认推送");
+    assert.equal(body.icon, BARK_ICON_MORNING);
     assert.equal(body.title.includes("测试"), false);
     assert.equal(body.level, "active");
     assert.equal(body.sound, "bell");
@@ -805,7 +842,8 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
   assert.equal(source.includes("app.js"), false);
   assert.equal(source.includes("market-data.js"), false);
   assert.equal(source.includes("data/market.json"), false);
-  assert.equal(source.includes("tangping-dividend"), false);
+  const withoutIcons = source.replaceAll("dingdinglean/tangping-dividend-ding", "");
+  assert.equal(withoutIcons.includes("tangping-dividend"), false);
   const workflow = await readFile(join(root, ".github/workflows/wage-remind.yml"), "utf8");
   assert.equal(workflow.includes("git commit"), false);
   assert.equal(workflow.includes("data/market.json"), false);
@@ -866,13 +904,15 @@ test("comfort stays in the body while titles stay amount-only and the default sa
       recent: [],
       workEndMinutes: 18 * 60,
     });
-    assert.equal(message.title, "今日待赚 ¥622.22");
+    assert.equal(message.title, "☀️ 今日待赚 ¥622.22");
     assert.equal(/测试|打工自由助手|周[一二三四五六日]了|morning|evening|\||｜/.test(message.title), false);
     const copy = library.morning.find((line) => line.id === message.copyId).text;
+    assert.equal(comfortHanCount(copy) >= 40 && comfortHanCount(copy) <= 70, true);
     assert.equal(message.title.includes(copy), false);
     assert.equal(message.content.split(copy).length - 1, 1);
-    assert.match(message.content, /本月累计 /);
-    assert.match(message.content, /距离上班十周年/);
+    assert.match(message.content, /💰 本月累计：/);
+    assert.match(message.content, /⏳ 十周年倒计时：/);
+    assert.equal(message.content.includes("不是银行卡到账"), false);
     copyIds.add(message.copyId);
   }
   assert.ok(copyIds.size > 2);
@@ -919,16 +959,18 @@ test("a manual test on a workday keeps the wage title and marks only the body", 
   });
   assert.equal(sent.action, "sent");
   assert.equal(body.title, preview.title);
-  assert.equal(body.title, "今日待赚 ¥622.22");
+  assert.equal(body.title, "☀️ 今日待赚 ¥622.22");
   assert.equal(body.title.includes("测试"), false);
+  assert.equal(body.icon, BARK_ICON_MORNING);
   assert.equal(body.group, "打工自由助手");
   assert.equal(body.level, "active");
   assert.equal(body.sound, "bell");
   assert.equal(body.device_key === DEVICE_KEY, true);
   assertNoSecret(String(body.body));
-  assert.match(body.body, /【测试】/);
-  assert.match(body.body, /本月累计 ¥9333\.33/);
-  assert.match(body.body, /距离上班十周年：还有1008天/);
+  assert.match(body.body, /^【测试】\n/);
+  assert.match(body.body, /💰 本月累计：¥9333\.33/);
+  assert.match(body.body, /⏳ 十周年倒计时：1008天/);
+  assert.equal(body.body.includes("不是银行卡到账"), false);
   const copy = library.morning.find((line) => line.id === preview.copyId).text;
   assert.equal(body.body.split(copy).length - 1, 1);
   assert.equal(body.title.includes(copy), false);

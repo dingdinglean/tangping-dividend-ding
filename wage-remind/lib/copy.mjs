@@ -1,6 +1,17 @@
 import { readFile } from "node:fs/promises";
 
 const PRIORITY = ["month_end", "pre_holiday", "friday", "wednesday", "monday", "anniversary"];
+export const COMFORT_HAN_MIN = 40;
+export const COMFORT_HAN_MAX = 70;
+
+export function comfortHanCount(text) {
+  return [...String(text || "")].filter((ch) => /\p{Script=Han}/u.test(ch)).length;
+}
+
+export function inComfortRange(text) {
+  const count = comfortHanCount(text);
+  return count >= COMFORT_HAN_MIN && count <= COMFORT_HAN_MAX;
+}
 
 export async function loadCopyLibrary(path) {
   const library = JSON.parse(await readFile(path, "utf8"));
@@ -13,6 +24,9 @@ export async function loadCopyLibrary(path) {
     for (const line of library[slot]) {
       if (!line.id || !line.text || !Array.isArray(line.tags) || line.tags.length === 0) {
         throw new Error("文案缺少 id、正文或标签");
+      }
+      if (!inComfortRange(line.text)) {
+        throw new Error(`文案需为 ${COMFORT_HAN_MIN}-${COMFORT_HAN_MAX} 个汉字: ${line.id}`);
       }
       if (ids.has(line.id) || texts.has(line.text)) throw new Error(`文案重复: ${line.id}`);
       ids.add(line.id);
@@ -53,6 +67,8 @@ export function selectCopy(lines, { date, slot, contexts, recent }) {
     pool = available.filter((line) => line.tags.includes("general") || line.tags.includes("humor"));
   }
   if (pool.length === 0) pool = available;
+  const preferred = pool.filter((line) => inComfortRange(line.text));
+  if (preferred.length > 0) pool = preferred;
   if (pool.length === 0) throw new Error("文案库不足以保证连续 14 个工作日不重复");
   return pool[hashText(`${date}:${slot}`) % pool.length];
 }

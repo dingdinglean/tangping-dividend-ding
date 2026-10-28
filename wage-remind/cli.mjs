@@ -1,7 +1,8 @@
-import { createLogger } from "./lib/serverchan.mjs";
+import { createLogger } from "./lib/bark.mjs";
 import { run } from "./lib/run.mjs";
 
-const logger = createLogger([process.env.SERVERCHAN_SENDKEY]);
+const deviceKey = process.env.BARK_DEVICE_KEY || "";
+const logger = createLogger([deviceKey]);
 
 try {
   const result = await run({
@@ -11,7 +12,7 @@ try {
     slot: process.env.WAGE_SLOT || "",
     force: process.env.WAGE_FORCE === "true" || process.env.WAGE_FORCE === "1",
     dryRun: process.env.WAGE_DRY_RUN === "1",
-    sendKey: process.env.SERVERCHAN_SENDKEY || "",
+    deviceKey,
     statePath: process.env.WAGE_STATE_PATH || undefined,
     logger,
   });

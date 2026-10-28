@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { calendarDaysBetween, calendarElapsed, countdownLine, describeAnniversary, formatElapsed } from "../wage-remind/lib/anniversary.mjs";
 import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
 import { hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
-import { ANNIVERSARY_DAY, CONTEXT_LINES, TITLE_LIMIT, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts, shortComfort } from "../wage-remind/lib/message.mjs";
+import { ANNIVERSARY_DAY, CONTEXT_LINES, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
 import { formatYuan, ratAdd, ratCmp, ratEq, ratSub, rational, yuanToCents } from "../wage-remind/lib/money.mjs";
-import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/serverchan.mjs";
+import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/bark.mjs";
 import { resolveSlot, run } from "../wage-remind/lib/run.mjs";
 import { rememberCopy } from "../wage-remind/lib/state.mjs";
 import { shanghaiNow } from "../wage-remind/lib/time.mjs";
@@ -21,6 +21,11 @@ const copyPath = join(root, "wage-remind/data/copy.json");
 const configPath = join(root, "wage-remind/config.json");
 
 const MONTH_CENTS = yuanToCents(11200);
+const DEVICE_KEY = "BkTestKeyDoNotUse0123456789";
+
+function assertNoSecret(text, secret = DEVICE_KEY) {
+  assert.equal(String(text ?? "").includes(secret), false);
+}
 
 const baseConfig = {
   monthlyNetCents: MONTH_CENTS,
@@ -200,16 +205,16 @@ test("messages follow the workday, the clock and special days", async () => {
   });
   const figures = totalsThrough(october, "2026-10-28");
   const morningCopy = library.morning.find((line) => line.id === morning.copyId);
-  assert.match(morning.title, /^今日待赚 ¥622\.22｜/);
-  assert.equal([...morning.title].length <= TITLE_LIMIT, true);
+  assert.equal(morning.title, "今日待赚 ¥622.22");
   assert.equal(morning.title.includes("\n"), false);
+  assert.equal(morning.title.includes("|"), false);
+  assert.equal(morning.title.includes("｜"), false);
   assert.equal(morning.title.includes("测试"), false);
   assert.equal(morning.title.includes("打工自由助手"), false);
   assert.equal(morning.title.includes("周三了"), false);
   assert.equal(morning.title.includes("还有1008天"), false);
   assert.equal(morning.title.includes(morningCopy.text), false);
-  assert.equal(morningCopy.text.includes(morning.title.split("｜")[1]), true);
-  assert.match(morning.content, /今日待赚 ¥622\.22/);
+  assert.equal(morning.content.includes("今日待赚 ¥622.22"), false);
   assert.match(morning.content, /本月累计 ¥9333\.33/);
   assert.equal(morning.content.includes("¥9955.56"), false);
   assert.match(morning.content, /距离下班：9小时55分钟/);
@@ -247,15 +252,15 @@ test("messages follow the workday, the clock and special days", async () => {
     workEndMinutes: 18 * 60,
   });
   const eveningCopy = library.evening.find((line) => line.id === evening.copyId);
-  assert.match(evening.title, /^下班到账 \+¥622\.22｜/);
-  assert.equal([...evening.title].length <= TITLE_LIMIT, true);
+  assert.equal(evening.title, "下班啦 +¥622.22");
   assert.equal(evening.title.includes("测试"), false);
   assert.equal(evening.title.includes("打工自由助手"), false);
   assert.equal(evening.title.includes("周三了"), false);
   assert.equal(evening.title.includes("还有1008天"), false);
+  assert.equal(evening.title.includes("｜"), false);
   assert.equal(evening.title.includes(eveningCopy.text), false);
-  assert.equal(eveningCopy.text.includes(evening.title.split("｜")[1]), true);
-  assert.match(evening.content, /下班到账 \+¥622\.22/);
+  assert.equal(evening.content.includes("下班啦 +¥622.22"), false);
+  assert.equal(evening.content.includes("下班到账"), false);
   assert.match(evening.content, /本月累计 ¥9955\.56/);
   assert.equal(evening.content.includes("¥9333.33"), false);
   assert.match(evening.content, /本月剩余工作日：2天/);
@@ -294,15 +299,14 @@ test("messages follow the workday, the clock and special days", async () => {
   assert.match(monthEnd.content, /本月最后一个工作日|一个月的班上完了|月末/);
   assert.match(monthEnd.content, /本月剩余工作日：0天/);
   assert.match(monthEnd.content, /本月累计 ¥11200\.00/);
-  assert.match(monthEnd.title, /^下班到账 \+¥622\.22｜/);
-  assert.equal([...monthEnd.title].length <= TITLE_LIMIT, true);
+  assert.equal(monthEnd.title, "下班啦 +¥622.22");
   assert.equal(library.evening.find((line) => line.id === monthEnd.copyId).tags.includes("month_end"), true);
   const monthEndMorning = buildReminder({
     slot: "morning", now: { date: "2026-10-30", minutesOfDay: 8 * 60 }, plan: october, calendar, adjustments,
     lines: library.morning, recent: [], workEndMinutes: 18 * 60,
   });
   assert.match(monthEndMorning.content, /本月累计 ¥10577\.78/);
-  assert.match(monthEndMorning.title, /^今日待赚 ¥622\.22｜/);
+  assert.equal(monthEndMorning.title, "今日待赚 ¥622.22");
 });
 
 test("copy libraries stay large, gentle, and unique across 14 workdays", async () => {
@@ -349,12 +353,12 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     todayAmount: rational(MONTH_CENTS, 1),
     comfort: "照常做完就好不必把今天过成一场考核也不必向任何人证明",
   });
-  assert.equal([...crowded].length, TITLE_LIMIT);
-  assert.match(crowded, /^今日待赚 ¥11200\.00｜/);
+  assert.equal(crowded, "今日待赚 ¥11200.00");
   assert.equal(crowded.includes("3653"), false);
   assert.equal(crowded.includes("十周年"), false);
   assert.equal(crowded.includes("\n"), false);
-  assert.notEqual(crowded.split("｜")[1], "照常做完就好不必把今天过成一场考核也不必向任何人证明");
+  assert.equal(crowded.includes("｜"), false);
+  assert.equal(crowded.includes("照常做完"), false);
   assert.equal(calendarDaysBetween("2019-08-01", "2029-08-01"), 3653);
   assert.equal(calendarDaysBetween("2026-10-28", "2029-08-01"), 1008);
   assert.equal(calendarDaysBetween("2026-09-30", "2026-10-08"), 8);
@@ -404,13 +408,14 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     recent: [],
     workEndMinutes: 18 * 60,
   });
+  assert.equal(anniversaryMorning.title, "上班十周年");
   assert.equal(anniversaryMorning.title.includes("十周年今天"), false);
   assert.equal(anniversaryMorning.title.includes("测试"), false);
   assert.equal(anniversaryMorning.title.includes("打工自由助手"), false);
   assert.equal(anniversaryMorning.title.includes("还有"), false);
+  assert.equal(anniversaryMorning.title.includes("｜"), false);
   assert.notEqual(anniversaryMorning.title, ANNIVERSARY_DAY.morning[0]);
   assert.equal(anniversaryMorning.content.split(ANNIVERSARY_DAY.morning[0]).length - 1, 1);
-  assert.ok([...anniversaryMorning.title].length <= TITLE_LIMIT);
   assert.match(anniversaryMorning.content, /上班十周年：今天/);
   assert.match(anniversaryMorning.content, /已工作：10年0个月0天/);
   assert.match(anniversaryMorning.content, /不是辞职日/);
@@ -461,18 +466,16 @@ test("the anniversary day still sends when that year's holiday file is missing",
   const dir = await mkdtemp(join(tmpdir(), "wage-anniversary-"));
   let content = "";
   const fetchImpl = async (url, init = {}) => {
-    if (String(url).endsWith(".send")) {
-      content = JSON.parse(init.body).desp;
-      return jsonResponse({ code: 0, data: {} });
-    }
-    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+    assert.equal(String(url), "https://api.day.app/push");
+    content = JSON.parse(init.body).body;
+    return jsonResponse({ code: 200, message: "success", timestamp: 1 });
   };
-  const logger = createLogger(["SCT1234567890abcdef"], { log() {}, error() {} });
+  const logger = createLogger([DEVICE_KEY], { log() {}, error() {} });
   const options = {
     now: new Date("2029-08-01T00:05:00.000Z"),
     event: "schedule",
     schedule: "5 0 * * *",
-    sendKey: "SCT1234567890abcdef",
+    deviceKey: DEVICE_KEY,
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
@@ -496,112 +499,163 @@ test("the anniversary day still sends when that year's holiday file is missing",
   await rm(dir, { recursive: true, force: true });
 });
 
-test("Server酱 payload is title plus desp and logs omit the sendkey and salary", async () => {
+test("Bark payload is a JSON post and logs omit the device key and salary", async () => {
   const logs = [];
   const calls = [];
-  const sendKey = "SCT1234567890abcdef";
-  const logger = createLogger([sendKey], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  const logger = createLogger([DEVICE_KEY], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
   const fetchImpl = async (url, init = {}) => {
-    const href = String(url);
-    const body = init.body ? JSON.parse(init.body) : null;
-    calls.push({ href, body, method: init.method });
-    if (href.endsWith(".send")) {
-      return jsonResponse({ code: 0, message: "", data: { pushid: "88", readkey: "read-key-value" } });
-    }
-    return jsonResponse({ code: 0, data: { id: "88", title: body?.title || "hidden 880" } });
+    calls.push({
+      href: String(url),
+      method: init.method,
+      headers: init.headers,
+      body: init.body ? JSON.parse(init.body) : null,
+    });
+    return jsonResponse({ code: 200, message: "success", timestamp: 1700000000 });
   };
-  const title = "今日待赚 ¥622.22｜做完即可";
+  const title = "今日待赚 ¥622.22";
+  const notice = "本月累计 ¥9333.33\n距离上班十周年：还有1008天\n做完即可。";
   const result = await deliverMessage({
     fetchImpl,
     sleep: async () => {},
-    sendKey,
+    deviceKey: DEVICE_KEY,
     title,
-    desp: "今日待赚 ¥622.22\n本月累计 ¥9333.33",
+    body: notice,
     logger,
   });
-  assert.equal(result.code, 0);
-  assert.equal(result.stored, "yes");
-  const sent = calls.find((call) => call.href.endsWith(".send"));
-  assert.deepEqual(Object.keys(sent.body).sort(), ["desp", "title"]);
+  assert.equal(result.code, 200);
+  assert.equal(result.resent, false);
+  assert.equal(calls.length, 1);
+  const sent = calls[0];
+  assert.equal(sent.method, "POST");
+  assert.equal(sent.href, "https://api.day.app/push");
+  assert.equal(sent.href.includes(DEVICE_KEY), false);
+  assert.equal(sent.headers["content-type"], "application/json; charset=utf-8");
+  assert.deepEqual(Object.keys(sent.body).sort(), ["body", "device_key", "group", "level", "sound", "title"]);
+  assert.equal(sent.body.device_key === DEVICE_KEY, true);
   assert.equal(sent.body.title, title);
-  assert.match(sent.body.desp, /今日待赚 ¥622\.22/);
-  assert.equal(sent.href.includes(sendKey), true);
-  assert.equal(JSON.stringify(sent.body).includes(sendKey), false);
-  assert.equal(calls.some((call) => call.href.includes("/push?")), true);
+  assert.equal(sent.body.body, notice);
+  assert.equal(sent.body.group, "打工自由助手");
+  assert.equal(sent.body.level, "active");
+  assert.equal(sent.body.sound, "bell");
+  assert.equal("call" in sent.body, false);
+  assert.equal(Object.hasOwn(sent.body, "url"), false);
+  assertNoSecret(JSON.stringify({ ...sent.body, device_key: "" }));
+  assertNoSecret(sent.href);
   const logged = logs.join("\n");
-  assert.equal(logged.includes(sendKey), false);
-  assert.equal(logged.includes("read-key-value"), false);
+  assertNoSecret(logged);
   assert.equal(logged.includes("622.22"), false);
   assert.equal(logged.includes("11200"), false);
-  assert.match(logged, /code=0/);
-  assert.match(safeReason(`balance 880 key ${sendKey}`, logger.redact), /balance # key \[redacted\]/);
+  assert.equal(logged.includes("9333.33"), false);
+  assert.match(logged, /code=200/);
+  const redacted = safeReason(`balance 880 key ${DEVICE_KEY}`, logger.redact);
+  assertNoSecret(redacted);
+  assert.match(redacted, /balance # key \[redacted\]/);
 });
 
-test("a non-zero Server酱 code is not delivery, and transport errors retry once", async () => {
+test("Bark accepts only HTTP 200 with JSON code 200, and retries transient failures", async () => {
   const logs = [];
-  const sendKey = "SCT1234567890abcdef";
-  const logger = createLogger([sendKey], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  const logger = createLogger([DEVICE_KEY], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  const notice = { deviceKey: DEVICE_KEY, title: "今日待赚 ¥622.22", body: "本月累计 ¥9333.33", logger };
   let rejected = 0;
   await assert.rejects(() => deliverMessage({
     fetchImpl: async () => {
       rejected += 1;
-      return jsonResponse({ code: 40001, message: `错误的Key ${sendKey} 额度 880` });
+      return jsonResponse({ code: 400, message: `bad device ${DEVICE_KEY}`, timestamp: 1 }, 400);
     },
     sleep: async () => {},
-    sendKey,
-    title: "今日待赚 ¥622.22｜做完即可",
-    desp: "正文",
-    logger,
-    maxAttempts: 2,
+    ...notice,
+    maxAttempts: 3,
   }), /拒绝/);
   assert.equal(rejected, 1);
-  assert.equal(logs.join("\n").includes(sendKey), false);
-  assert.equal(logs.join("\n").includes("11200"), false);
+  assertNoSecret(logs.join("\n"));
   assert.equal(logs.join("\n").includes("622.22"), false);
+  assert.equal(logs.join("\n").includes("9333.33"), false);
 
+  let zeroCode = 0;
+  await assert.rejects(() => deliverMessage({
+    fetchImpl: async () => {
+      zeroCode += 1;
+      return jsonResponse({ code: 0, message: "success", timestamp: 1 }, 200);
+    },
+    sleep: async () => {},
+    ...notice,
+  }), /拒绝/);
+  assert.equal(zeroCode, 1);
+
+  const delays = [];
   let attempt = 0;
   const recovered = await deliverMessage({
     fetchImpl: async () => {
       attempt += 1;
-      if (attempt === 1) throw new Error(`network ${sendKey}`);
-      return jsonResponse({ code: 0, data: {} });
+      if (attempt === 1) throw new Error(`network ${DEVICE_KEY}`);
+      if (attempt === 2) return jsonResponse({ code: 500, message: "push failed", timestamp: 1 }, 500);
+      return jsonResponse({ code: 200, message: "success", timestamp: 1 });
+    },
+    sleep: async (ms) => { delays.push(ms); },
+    ...notice,
+  });
+  assert.equal(recovered.code, 200);
+  assert.equal(recovered.resent, true);
+  assert.equal(attempt, 3);
+  assert.deepEqual(delays, [1000, 2000]);
+  assertNoSecret(logs.join("\n"));
+
+  let exhausted = 0;
+  await assert.rejects(() => deliverMessage({
+    fetchImpl: async () => {
+      exhausted += 1;
+      return jsonResponse({ code: 200, message: "success", timestamp: 1 }, 503);
     },
     sleep: async () => {},
-    sendKey,
-    title: "下班到账 +¥622.22｜今天辛苦了",
-    desp: "正文",
-    logger,
-    maxAttempts: 2,
-  });
-  assert.equal(recovered.code, 0);
-  assert.equal(attempt, 2);
+    ...notice,
+  }), /Bark 请求失败/);
+  assert.equal(exhausted, 3);
+
+  let called = 0;
   await assert.rejects(() => deliverMessage({
-    fetchImpl: async () => jsonResponse({ code: 0, data: {} }),
+    fetchImpl: async () => {
+      called += 1;
+      return jsonResponse({ code: 200, message: "success", timestamp: 1 });
+    },
     sleep: async () => {},
-    sendKey: "sctp123tsecret",
-    title: "t",
-    desp: "d",
+    deviceKey: "",
+    title: "今日待赚 ¥622.22",
+    body: "正文",
     logger,
-  }), /Server酱³/);
+  }), /缺少 BARK_DEVICE_KEY/);
+  assert.equal(called, 0);
+  await assert.rejects(() => deliverMessage({
+    fetchImpl: async () => jsonResponse({ code: 200, message: "success", timestamp: 1 }),
+    sleep: async () => {},
+    deviceKey: "https://api.day.app/secret",
+    title: "今日待赚 ¥622.22",
+    body: "正文",
+    logger,
+  }), /无效/);
 });
 
 test("a workday send is recorded once and skipped the second time", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
   const logs = [];
-  const logger = createLogger(["SCT1234567890abcdef"], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  const logger = createLogger([DEVICE_KEY], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
   let sends = 0;
-  const fetchImpl = async (url) => {
-    if (String(url).endsWith(".send")) {
-      sends += 1;
-      return jsonResponse({ code: 0, data: {} });
-    }
-    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  const fetchImpl = async (url, init = {}) => {
+    assert.equal(String(url), "https://api.day.app/push");
+    assert.equal(String(url).includes(DEVICE_KEY), false);
+    sends += 1;
+    const body = JSON.parse(init.body);
+    assert.equal(body.device_key === DEVICE_KEY, true);
+    assert.equal(body.group, "打工自由助手");
+    assert.equal(body.level, "active");
+    assert.equal(body.sound, "bell");
+    if (sends === 1) assert.equal(body.title, "今日待赚 ¥622.22");
+    return jsonResponse({ code: 200, message: "success", timestamp: 1 });
   };
   const options = {
     now: new Date("2026-10-28T00:05:00.000Z"),
     event: "schedule",
     schedule: "5 0 * * *",
-    sendKey: "SCT1234567890abcdef",
+    deviceKey: DEVICE_KEY,
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
@@ -614,11 +668,35 @@ test("a workday send is recorded once and skipped the second time", async () => 
   assert.equal(first.slot, "morning");
   const state = JSON.parse(await readFile(options.statePath, "utf8"));
   assert.equal(state.sent["2026-10-28"].morning.status, "sent");
-  assert.equal(JSON.stringify(state).includes("SCT1234567890abcdef"), false);
+  assertNoSecret(JSON.stringify(state));
   assert.equal(JSON.stringify(state).includes("11200"), false);
+  let eveningTitle = "";
+  const evening = await run({
+    ...options,
+    now: new Date("2026-10-28T10:05:00.000Z"),
+    schedule: "5 10 * * *",
+    fetchImpl: async (url, init = {}) => {
+      sends += 1;
+      assert.equal(String(url), "https://api.day.app/push");
+      const body = JSON.parse(init.body);
+      eveningTitle = body.title;
+      assert.equal(body.group, "打工自由助手");
+      assert.equal(body.level, "active");
+      assert.equal(body.sound, "bell");
+      assert.equal("call" in body, false);
+      assert.match(body.body, /本月累计 ¥9955\.56/);
+      assert.match(body.body, /距离上班十周年：还有1008天/);
+      assert.equal(body.body.includes(eveningTitle), false);
+      assertNoSecret(body.body);
+      return jsonResponse({ code: 200, message: "success", timestamp: 1 });
+    },
+  });
+  assert.equal(evening.action, "sent");
+  assert.equal(evening.slot, "evening");
+  assert.equal(eveningTitle, "下班啦 +¥622.22");
   const second = await run(options);
   assert.equal(second.reason, "duplicate");
-  assert.equal(sends, 1);
+  assert.equal(sends, 2);
   const weekend = await run({ ...options, now: new Date("2026-10-31T00:05:00.000Z") });
   assert.equal(weekend.reason, "not-workday");
   const holiday = await run({ ...options, now: new Date("2026-09-30T16:05:00.000Z") });
@@ -626,37 +704,37 @@ test("a workday send is recorded once and skipped the second time", async () => 
   assert.equal(holiday.reason, "not-workday");
   const makeup = await run({ ...options, now: new Date("2026-10-10T00:05:00.000Z"), schedule: "5 0 * * *" });
   assert.equal(makeup.action, "sent");
-  assert.equal(sends, 2);
-  assert.equal(logs.join("\n").includes("SCT1234567890abcdef"), false);
+  assert.equal(sends, 3);
+  assertNoSecret(logs.join("\n"));
   assert.equal(logs.join("\n").includes("元"), false);
   await rm(dir, { recursive: true, force: true });
 });
 
-test("a rejected Server酱 response does not mark the slot sent", async () => {
+test("a rejected Bark response does not mark the slot sent", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
   const statePath = join(dir, "state.json");
   let sends = 0;
   const fetchImpl = async () => {
     sends += 1;
-    return jsonResponse({ code: 40001, message: "错误的Key" });
+    return jsonResponse({ code: 400, message: "failed to get device token", timestamp: 1 }, 400);
   };
-  const logger = createLogger(["SCT1234567890abcdef"], { log() {}, error() {} });
+  const logger = createLogger([DEVICE_KEY], { log() {}, error() {} });
   const options = {
     now: new Date("2026-10-28T10:05:00.000Z"),
     event: "schedule",
     schedule: "5 10 * * *",
-    sendKey: "SCT1234567890abcdef",
+    deviceKey: DEVICE_KEY,
     statePath,
     fetchImpl,
     sleep: async () => {},
     logger,
-    maxAttempts: 2,
+    maxAttempts: 3,
   };
   await assert.rejects(() => run(options), /拒绝/);
   const state = JSON.parse(await readFile(statePath, "utf8"));
   assert.equal(state.sent["2026-10-28"], undefined);
   assert.equal(sends, 1);
-  assert.equal(JSON.stringify(state).includes("SCT1234567890abcdef"), false);
+  assertNoSecret(JSON.stringify(state));
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -683,28 +761,30 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
 
   let sends = 0;
   const fetchImpl = async (url, init = {}) => {
-    if (String(url).endsWith(".send")) {
-      sends += 1;
-      const body = JSON.parse(init.body);
-      assert.deepEqual(Object.keys(body).sort(), ["desp", "title"]);
-      assert.equal(body.title, "不记工资｜只确认通道");
-      assert.equal(body.title.includes("测试"), false);
-      assert.ok([...body.title].length <= TITLE_LIMIT);
-      assert.match(body.desp, /【测试】/);
-      assert.equal(body.desp.includes("今日待赚"), false);
-      return jsonResponse({ code: 0, data: {} });
-    }
-    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+    assert.equal(String(url), "https://api.day.app/push");
+    sends += 1;
+    const body = JSON.parse(init.body);
+    assert.deepEqual(Object.keys(body).sort(), ["body", "device_key", "group", "level", "sound", "title"]);
+    assert.equal(body.title, "确认推送通道");
+    assert.equal(body.title.includes("测试"), false);
+    assert.equal(body.level, "active");
+    assert.equal(body.sound, "bell");
+    assert.equal(body.group, "打工自由助手");
+    assert.match(body.body, /【测试】/);
+    assert.equal(body.body.includes("今日待赚"), false);
+    assertNoSecret(body.body);
+    assertNoSecret(String(url));
+    return jsonResponse({ code: 200, message: "success", timestamp: 1 });
   };
   const testRun = await run({
     now: new Date("2026-10-31T02:00:00.000Z"),
     event: "workflow_dispatch",
     slot: "test",
-    sendKey: "SCT1234567890abcdef",
+    deviceKey: DEVICE_KEY,
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
-    logger: createLogger(["SCT1234567890abcdef"], { log() {}, error() {} }),
+    logger: createLogger([DEVICE_KEY], { log() {}, error() {} }),
     pollAttempts: 1,
   });
   assert.equal(testRun.action, "sent");
@@ -729,6 +809,15 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
   const workflow = await readFile(join(root, ".github/workflows/wage-remind.yml"), "utf8");
   assert.equal(workflow.includes("git commit"), false);
   assert.equal(workflow.includes("data/market.json"), false);
+  const watched = [
+    source,
+    workflow,
+    await readFile(join(root, "wage-remind/README.md"), "utf8"),
+    await readFile(join(root, "README.md"), "utf8"),
+  ].join("\n");
+  assert.equal(/serverchan|SERVERCHAN|Server酱|方糖|sctapi|ftqq|SENDKEY|SendKey/i.test(watched), false);
+  assert.match(workflow, /BARK_DEVICE_KEY/);
+  assert.equal(workflow.includes("SERVERCHAN_SENDKEY"), false);
   const market = await readFile(join(root, ".github/workflows/update-market-data.yml"), "utf8");
   assert.equal(market.includes("wage-remind"), false);
   await rm(dir, { recursive: true, force: true });
@@ -746,27 +835,26 @@ test("dry run prints no salary and no token", () => {
       WAGE_SLOT: "morning",
       WAGE_NOW: "2026-10-28T00:05:00.000Z",
       WAGE_STATE_PATH: statePath,
-      SERVERCHAN_SENDKEY: "SCT1234567890abcdef",
+      BARK_DEVICE_KEY: DEVICE_KEY,
     },
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
   const output = `${result.stdout}\n${result.stderr}`;
   assert.match(output, /action=dry-run/);
-  assert.equal(output.includes("SCT1234567890abcdef"), false);
+  assertNoSecret(output);
   assert.equal(output.includes("元"), false);
   assert.equal(output.includes("¥"), false);
   assert.equal(output.includes("11200"), false);
   assert.equal(output.includes("622.22"), false);
 });
 
-test("titles rotate short comfort from the library and the default salary is 11200", async () => {
+test("comfort stays in the body while titles stay amount-only and the default salary is 11200", async () => {
   const config = JSON.parse(await readFile(configPath, "utf8"));
   assert.equal(config.monthlyNetYuan, 11200);
   const { calendar, library, adjustments } = await fixtures();
   const october = planFor(calendar, 2026, 10, adjustments);
-  const tails = new Set();
-  const room = TITLE_LIMIT - [..."今日待赚 ¥622.22｜"].length;
+  const copyIds = new Set();
   for (const day of october.workdays) {
     const message = buildReminder({
       slot: "morning",
@@ -778,20 +866,16 @@ test("titles rotate short comfort from the library and the default salary is 112
       recent: [],
       workEndMinutes: 18 * 60,
     });
-    assert.match(message.title, /^今日待赚 ¥622\.22｜/);
-    assert.equal([...message.title].length <= TITLE_LIMIT, true);
-    assert.equal(/测试|打工自由助手|周[一二三四五六日]了|morning|evening/.test(message.title), false);
+    assert.equal(message.title, "今日待赚 ¥622.22");
+    assert.equal(/测试|打工自由助手|周[一二三四五六日]了|morning|evening|\||｜/.test(message.title), false);
     const copy = library.morning.find((line) => line.id === message.copyId).text;
-    const tail = message.title.split("｜")[1];
-    assert.equal(tail, shortComfort(copy, room));
-    assert.equal(copy.includes(tail), true);
-    assert.notEqual(tail, copy.replace(/[。！？\s]+$/g, ""));
+    assert.equal(message.title.includes(copy), false);
     assert.equal(message.content.split(copy).length - 1, 1);
     assert.match(message.content, /本月累计 /);
     assert.match(message.content, /距离上班十周年/);
-    tails.add(tail);
+    copyIds.add(message.copyId);
   }
-  assert.ok(tails.size > 2);
+  assert.ok(copyIds.size > 2);
   const bundled = [
     JSON.stringify(config),
     await readFile(join(root, "wage-remind/README.md"), "utf8"),
@@ -818,32 +902,35 @@ test("a manual test on a workday keeps the wage title and marks only the body", 
   });
   let body;
   const fetchImpl = async (url, init = {}) => {
-    if (String(url).endsWith(".send")) {
-      body = JSON.parse(init.body);
-      return jsonResponse({ code: 0, data: {} });
-    }
-    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+    assert.equal(String(url), "https://api.day.app/push");
+    body = JSON.parse(init.body);
+    return jsonResponse({ code: 200, message: "success", timestamp: 1 });
   };
   const sent = await run({
     now: new Date("2026-10-28T00:05:00.000Z"),
     event: "workflow_dispatch",
     slot: "test",
-    sendKey: "SCT1234567890abcdef",
+    deviceKey: DEVICE_KEY,
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
-    logger: createLogger(["SCT1234567890abcdef"], { log() {}, error() {} }),
+    logger: createLogger([DEVICE_KEY], { log() {}, error() {} }),
     pollAttempts: 1,
   });
   assert.equal(sent.action, "sent");
   assert.equal(body.title, preview.title);
-  assert.match(body.title, /^今日待赚 ¥622\.22｜/);
+  assert.equal(body.title, "今日待赚 ¥622.22");
   assert.equal(body.title.includes("测试"), false);
-  assert.match(body.desp, /【测试】/);
-  assert.match(body.desp, /本月累计 ¥9333\.33/);
-  assert.match(body.desp, /距离上班十周年：还有1008天/);
+  assert.equal(body.group, "打工自由助手");
+  assert.equal(body.level, "active");
+  assert.equal(body.sound, "bell");
+  assert.equal(body.device_key === DEVICE_KEY, true);
+  assertNoSecret(String(body.body));
+  assert.match(body.body, /【测试】/);
+  assert.match(body.body, /本月累计 ¥9333\.33/);
+  assert.match(body.body, /距离上班十周年：还有1008天/);
   const copy = library.morning.find((line) => line.id === preview.copyId).text;
-  assert.equal(body.desp.split(copy).length - 1, 1);
+  assert.equal(body.body.split(copy).length - 1, 1);
   assert.equal(body.title.includes(copy), false);
   const state = JSON.parse(await readFile(join(dir, "state.json"), "utf8"));
   assert.equal(state.sent["2026-10-28"], undefined);

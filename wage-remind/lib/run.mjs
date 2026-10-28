@@ -6,10 +6,10 @@ import { loadCalendar, loadHolidayDirectory } from "./calendar.mjs";
 import { loadCopyLibrary } from "./copy.mjs";
 import { buildAnniversaryMessage, buildReminder, buildTestMessage, wageSummaryLines } from "./message.mjs";
 import { yuanToCents } from "./money.mjs";
-import { createLogger, deliverMessage } from "./pushplus.mjs";
+import { createLogger, deliverMessage } from "./serverchan.mjs";
 import { loadState, rememberCopy, saveState, slotRecord, withSlot } from "./state.mjs";
 import { parseClock, shanghaiNow } from "./time.mjs";
-import { buildMonthPlan, indexAdjustments, isSalaryWorkday } from "./wage.mjs";
+import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "./wage.mjs";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -20,8 +20,6 @@ export function parseConfig(raw) {
   const workStartMinutes = parseClock(raw.workStart);
   const workEndMinutes = parseClock(raw.workEnd);
   if (workEndMinutes <= workStartMinutes) throw new Error("下班时间必须晚于上班时间");
-  const channel = raw.channel || "wechat";
-  if (!["wechat", "clawbot"].includes(channel)) throw new Error("channel 只支持 wechat 或 clawbot");
   return {
     timezone: raw.timezone,
     monthlyNetCents,
@@ -29,18 +27,11 @@ export function parseConfig(raw) {
     workEndMinutes,
     morningEnabled: raw.morningEnabled !== false,
     eveningEnabled: raw.eveningEnabled !== false,
-    channel,
     paidLeaveKeepsSalary: raw.paidLeaveKeepsSalary !== false,
     holidayOverrides: raw.holidayOverrides || [],
     adjustments: raw.adjustments || [],
     workAnniversary: normalizeAnniversary(raw.workAnniversary),
   };
-}
-
-export function resolveChannel(envChannel, configChannel) {
-  const value = String(envChannel || "").trim() || configChannel || "wechat";
-  if (!["wechat", "clawbot"].includes(value)) throw new Error("推送渠道只支持 wechat 或 clawbot");
-  return value;
 }
 
 export function resolveSlot({ event, schedule, slot }) {
@@ -63,7 +54,7 @@ function enabled(config, slot) {
 export async function run(options = {}) {
   const root = options.root || packageRoot;
   const statePath = options.statePath || join(root, ".state", "state.json");
-  const logger = options.logger || createLogger([options.token, options.secretKey]);
+  const logger = options.logger || createLogger([options.sendKey]);
   let state = await loadState(statePath);
   await saveState(statePath, state);
 
@@ -76,7 +67,6 @@ export async function run(options = {}) {
   const adjustments = indexAdjustments(config.adjustments);
   const now = shanghaiNow(options.now || new Date());
   const slot = resolveSlot({ event: options.event || "workflow_dispatch", schedule: options.schedule, slot: options.slot });
-  const channel = resolveChannel(options.channel, config.channel);
   const milestone = describeAnniversary(now.date, config.workAnniversary);
   const [year, month] = now.date.split("-").map(Number);
   let plan = null;
@@ -110,7 +100,12 @@ export async function run(options = {}) {
     : [];
   let message;
   if (anniversaryToday && slot !== "test") {
-    message = buildAnniversaryMessage({ slot: previewSlot, milestone, wageLines });
+    message = buildAnniversaryMessage({
+      slot: previewSlot,
+      milestone,
+      wageLines,
+      todayCents: wageLines.length ? totalsThrough(plan, now.date).today : null,
+    });
   } else if (plan && (workday || options.force)) {
     message = buildReminder({
       slot: previewSlot,
@@ -132,26 +127,16 @@ export async function run(options = {}) {
     logger.info(`wage-remind action=dry-run slot=${slot} date=${now.date} bytes=${message.content.length}`);
     return { ...base, action: "dry-run", bytes: message.content.length };
   }
-  if (!options.token) throw new Error("缺少 PUSHPLUS_TOKEN");
+  if (!options.sendKey) throw new Error("缺少 SERVERCHAN_SENDKEY");
 
   const result = await deliverMessage({
     fetchImpl: options.fetchImpl,
     sleep: options.sleep,
-    token: options.token,
-    secretKey: options.secretKey || "",
-    channel,
+    sendKey: options.sendKey,
     title: message.title,
-    content: message.content,
-    previousShortCode: record?.status === "pending" && !options.force ? record.shortCode : "",
+    desp: message.content,
     logger,
     maxAttempts: options.maxAttempts,
-    pollAttempts: options.pollAttempts,
-    pollIntervalMs: options.pollIntervalMs,
-    onAccepted: async (shortCode) => {
-      if (slot === "test") return;
-      state = withSlot(state, now.date, slot, { status: "pending", shortCode, at: new Date().toISOString() });
-      await saveState(statePath, state);
-    },
   });
 
   if (slot !== "test") {
@@ -159,6 +144,6 @@ export async function run(options = {}) {
     if (message.copyId) state = { ...state, recent: rememberCopy(state.recent, { date: now.date, slot, id: message.copyId }) };
     await saveState(statePath, state);
   }
-  logger.info(`wage-remind action=sent slot=${slot} date=${now.date} channel=${channel}`);
-  return { ...base, action: "sent", channel, resent: result.resent };
+  logger.info(`wage-remind action=sent slot=${slot} date=${now.date} stored=${result.stored}`);
+  return { ...base, action: "sent", stored: result.stored, resent: result.resent };
 }

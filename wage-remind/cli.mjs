@@ -1,7 +1,7 @@
-import { createLogger } from "./lib/pushplus.mjs";
+import { createLogger } from "./lib/serverchan.mjs";
 import { run } from "./lib/run.mjs";
 
-const logger = createLogger([process.env.PUSHPLUS_TOKEN, process.env.PUSHPLUS_SECRET_KEY]);
+const logger = createLogger([process.env.SERVERCHAN_SENDKEY]);
 
 try {
   const result = await run({
@@ -11,9 +11,7 @@ try {
     slot: process.env.WAGE_SLOT || "",
     force: process.env.WAGE_FORCE === "true" || process.env.WAGE_FORCE === "1",
     dryRun: process.env.WAGE_DRY_RUN === "1",
-    token: process.env.PUSHPLUS_TOKEN || "",
-    channel: process.env.PUSHPLUS_CHANNEL || "",
-    secretKey: process.env.PUSHPLUS_SECRET_KEY || "",
+    sendKey: process.env.SERVERCHAN_SENDKEY || "",
     statePath: process.env.WAGE_STATE_PATH || undefined,
     logger,
   });

@@ -6,7 +6,7 @@ import { loadCalendar, loadHolidayDirectory } from "./calendar.mjs";
 import { loadCopyLibrary } from "./copy.mjs";
 import { buildAnniversaryMessage, buildReminder, buildTestMessage, wageSummaryLines } from "./message.mjs";
 import { yuanToCents } from "./money.mjs";
-import { createLogger, deliverMessage } from "./serverchan.mjs";
+import { createLogger, deliverMessage } from "./bark.mjs";
 import { loadState, rememberCopy, saveState, slotRecord, withSlot } from "./state.mjs";
 import { parseClock, shanghaiNow } from "./time.mjs";
 import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "./wage.mjs";
@@ -54,7 +54,7 @@ function enabled(config, slot) {
 export async function run(options = {}) {
   const root = options.root || packageRoot;
   const statePath = options.statePath || join(root, ".state", "state.json");
-  const logger = options.logger || createLogger([options.sendKey]);
+  const logger = options.logger || createLogger([options.deviceKey]);
   let state = await loadState(statePath);
   await saveState(statePath, state);
 
@@ -127,14 +127,14 @@ export async function run(options = {}) {
     logger.info(`wage-remind action=dry-run slot=${slot} date=${now.date} bytes=${message.content.length}`);
     return { ...base, action: "dry-run", bytes: message.content.length };
   }
-  if (!options.sendKey) throw new Error("缺少 SERVERCHAN_SENDKEY");
+  if (!options.deviceKey) throw new Error("缺少 BARK_DEVICE_KEY");
 
   const result = await deliverMessage({
     fetchImpl: options.fetchImpl,
     sleep: options.sleep,
-    sendKey: options.sendKey,
+    deviceKey: options.deviceKey,
     title: message.title,
-    desp: message.content,
+    body: message.content,
     logger,
     maxAttempts: options.maxAttempts,
   });
@@ -144,6 +144,6 @@ export async function run(options = {}) {
     if (message.copyId) state = { ...state, recent: rememberCopy(state.recent, { date: now.date, slot, id: message.copyId }) };
     await saveState(statePath, state);
   }
-  logger.info(`wage-remind action=sent slot=${slot} date=${now.date} stored=${result.stored}`);
-  return { ...base, action: "sent", stored: result.stored, resent: result.resent };
+  logger.info(`wage-remind action=sent slot=${slot} date=${now.date} resent=${Boolean(result.resent)}`);
+  return { ...base, action: "sent", resent: result.resent };
 }

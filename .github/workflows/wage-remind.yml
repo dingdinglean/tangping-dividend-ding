@@ -49,7 +49,7 @@ jobs:
             wage-remind-state-
       - name: Send wage reminder
         env:
-          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          BARK_DEVICE_KEY: ${{ secrets.BARK_DEVICE_KEY }}
           WAGE_EVENT: ${{ github.event_name }}
           WAGE_SCHEDULE: ${{ github.event.schedule }}
           WAGE_SLOT: ${{ inputs.slot }}

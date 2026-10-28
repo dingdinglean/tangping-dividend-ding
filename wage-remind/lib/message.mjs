@@ -5,6 +5,28 @@ import { hashText, selectCopy } from "./copy.mjs";
 import { isLastWorkday, isSalaryWorkday, totalsThrough } from "./wage.mjs";
 import { formatYuan } from "./money.mjs";
 
+export const TITLE_LIMIT = 32;
+
+function compactComfort(text, room) {
+  const cleaned = String(text || "做完即可").replace(/[\r\n｜|]/g, "").trim();
+  const sentence = cleaned.split(/[。！？]/)[0] || "做完即可";
+  return [...sentence].slice(0, Math.max(0, room)).join("");
+}
+
+export function buildNotificationTitle({ slot, todayCents, milestone, comfort }) {
+  const amount = todayCents == null
+    ? "今日休息"
+    : `${slot === "evening" ? "到账" : "待赚"}${formatYuan(todayCents).replace(/元$/, "")}`;
+  const countdown = milestone.phase === "today"
+    ? "十周年今天"
+    : milestone.phase === "after"
+      ? "十周年已达成"
+      : `还有${milestone.daysLeft}天`;
+  const prefix = `${amount}｜${countdown}｜`;
+  const title = `${prefix}${compactComfort(comfort, TITLE_LIMIT - [...prefix].length)}`.replace(/[\r\n]/g, "");
+  return [...title].slice(0, TITLE_LIMIT).join("");
+}
+
 const CONTEXT_LINES = {
   morning: {
     month_end: "今天是本月最后一个工作日。做完今天，这个月的模拟劳动收入就齐了。",
@@ -68,9 +90,10 @@ export function wageSummaryLines({ slot, now, plan, workEndMinutes }) {
   ];
 }
 
-export function buildAnniversaryMessage({ slot, milestone, wageLines = [] }) {
+export function buildAnniversaryMessage({ slot, milestone, wageLines = [], todayCents = null }) {
   const paragraphs = ANNIVERSARY_DAY[slot] || ANNIVERSARY_DAY.morning;
-  const body = [];
+  const heading = slot === "morning" ? "打工自由助手｜早安" : "打工自由助手｜下班啦";
+  const body = [heading];
   for (const line of wageLines) body.push(line);
   if (wageLines.length) body.push("");
   body.push(countdownLine(milestone));
@@ -82,7 +105,7 @@ export function buildAnniversaryMessage({ slot, milestone, wageLines = [] }) {
     body.push(FOOTER);
   }
   return {
-    title: slot === "morning" ? "打工自由助手｜早安" : "打工自由助手｜下班啦",
+    title: buildNotificationTitle({ slot, todayCents, milestone, comfort: "不是辞职日" }),
     content: body.join("\n"),
     copyId: null,
     contexts: ["anniversary-day"],
@@ -120,7 +143,10 @@ export function dayContexts(date, calendar, adjustments, plan) {
 export function buildReminder({ slot, now, plan, calendar, adjustments, lines, recent, workEndMinutes, anniversary }) {
   const milestone = describeAnniversary(now.date, anniversary);
   const summary = wageSummaryLines({ slot, now, plan, workEndMinutes });
-  if (milestone.phase === "today") return buildAnniversaryMessage({ slot, milestone, wageLines: summary });
+  const todayCents = totalsThrough(plan, now.date).today;
+  if (milestone.phase === "today") {
+    return buildAnniversaryMessage({ slot, milestone, wageLines: summary, todayCents });
+  }
   const contexts = reminderContexts({ date: now.date, slot, calendar, adjustments, plan, anniversary });
   const line = selectCopy(lines, { date: now.date, slot, contexts, recent });
   const notes = CONTEXT_ORDER.filter((name) => contexts.includes(name)).map((name) => CONTEXT_LINES[slot][name]);
@@ -130,9 +156,10 @@ export function buildReminder({ slot, now, plan, calendar, adjustments, lines, r
   body.push(line.text);
   body.push("");
   body.push(FOOTER);
+  const heading = slot === "morning" ? "打工自由助手｜早安" : "打工自由助手｜下班啦";
   return {
-    title: slot === "morning" ? "打工自由助手｜早安" : "打工自由助手｜下班啦",
-    content: body.join("\n"),
+    title: buildNotificationTitle({ slot, todayCents, milestone, comfort: line.text }),
+    content: [heading, ...body].join("\n"),
     copyId: line.id,
     contexts,
   };
@@ -142,12 +169,12 @@ export function buildTestMessage(preview) {
   const lead = "【测试】这条只用来确认推送通道，不计入额外收入，也不改写今日早晚的发送记录。";
   if (!preview) {
     return {
-      title: "打工自由助手｜测试",
+      title: "通道测试｜不记工资｜不是正式提醒",
       content: `${lead}\n今天不是计薪工作日，所以这里不展示模拟工资。能看到这段纯文本，说明通道是通的。\n\n${FOOTER}`,
     };
   }
   return {
-    title: "打工自由助手｜测试",
+    title: [...`测试｜${preview.title}`].slice(0, TITLE_LIMIT).join(""),
     content: `${lead}\n\n${preview.content}`,
     copyId: preview.copyId,
   };

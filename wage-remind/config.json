@@ -5,7 +5,6 @@
   "workEnd": "18:00",
   "morningEnabled": true,
   "eveningEnabled": true,
-  "channel": "wechat",
   "paidLeaveKeepsSalary": true,
   "workAnniversary": {
     "startedOn": "2019-08-01",

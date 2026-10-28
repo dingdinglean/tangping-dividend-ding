@@ -7,10 +7,10 @@ import { join } from "node:path";
 import { calendarDaysBetween, calendarElapsed, countdownLine, describeAnniversary, formatElapsed } from "../wage-remind/lib/anniversary.mjs";
 import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
 import { hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
-import { ANNIVERSARY_DAY, CONTEXT_LINES, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
+import { ANNIVERSARY_DAY, CONTEXT_LINES, TITLE_LIMIT, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
 import { allocateCents, formatYuan, yuanToCents } from "../wage-remind/lib/money.mjs";
-import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/pushplus.mjs";
-import { resolveChannel, resolveSlot, run } from "../wage-remind/lib/run.mjs";
+import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/serverchan.mjs";
+import { resolveSlot, run } from "../wage-remind/lib/run.mjs";
 import { rememberCopy } from "../wage-remind/lib/state.mjs";
 import { shanghaiNow } from "../wage-remind/lib/time.mjs";
 import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "../wage-remind/lib/wage.mjs";
@@ -184,7 +184,11 @@ test("messages follow the workday, the clock and special days", async () => {
     workEndMinutes: 18 * 60,
   });
   const figures = totalsThrough(october, "2026-10-28");
-  assert.equal(morning.title, "打工自由助手｜早安");
+  assert.match(morning.title, /待赚/);
+  assert.match(morning.title, /还有1008天/);
+  assert.ok([...morning.title].length <= TITLE_LIMIT);
+  assert.equal(morning.title.includes("\n"), false);
+  assert.match(morning.content, /打工自由助手｜早安/);
   assert.match(morning.content, new RegExp(`今日待赚：${formatYuan(figures.today).replace(".", "\\.")}`));
   assert.match(morning.content, /本月累计：/);
   assert.match(morning.content, /距离下班：9小时55分钟/);
@@ -215,7 +219,9 @@ test("messages follow the workday, the clock and special days", async () => {
     recent: [],
     workEndMinutes: 18 * 60,
   });
-  assert.equal(evening.title, "打工自由助手｜下班啦");
+  assert.match(evening.title, /到账/);
+  assert.match(evening.title, /还有1008天/);
+  assert.ok([...evening.title].length <= TITLE_LIMIT);
   assert.match(evening.content, /今日模拟到账：/);
   assert.match(evening.content, /本月剩余工作日：/);
   const eveningTotal = figures.before + figures.today;
@@ -294,6 +300,16 @@ test("copy libraries stay large, gentle, and unique across 14 workdays", async (
 
 test("tenth-anniversary countdown uses calendar days and never goes negative", async () => {
   const { calendar, library, adjustments } = await fixtures();
+  const crowded = buildNotificationTitle({
+    slot: "morning",
+    todayCents: 112000,
+    milestone: describeAnniversary("2019-08-01"),
+    comfort: "照常做完就好，不必把今天过成一场考核。",
+  });
+  assert.equal([...crowded].length <= TITLE_LIMIT, true);
+  assert.match(crowded, /待赚1120\.00/);
+  assert.match(crowded, /还有3653天/);
+  assert.equal(crowded.includes("\n"), false);
   assert.equal(calendarDaysBetween("2019-08-01", "2029-08-01"), 3653);
   assert.equal(calendarDaysBetween("2026-10-28", "2029-08-01"), 1008);
   assert.equal(calendarDaysBetween("2026-09-30", "2026-10-08"), 8);
@@ -343,6 +359,9 @@ test("tenth-anniversary countdown uses calendar days and never goes negative", a
     recent: [],
     workEndMinutes: 18 * 60,
   });
+  assert.match(anniversaryMorning.title, /十周年今天/);
+  assert.match(anniversaryMorning.title, /不是辞职日/);
+  assert.ok([...anniversaryMorning.title].length <= TITLE_LIMIT);
   assert.match(anniversaryMorning.content, /上班十周年：今天/);
   assert.match(anniversaryMorning.content, /已工作：10年0个月0天/);
   assert.match(anniversaryMorning.content, /不是辞职日/);
@@ -393,18 +412,18 @@ test("the anniversary day still sends when that year's holiday file is missing",
   const dir = await mkdtemp(join(tmpdir(), "wage-anniversary-"));
   let content = "";
   const fetchImpl = async (url, init = {}) => {
-    if (String(url).endsWith("/send")) {
-      content = JSON.parse(init.body).content;
-      return jsonResponse({ code: 200, data: "flow-anniversary" });
+    if (String(url).endsWith(".send")) {
+      content = JSON.parse(init.body).desp;
+      return jsonResponse({ code: 0, data: {} });
     }
     return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
   };
-  const logger = createLogger(["repo-token-123456"], { log() {}, error() {} });
+  const logger = createLogger(["SCT1234567890abcdef"], { log() {}, error() {} });
   const options = {
     now: new Date("2029-08-01T00:05:00.000Z"),
     event: "schedule",
     schedule: "5 0 * * *",
-    token: "repo-token-123456",
+    sendKey: "SCT1234567890abcdef",
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
@@ -428,147 +447,103 @@ test("the anniversary day still sends when that year's holiday file is missing",
   await rm(dir, { recursive: true, force: true });
 });
 
-test("push payload is plain text and logs do not contain the token or salary", async () => {
+test("Server酱 payload is title plus desp and logs omit the sendkey and salary", async () => {
   const logs = [];
   const calls = [];
-  const token = "super-token-value";
-  const secret = "super-secret-value";
-  const logger = createLogger([token, secret], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
-  let customerCalls = 0;
+  const sendKey = "SCT1234567890abcdef";
+  const logger = createLogger([sendKey], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
   const fetchImpl = async (url, init = {}) => {
     const href = String(url);
     const body = init.body ? JSON.parse(init.body) : null;
-    calls.push({ href, body, headers: init.headers || {} });
-    if (href.endsWith("/send")) return jsonResponse({ code: 200, data: "flow-100" });
-    customerCalls += 1;
-    return jsonResponse({ code: 200, data: { status: customerCalls === 1 ? 1 : 2, errorMessage: "" } });
+    calls.push({ href, body, method: init.method });
+    if (href.endsWith(".send")) {
+      return jsonResponse({ code: 0, message: "", data: { pushid: "88", readkey: "read-key-value" } });
+    }
+    return jsonResponse({ code: 0, data: { id: "88", title: body?.title || "hidden 1120" } });
   };
+  const title = "待赚62.22｜还有1008天｜做完即可";
   const result = await deliverMessage({
     fetchImpl,
     sleep: async () => {},
-    token,
-    secretKey: secret,
-    channel: "wechat",
-    title: "打工自由助手｜早安",
-    content: "今日待赚：SALARY_1120元",
+    sendKey,
+    title,
+    desp: "今日待赚：62.22元\n本月累计：0.00元",
     logger,
-    pollAttempts: 3,
-    pollIntervalMs: 0,
   });
-  assert.equal(result.status, 2);
-  const sent = calls.find((call) => call.href.endsWith("/send"));
-  assert.deepEqual(Object.keys(sent.body).sort(), ["channel", "content", "template", "title", "token"]);
-  assert.equal(sent.body.template, "txt");
-  assert.equal(sent.body.channel, "wechat");
-  assert.equal(sent.body.token, token);
-  assert.equal(JSON.stringify(sent.body).includes(secret), false);
-  assert.equal(calls.some((call) => call.href.includes("/sendMessageResult")), true);
+  assert.equal(result.code, 0);
+  assert.equal(result.stored, "yes");
+  const sent = calls.find((call) => call.href.endsWith(".send"));
+  assert.deepEqual(Object.keys(sent.body).sort(), ["desp", "title"]);
+  assert.equal(sent.body.title, title);
+  assert.match(sent.body.desp, /今日待赚：62\.22元/);
+  assert.equal(sent.href.includes(sendKey), true);
+  assert.equal(JSON.stringify(sent.body).includes(sendKey), false);
+  assert.equal(calls.some((call) => call.href.includes("/push?")), true);
   const logged = logs.join("\n");
-  assert.equal(logged.includes(token), false);
-  assert.equal(logged.includes(secret), false);
-  assert.equal(logged.includes("SALARY_1120"), false);
-  assert.match(logged, /status=2/);
+  assert.equal(logged.includes(sendKey), false);
+  assert.equal(logged.includes("read-key-value"), false);
+  assert.equal(logged.includes("62.22"), false);
+  assert.equal(logged.includes("1120"), false);
+  assert.match(logged, /code=0/);
+  assert.match(safeReason(`balance 1120 key ${sendKey}`, logger.redact), /balance # key \[redacted\]/);
 });
 
-test("HTTP 200 is not delivery, failures retry, and open API is the fallback", async () => {
-  const pendingLogs = [];
-  const logger = createLogger(["tok-abcdef1234567890"], { log: (line) => pendingLogs.push(line), error: (line) => pendingLogs.push(line) });
-  let sends = 0;
-  const stuck = async (url) => {
-    if (String(url).endsWith("/send")) {
-      sends += 1;
-      return jsonResponse({ code: 200, data: "flow-stuck" });
-    }
-    return jsonResponse({ code: 200, data: { status: 0, errorMessage: "still waiting 1120 tok-abcdef1234567890" } });
-  };
+test("a non-zero Server酱 code is not delivery, and transport errors retry once", async () => {
+  const logs = [];
+  const sendKey = "SCT1234567890abcdef";
+  const logger = createLogger([sendKey], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  let rejected = 0;
   await assert.rejects(() => deliverMessage({
-    fetchImpl: stuck,
+    fetchImpl: async () => {
+      rejected += 1;
+      return jsonResponse({ code: 40001, message: `错误的Key ${sendKey} 额度 1120` });
+    },
     sleep: async () => {},
-    token: "tok-abcdef1234567890",
-    channel: "wechat",
-    title: "t",
-    content: "c",
+    sendKey,
+    title: "待赚62.22｜还有1008天｜做完即可",
+    desp: "正文",
     logger,
-    pollAttempts: 2,
-    pollIntervalMs: 0,
-  }), /未被确认送达/);
-  assert.equal(sends, 1);
-  assert.equal(pendingLogs.join("\n").includes("tok-abcdef1234567890"), false);
-  assert.equal(pendingLogs.join("\n").includes("1120"), false);
+    maxAttempts: 2,
+  }), /拒绝/);
+  assert.equal(rejected, 1);
+  assert.equal(logs.join("\n").includes(sendKey), false);
+  assert.equal(logs.join("\n").includes("1120"), false);
 
   let attempt = 0;
-  const retry = async (url) => {
-    if (String(url).endsWith("/send")) {
-      attempt += 1;
-      return jsonResponse({ code: 200, data: `flow-${attempt}` });
-    }
-    return jsonResponse({ code: 200, data: { status: attempt === 1 ? 3 : 2, errorMessage: "nope" } });
-  };
   const recovered = await deliverMessage({
-    fetchImpl: retry,
+    fetchImpl: async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error(`network ${sendKey}`);
+      return jsonResponse({ code: 0, data: {} });
+    },
     sleep: async () => {},
-    token: "tok-abcdef1234567890",
-    channel: "clawbot",
-    title: "t",
-    content: "c",
+    sendKey,
+    title: "到账62.22｜还有1008天｜班结束了",
+    desp: "正文",
     logger,
-    maxAttempts: 3,
-    pollAttempts: 1,
-    pollIntervalMs: 0,
+    maxAttempts: 2,
   });
-  assert.equal(recovered.status, 2);
+  assert.equal(recovered.code, 0);
   assert.equal(attempt, 2);
-
-  const openCalls = [];
-  const fallback = async (url, init = {}) => {
-    const href = String(url);
-    openCalls.push({ href, body: init.body ? JSON.parse(init.body) : null, headers: init.headers || {} });
-    if (href.endsWith("/send")) return jsonResponse({ code: 200, data: "flow-open" });
-    if (href.includes("/customer/")) return jsonResponse({ code: 302, msg: "未登录" });
-    if (href.endsWith("/getAccessKey")) return jsonResponse({ code: 200, data: { accessKey: "access-key-value", expiresIn: 7200 } });
-    assert.equal(init.headers["access-key"], "access-key-value");
-    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
-  };
-  const viaOpen = await deliverMessage({
-    fetchImpl: fallback,
-    sleep: async () => {},
-    token: "tok-abcdef1234567890",
-    secretKey: "secret-key-value",
-    channel: "wechat",
-    title: "t",
-    content: "c",
-    logger,
-    pollAttempts: 1,
-    pollIntervalMs: 0,
-  });
-  assert.equal(viaOpen.status, 2);
-  assert.equal(openCalls.some((call) => call.href.endsWith("/getAccessKey") && call.body.secretKey === "secret-key-value"), true);
-  assert.equal(JSON.stringify(openCalls.find((call) => call.href.endsWith("/send")).body).includes("secret-key-value"), false);
-  assert.match(safeReason("balance 1120 token tok-abcdef1234567890", logger.redact), /balance # token \[redacted\]/);
-
   await assert.rejects(() => deliverMessage({
-    fetchImpl: async (url) => String(url).endsWith("/send")
-      ? jsonResponse({ code: 200, data: "flow-no-secret" })
-      : jsonResponse({ code: 302, msg: "未登录" }),
+    fetchImpl: async () => jsonResponse({ code: 0, data: {} }),
     sleep: async () => {},
-    token: "tok-abcdef1234567890",
-    channel: "wechat",
+    sendKey: "sctp123tsecret",
     title: "t",
-    content: "c",
+    desp: "d",
     logger,
-    pollAttempts: 1,
-  }), /未被确认送达/);
+  }), /Server酱³/);
 });
 
 test("a workday send is recorded once and skipped the second time", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
   const logs = [];
-  const logger = createLogger(["repo-token-123456"], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
+  const logger = createLogger(["SCT1234567890abcdef"], { log: (line) => logs.push(line), error: (line) => logs.push(line) });
   let sends = 0;
   const fetchImpl = async (url) => {
-    if (String(url).endsWith("/send")) {
+    if (String(url).endsWith(".send")) {
       sends += 1;
-      return jsonResponse({ code: 200, data: `flow-${sends}` });
+      return jsonResponse({ code: 0, data: {} });
     }
     return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
   };
@@ -576,7 +551,7 @@ test("a workday send is recorded once and skipped the second time", async () => 
     now: new Date("2026-10-28T00:05:00.000Z"),
     event: "schedule",
     schedule: "5 0 * * *",
-    token: "repo-token-123456",
+    sendKey: "SCT1234567890abcdef",
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
@@ -589,7 +564,7 @@ test("a workday send is recorded once and skipped the second time", async () => 
   assert.equal(first.slot, "morning");
   const state = JSON.parse(await readFile(options.statePath, "utf8"));
   assert.equal(state.sent["2026-10-28"].morning.status, "sent");
-  assert.equal(JSON.stringify(state).includes("repo-token-123456"), false);
+  assert.equal(JSON.stringify(state).includes("SCT1234567890abcdef"), false);
   assert.equal(JSON.stringify(state).includes("1120"), false);
   const second = await run(options);
   assert.equal(second.reason, "duplicate");
@@ -602,47 +577,36 @@ test("a workday send is recorded once and skipped the second time", async () => 
   const makeup = await run({ ...options, now: new Date("2026-10-10T00:05:00.000Z"), schedule: "5 0 * * *" });
   assert.equal(makeup.action, "sent");
   assert.equal(sends, 2);
-  assert.equal(logs.join("\n").includes("repo-token-123456"), false);
+  assert.equal(logs.join("\n").includes("SCT1234567890abcdef"), false);
   assert.equal(logs.join("\n").includes("元"), false);
   await rm(dir, { recursive: true, force: true });
 });
 
-test("pending delivery is reconciled instead of sent twice", async () => {
+test("a rejected Server酱 response does not mark the slot sent", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
   const statePath = join(dir, "state.json");
-  let phase = "accept-only";
   let sends = 0;
-  const fetchImpl = async (url) => {
-    const href = String(url);
-    if (href.endsWith("/send")) {
-      sends += 1;
-      return jsonResponse({ code: 200, data: "flow-pending" });
-    }
-    if (phase === "accept-only") return jsonResponse({ code: 200, data: { status: 0, errorMessage: "" } });
-    return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
+  const fetchImpl = async () => {
+    sends += 1;
+    return jsonResponse({ code: 40001, message: "错误的Key" });
   };
-  const logger = createLogger(["repo-token-123456"], { log() {}, error() {} });
+  const logger = createLogger(["SCT1234567890abcdef"], { log() {}, error() {} });
   const options = {
     now: new Date("2026-10-28T10:05:00.000Z"),
     event: "schedule",
     schedule: "5 10 * * *",
-    token: "repo-token-123456",
+    sendKey: "SCT1234567890abcdef",
     statePath,
     fetchImpl,
     sleep: async () => {},
     logger,
-    pollAttempts: 1,
-    pollIntervalMs: 0,
+    maxAttempts: 2,
   };
-  await assert.rejects(() => run(options), /未被确认送达/);
-  const pending = JSON.parse(await readFile(statePath, "utf8"));
-  assert.equal(pending.sent["2026-10-28"].evening.status, "pending");
+  await assert.rejects(() => run(options), /拒绝/);
+  const state = JSON.parse(await readFile(statePath, "utf8"));
+  assert.equal(state.sent["2026-10-28"], undefined);
   assert.equal(sends, 1);
-  phase = "done";
-  const reconciled = await run(options);
-  assert.equal(reconciled.action, "sent");
-  assert.equal(reconciled.resent, false);
-  assert.equal(sends, 1);
+  assert.equal(JSON.stringify(state).includes("SCT1234567890abcdef"), false);
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -650,9 +614,6 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
   assert.equal(resolveSlot({ event: "schedule", schedule: "5 0 * * *" }), "morning");
   assert.equal(resolveSlot({ event: "schedule", schedule: "5 10 * * *" }), "evening");
   assert.equal(resolveSlot({ event: "workflow_dispatch", slot: "test" }), "test");
-  assert.equal(resolveChannel("", "wechat"), "wechat");
-  assert.equal(resolveChannel("clawbot", "wechat"), "clawbot");
-  assert.throws(() => resolveChannel("sms", "wechat"), /wechat 或 clawbot/);
 
   const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
   const custom = JSON.parse(await readFile(configPath, "utf8"));
@@ -672,14 +633,15 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
 
   let sends = 0;
   const fetchImpl = async (url, init = {}) => {
-    if (String(url).endsWith("/send")) {
+    if (String(url).endsWith(".send")) {
       sends += 1;
       const body = JSON.parse(init.body);
-      assert.equal(body.template, "txt");
-      assert.equal(body.title, "打工自由助手｜测试");
-      assert.match(body.content, /【测试】/);
-      assert.equal(body.content.includes("今日待赚"), false);
-      return jsonResponse({ code: 200, data: "flow-test" });
+      assert.deepEqual(Object.keys(body).sort(), ["desp", "title"]);
+      assert.equal(body.title, "通道测试｜不记工资｜不是正式提醒");
+      assert.ok([...body.title].length <= TITLE_LIMIT);
+      assert.match(body.desp, /【测试】/);
+      assert.equal(body.desp.includes("今日待赚"), false);
+      return jsonResponse({ code: 0, data: {} });
     }
     return jsonResponse({ code: 200, data: { status: 2, errorMessage: "" } });
   };
@@ -687,11 +649,11 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
     now: new Date("2026-10-31T02:00:00.000Z"),
     event: "workflow_dispatch",
     slot: "test",
-    token: "repo-token-123456",
+    sendKey: "SCT1234567890abcdef",
     statePath: join(dir, "state.json"),
     fetchImpl,
     sleep: async () => {},
-    logger: createLogger(["repo-token-123456"], { log() {}, error() {} }),
+    logger: createLogger(["SCT1234567890abcdef"], { log() {}, error() {} }),
     pollAttempts: 1,
   });
   assert.equal(testRun.action, "sent");
@@ -733,14 +695,14 @@ test("dry run prints no salary and no token", () => {
       WAGE_SLOT: "morning",
       WAGE_NOW: "2026-10-28T00:05:00.000Z",
       WAGE_STATE_PATH: statePath,
-      PUSHPLUS_TOKEN: "cli-token-should-not-print",
+      SERVERCHAN_SENDKEY: "SCT1234567890abcdef",
     },
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
   const output = `${result.stdout}\n${result.stderr}`;
   assert.match(output, /action=dry-run/);
-  assert.equal(output.includes("cli-token-should-not-print"), false);
+  assert.equal(output.includes("SCT1234567890abcdef"), false);
   assert.equal(output.includes("元"), false);
   assert.equal(output.includes("1120"), false);
 });

@@ -49,9 +49,7 @@ jobs:
             wage-remind-state-
       - name: Send wage reminder
         env:
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          PUSHPLUS_CHANNEL: ${{ secrets.PUSHPLUS_CHANNEL }}
-          PUSHPLUS_SECRET_KEY: ${{ secrets.PUSHPLUS_SECRET_KEY }}
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           WAGE_EVENT: ${{ github.event_name }}
           WAGE_SCHEDULE: ${{ github.event.schedule }}
           WAGE_SLOT: ${{ inputs.slot }}

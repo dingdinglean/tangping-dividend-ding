@@ -809,6 +809,15 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
   const workflow = await readFile(join(root, ".github/workflows/wage-remind.yml"), "utf8");
   assert.equal(workflow.includes("git commit"), false);
   assert.equal(workflow.includes("data/market.json"), false);
+  const watched = [
+    source,
+    workflow,
+    await readFile(join(root, "wage-remind/README.md"), "utf8"),
+    await readFile(join(root, "README.md"), "utf8"),
+  ].join("\n");
+  assert.equal(/serverchan|SERVERCHAN|Server酱|方糖|sctapi|ftqq|SENDKEY|SendKey/i.test(watched), false);
+  assert.match(workflow, /BARK_DEVICE_KEY/);
+  assert.equal(workflow.includes("SERVERCHAN_SENDKEY"), false);
   const market = await readFile(join(root, ".github/workflows/update-market-data.yml"), "utf8");
   assert.equal(market.includes("wage-remind"), false);
   await rm(dir, { recursive: true, force: true });

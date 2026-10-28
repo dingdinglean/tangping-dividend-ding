@@ -1,8 +1,9 @@
-import { allocateCents } from "./money.mjs";
+import { rational, ratAdd, ratCmp, ratDiv, ratSub } from "./money.mjs";
 import { classifyDate } from "./calendar.mjs";
 import { assertDate, datesInMonth } from "./time.mjs";
 
 const KINDS = new Set(["paid_leave", "unpaid_leave", "rest", "work", "overtime"]);
+const ZERO = rational(0, 1);
 
 export function indexAdjustments(adjustments = []) {
   const map = new Map();
@@ -36,19 +37,20 @@ export function buildMonthPlan({ year, month, calendar, config, adjustments }) {
   const monthlyNetCents = config.monthlyNetCents;
   const dates = datesInMonth(year, month);
   const calendarWork = dates.filter((date) => classifyDate(date, calendar).work);
-  const originalShares = allocateCents(monthlyNetCents, calendarWork.length);
-  const originalByDate = new Map(calendarWork.map((date, index) => [date, originalShares[index]]));
+  if (calendarWork.length === 0) throw new Error("本月没有计薪工作日，无法分配月薪");
+  const eachOriginal = rational(monthlyNetCents, calendarWork.length);
+  const originalByDate = new Map(calendarWork.map((date) => [date, eachOriginal]));
 
-  let pool = monthlyNetCents;
+  let pool = rational(monthlyNetCents, 1);
   const final = [];
   for (const date of calendarWork) {
     const kind = adjustments.get(date)?.kind;
     if (kind === "paid_leave") {
-      if (!config.paidLeaveKeepsSalary) pool -= originalByDate.get(date);
+      if (!config.paidLeaveKeepsSalary) pool = ratSub(pool, eachOriginal);
       continue;
     }
     if (kind === "unpaid_leave") {
-      pool -= originalByDate.get(date);
+      pool = ratSub(pool, eachOriginal);
       continue;
     }
     if (kind === "rest") continue;
@@ -60,13 +62,13 @@ export function buildMonthPlan({ year, month, calendar, config, adjustments }) {
     }
   }
   final.sort();
-  if (pool < 0) throw new Error("请假扣减超过了月薪");
+  if (ratCmp(pool, ZERO) < 0) throw new Error("请假扣减超过了月薪");
   if (final.length === 0) throw new Error("本月没有计薪工作日，无法分配月薪");
 
-  const shares = allocateCents(pool, final.length);
-  const workdays = final.map((date, index) => ({
+  const share = ratDiv(pool, final.length);
+  const workdays = final.map((date) => ({
     date,
-    cents: shares[index],
+    cents: share,
     overtimeCents: adjustments.get(date)?.kind === "overtime" ? adjustments.get(date).cents : 0,
   }));
   const workdaySet = new Set(final);
@@ -74,25 +76,29 @@ export function buildMonthPlan({ year, month, calendar, config, adjustments }) {
   for (const [date, adj] of adjustments) {
     if (adj.kind !== "overtime" || workdaySet.has(date) || adj.cents === 0) continue;
     if (!date.startsWith(`${year}-${String(month).padStart(2, "0")}-`)) continue;
-    offDayOvertime.push({ date, cents: 0, overtimeCents: adj.cents });
+    offDayOvertime.push({ date, cents: ZERO, overtimeCents: adj.cents });
   }
   offDayOvertime.sort((a, b) => a.date.localeCompare(b.date));
   return { year, month, monthlyNetCents, pool, originalByDate, workdays, offDayOvertime };
 }
 
+export function rowAmount(row) {
+  return ratAdd(row.cents, rational(row.overtimeCents || 0, 1));
+}
+
 export function totalsThrough(plan, date) {
-  let before = 0;
-  let today = 0;
+  let before = ZERO;
+  let today = ZERO;
   for (const row of [...plan.workdays, ...plan.offDayOvertime]) {
-    const amount = row.cents + row.overtimeCents;
-    if (row.date < date) before += amount;
-    else if (row.date === date) today += amount;
+    const amount = rowAmount(row);
+    if (row.date < date) before = ratAdd(before, amount);
+    else if (row.date === date) today = ratAdd(today, amount);
   }
   return {
     before,
     today,
     remaining: plan.workdays.filter((row) => row.date > date).length,
-    baseSum: plan.workdays.reduce((sum, row) => sum + row.cents, 0),
+    baseSum: plan.workdays.reduce((sum, row) => ratAdd(sum, row.cents), ZERO),
   };
 }
 

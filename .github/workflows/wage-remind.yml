@@ -2,6 +2,8 @@ name: Wage remind
 
 # 独立于行情快照。此工作流只读仓库、不提交文件。
 # 发送状态放在 Actions cache，避免把每次推送写进 main。
+# 代码侧还有 Asia/Shanghai 发送窗口（早 07:30–09:30 / 晚 17:30–19:30），
+# 防止 GitHub Actions 延迟把下班「今日收入」推到凌晨。
 on:
   schedule:
     # 08:05 Asia/Shanghai。中国无夏令时，对应 UTC 00:05。

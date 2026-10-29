@@ -155,7 +155,8 @@ export function buildReminder({ slot, now, plan, calendar, adjustments, lines, r
 }
 
 export function buildTestMessage(preview, slot = "morning") {
-  const title = preview?.title || (slot === "evening" ? "💚 确认推送" : "☀️ 确认推送");
+  const baseTitle = preview?.title || (slot === "evening" ? "💚 确认推送" : "☀️ 确认推送");
+  const title = baseTitle.includes("测试") ? baseTitle : `【测试】${baseTitle}`;
   if (!preview) {
     return {
       title,
@@ -163,7 +164,7 @@ export function buildTestMessage(preview, slot = "morning") {
     };
   }
   return {
-    title: preview.title,
+    title,
     content: notificationText(["【测试】", preview.content]),
     copyId: preview.copyId,
   };

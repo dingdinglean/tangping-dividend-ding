@@ -1,5 +1,11 @@
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+/** Asia/Shanghai send windows for automatic / manual morning|evening pushes. */
+export const SEND_WINDOWS = Object.freeze({
+  morning: Object.freeze({ startMinutes: 7 * 60 + 30, endMinutes: 9 * 60 + 30 }), // 07:30–09:30
+  evening: Object.freeze({ startMinutes: 17 * 60 + 30, endMinutes: 19 * 60 + 30 }), // 17:30–19:30
+});
+
 export function assertDate(date) {
   if (!DATE_RE.test(date)) throw new Error("日期须为 YYYY-MM-DD");
   const [year, month, day] = date.split("-").map(Number);
@@ -71,4 +77,12 @@ export function shanghaiNow(date = new Date()) {
     date: `${bag.year}-${bag.month}-${bag.day}`,
     minutesOfDay: Number(hour) * 60 + Number(minute),
   };
+}
+
+/** True when slot is morning/evening and minutesOfDay falls in its Shanghai window (inclusive). test/unknown → true. */
+export function inSendWindow(slot, minutesOfDay) {
+  const window = SEND_WINDOWS[slot];
+  if (!window) return true;
+  if (!Number.isInteger(minutesOfDay)) return false;
+  return minutesOfDay >= window.startMinutes && minutesOfDay <= window.endMinutes;
 }

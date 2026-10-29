@@ -8,7 +8,7 @@ import { buildAnniversaryMessage, buildReminder, buildTestMessage, wageSummaryLi
 import { yuanToCents } from "./money.mjs";
 import { createLogger, deliverMessage, iconForSlot } from "./bark.mjs";
 import { loadState, rememberCopy, saveState, slotRecord, withSlot } from "./state.mjs";
-import { parseClock, shanghaiNow } from "./time.mjs";
+import { inSendWindow, parseClock, shanghaiNow } from "./time.mjs";
 import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "./wage.mjs";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -87,6 +87,12 @@ export async function run(options = {}) {
   if (slot !== "test" && !enabled(config, slot) && !options.force) {
     logger.info(`wage-remind action=skipped reason=disabled slot=${slot} date=${now.date}`);
     return { ...base, action: "skipped", reason: "disabled" };
+  }
+  // schedule and workflow_dispatch morning|evening: refuse outside Asia/Shanghai windows unless force.
+  // Prevents GitHub Actions delay from pushing evening "今日收入" at midnight.
+  if (slot !== "test" && !options.force && !inSendWindow(slot, now.minutesOfDay)) {
+    logger.info(`wage-remind action=skipped reason=outside-send-window slot=${slot} date=${now.date} minutes=${now.minutesOfDay}`);
+    return { ...base, action: "skipped", reason: "outside-send-window" };
   }
   const record = slot === "test" ? null : slotRecord(state, now.date, slot);
   if (record?.status === "sent" && !options.force) {

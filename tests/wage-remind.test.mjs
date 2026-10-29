@@ -8,12 +8,12 @@ import { calendarDaysBetween, calendarElapsed, countdownLine, describeAnniversar
 import { loadCalendar, loadHolidayDirectory, classifyDate } from "../wage-remind/lib/calendar.mjs";
 import { comfortHanCount, hashText, loadCopyLibrary, selectCopy } from "../wage-remind/lib/copy.mjs";
 import { BARK_ICON_EVENING, BARK_ICON_MORNING } from "../wage-remind/lib/bark.mjs";
-import { ANNIVERSARY_DAY, CONTEXT_LINES, buildNotificationTitle, buildReminder, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
+import { ANNIVERSARY_DAY, CONTEXT_LINES, buildNotificationTitle, buildReminder, buildTestMessage, isPreHoliday, reminderContexts } from "../wage-remind/lib/message.mjs";
 import { formatYuan, ratAdd, ratCmp, ratEq, ratSub, rational, yuanToCents } from "../wage-remind/lib/money.mjs";
 import { createLogger, deliverMessage, safeReason } from "../wage-remind/lib/bark.mjs";
 import { resolveSlot, run } from "../wage-remind/lib/run.mjs";
 import { rememberCopy } from "../wage-remind/lib/state.mjs";
-import { shanghaiNow } from "../wage-remind/lib/time.mjs";
+import { SEND_WINDOWS, inSendWindow, shanghaiNow } from "../wage-remind/lib/time.mjs";
 import { buildMonthPlan, indexAdjustments, isSalaryWorkday, totalsThrough } from "../wage-remind/lib/wage.mjs";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -801,9 +801,9 @@ test("flags, test sends and slot parsing stay isolated from the salary ledger", 
     sends += 1;
     const body = JSON.parse(init.body);
     assert.deepEqual(Object.keys(body).sort(), ["body", "device_key", "group", "icon", "level", "sound", "title"]);
-    assert.equal(body.title, "☀️ 确认推送");
+    assert.equal(body.title, "【测试】☀️ 确认推送");
     assert.equal(body.icon, BARK_ICON_MORNING);
-    assert.equal(body.title.includes("测试"), false);
+    assert.match(body.title, /测试/);
     assert.equal(body.level, "active");
     assert.equal(body.sound, "bell");
     assert.equal(body.group, "打工自由助手");
@@ -926,7 +926,7 @@ test("comfort stays in the body while titles stay amount-only and the default sa
   assert.equal(/(^|[^0-9])1120([^0-9]|$)/.test(bundled), false);
 });
 
-test("a manual test on a workday keeps the wage title and marks only the body", async () => {
+test("a manual test on a workday labels 测试 in both title and body", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wage-remind-"));
   const { calendar, library, adjustments } = await fixtures();
   const october = planFor(calendar, 2026, 10, adjustments);
@@ -958,9 +958,9 @@ test("a manual test on a workday keeps the wage title and marks only the body", 
     pollAttempts: 1,
   });
   assert.equal(sent.action, "sent");
-  assert.equal(body.title, preview.title);
-  assert.equal(body.title, "☀️ 今日待赚 ¥622.22");
-  assert.equal(body.title.includes("测试"), false);
+  assert.equal(body.title, `【测试】${preview.title}`);
+  assert.equal(body.title, "【测试】☀️ 今日待赚 ¥622.22");
+  assert.match(body.title, /测试/);
   assert.equal(body.icon, BARK_ICON_MORNING);
   assert.equal(body.group, "打工自由助手");
   assert.equal(body.level, "active");
@@ -976,5 +976,127 @@ test("a manual test on a workday keeps the wage title and marks only the body", 
   assert.equal(body.title.includes(copy), false);
   const state = JSON.parse(await readFile(join(dir, "state.json"), "utf8"));
   assert.equal(state.sent["2026-10-28"], undefined);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("Shanghai send windows cover 08:05 / 18:05 and reject midnight", () => {
+  assert.equal(SEND_WINDOWS.morning.startMinutes, 7 * 60 + 30);
+  assert.equal(SEND_WINDOWS.morning.endMinutes, 9 * 60 + 30);
+  assert.equal(SEND_WINDOWS.evening.startMinutes, 17 * 60 + 30);
+  assert.equal(SEND_WINDOWS.evening.endMinutes, 19 * 60 + 30);
+  assert.equal(inSendWindow("morning", 8 * 60 + 5), true);
+  assert.equal(inSendWindow("morning", 7 * 60 + 30), true);
+  assert.equal(inSendWindow("morning", 9 * 60 + 30), true);
+  assert.equal(inSendWindow("morning", 9 * 60 + 31), false);
+  assert.equal(inSendWindow("morning", 0), false);
+  assert.equal(inSendWindow("evening", 18 * 60 + 5), true);
+  assert.equal(inSendWindow("evening", 17 * 60 + 30), true);
+  assert.equal(inSendWindow("evening", 19 * 60 + 30), true);
+  assert.equal(inSendWindow("evening", 0 * 60 + 29), false);
+  assert.equal(inSendWindow("evening", 16 * 60), false);
+  assert.equal(inSendWindow("test", 0), true);
+});
+
+test("delayed evening schedule at midnight skips instead of sending 今日收入", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wage-window-"));
+  let sends = 0;
+  const fetchImpl = async () => {
+    sends += 1;
+    return jsonResponse({ code: 200, message: "success", timestamp: 1 });
+  };
+  const logger = createLogger([DEVICE_KEY], { log() {}, error() {} });
+  // Mirrors Actions run 40726468971: cron 5 10 * * * started 2026-10-28T16:29:29Z ≈ 00:29 Shanghai 10-29.
+  const late = await run({
+    now: new Date("2026-10-28T16:29:29.000Z"),
+    event: "schedule",
+    schedule: "5 10 * * *",
+    deviceKey: DEVICE_KEY,
+    statePath: join(dir, "state.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+  });
+  assert.equal(late.slot, "evening");
+  assert.equal(late.date, "2026-10-29");
+  assert.equal(late.action, "skipped");
+  assert.equal(late.reason, "outside-send-window");
+  assert.equal(sends, 0);
+
+  const onTime = await run({
+    now: new Date("2026-10-28T10:05:00.000Z"),
+    event: "schedule",
+    schedule: "5 10 * * *",
+    deviceKey: DEVICE_KEY,
+    statePath: join(dir, "state-ok.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+  });
+  assert.equal(onTime.action, "sent");
+  assert.equal(onTime.slot, "evening");
+  assert.equal(sends, 1);
+
+  const lateMorning = await run({
+    now: new Date("2026-10-28T04:00:00.000Z"), // 12:00 Shanghai
+    event: "schedule",
+    schedule: "5 0 * * *",
+    deviceKey: DEVICE_KEY,
+    statePath: join(dir, "state-m.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+  });
+  assert.equal(lateMorning.action, "skipped");
+  assert.equal(lateMorning.reason, "outside-send-window");
+  assert.equal(sends, 1);
+
+  const morningOk = await run({
+    now: new Date("2026-10-28T00:05:00.000Z"),
+    event: "schedule",
+    schedule: "5 0 * * *",
+    deviceKey: DEVICE_KEY,
+    statePath: join(dir, "state-m2.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+  });
+  assert.equal(morningOk.action, "sent");
+  assert.equal(morningOk.slot, "morning");
+  assert.equal(sends, 2);
+
+  const dispatchLate = await run({
+    now: new Date("2026-10-28T16:29:29.000Z"),
+    event: "workflow_dispatch",
+    slot: "evening",
+    deviceKey: DEVICE_KEY,
+    statePath: join(dir, "state-d.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+  });
+  assert.equal(dispatchLate.reason, "outside-send-window");
+  assert.equal(sends, 2);
+
+  const forced = await run({
+    now: new Date("2026-10-28T16:29:29.000Z"),
+    event: "workflow_dispatch",
+    slot: "evening",
+    force: true,
+    deviceKey: DEVICE_KEY,
+    statePath: join(dir, "state-f.json"),
+    fetchImpl,
+    sleep: async () => {},
+    logger,
+  });
+  assert.equal(forced.action, "sent");
+  assert.equal(sends, 3);
+
+  const labeled = buildTestMessage({ title: "☀️ 今日待赚 ¥622.22", content: "正文", copyId: "x" }, "morning");
+  assert.match(labeled.title, /测试/);
+  assert.match(labeled.content, /^【测试】/);
+  const empty = buildTestMessage(null, "evening");
+  assert.equal(empty.title, "【测试】💚 确认推送");
+  assert.match(empty.content, /【测试】/);
+
   await rm(dir, { recursive: true, force: true });
 });

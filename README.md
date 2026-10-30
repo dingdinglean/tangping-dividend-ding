@@ -89,6 +89,3 @@ App 固定使用 Actions 静态快照，不向普通用户展示 API Key、服�
 
 XQQI 自 2026-02 成立以来的已公布分配（宣布日、除息日、登记日、支付日、每股金额）来自 [NEOS 官方页面](https://neosfunds.com/xqqi/)。11 月和 12 月日历行没有金额，不生成记录。页面上的 Distribution Rate（截至 2026-09-30 为 21.04%）按原名称展示；19%–23% 的 Annualized Distribution Target 不是实际收益率。可编辑预扣税率，留空继续沿用历史到账比例；不追溯改写历史记录。税后现金流才进入月度统计、图表和提醒。
 
-## 打工工资提醒
-
-与股息账本无关的独立定时提醒，说明见 [wage-remind/README.md](wage-remind/README.md)。它用 Bark 推到手机，不读取、不修改持仓、交易或到账记录，也不参与行情快照工作流。

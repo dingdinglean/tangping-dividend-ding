@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-31T01:51:34.449Z",
+  "generatedAt": "2026-10-31T08:44:59.624Z",
   "refresh": {
     "target_price_date": "2026-10-30",
-    "generated_at": "2026-10-31T01:51:34.449Z",
+    "generated_at": "2026-10-31T08:44:59.624Z",
     "alpha_vantage_usage": {
       "date": "2026-10-31",
-      "count": 9
+      "count": 11
     },
     "price_attempts": [
       {
@@ -60,10 +60,10 @@
     }
   },
   "fx": {
-    "rate": 6.6579,
+    "rate": 6.6573,
     "fx_date": "2026-10-31",
     "source": "Frankfurter",
-    "fetched_at": "2026-10-31T01:51:34.449Z"
+    "fetched_at": "2026-10-31T08:44:59.624Z"
   },
   "symbols": {
     "QQQI": {
@@ -72,7 +72,7 @@
         "price": 51.66,
         "price_date": "2026-10-30",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "change": -1.76,
         "change_percent": -0.032946
       },
@@ -283,7 +283,7 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "dividend_rate": {
@@ -291,7 +291,7 @@
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-31T01:51:34.449Z"
+        "fetched_at": "2026-10-31T08:44:59.624Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-30"
@@ -302,7 +302,7 @@
         "price": 52.425,
         "price_date": "2026-10-30",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "change": -0.855,
         "change_percent": -0.016047
       },
@@ -692,7 +692,7 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "dividend_rate": {
@@ -700,7 +700,7 @@
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-31T01:51:34.449Z"
+        "fetched_at": "2026-10-31T08:44:59.624Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-30"
@@ -711,7 +711,7 @@
         "price": 23.38,
         "price_date": "2026-10-30",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "change": -0.85,
         "change_percent": -0.03508
       },
@@ -762,7 +762,7 @@
           }
         ],
         "source": "Nasdaq official dividends",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "dividend_rate": {
@@ -772,7 +772,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -784,7 +784,7 @@
         "price": 35.78,
         "price_date": "2026-10-30",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "change": 0.17,
         "change_percent": 0.004774
       },
@@ -1184,7 +1184,7 @@
           }
         ],
         "source": "Alpha Vantage Dividends",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "dividend_rate": {
@@ -1195,7 +1195,7 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -1207,7 +1207,7 @@
         "price": 45.31,
         "price_date": "2026-10-30",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "change": -2.4006,
         "change_percent": -0.050316
       },
@@ -1316,7 +1316,7 @@
           }
         ],
         "source": "NEOS official Distribution History",
-        "fetched_at": "2026-10-31T01:51:34.449Z",
+        "fetched_at": "2026-10-31T08:44:59.624Z",
         "status": "valid"
       },
       "dividend_rate": {
@@ -1324,7 +1324,7 @@
         "data_date": "2026-09-30",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-10-31T01:51:34.449Z"
+        "fetched_at": "2026-10-31T08:44:59.624Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-10-30"

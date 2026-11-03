@@ -3,11 +3,22 @@ name: Update market data
 on:
   workflow_dispatch:
   schedule:
-    # Beijing 05:30 primary run, then 06:45 and 10:30 delayed retries. All are
-    # after the preceding US regular/early close in America/New_York.
-    - cron: '30 21 * * *'
-    - cron: '45 22 * * *'
-    - cron: '30 2 * * *'
+    # US cash close is 21:00 UTC in winter (EST) and 20:00 UTC in summer (EDT):
+    # 05:00 or 04:00 Asia/Shanghai. GitHub's scheduler often starts these
+    # 3–7 hours late and can drop a slot entirely; on 2026-11-03 the 21:30 UTC
+    # and 22:45 UTC slots were still absent more than five hours after their
+    # cron. The extra minutes are free catch-ups for that same completed
+    # session. A run before the next 16:00 America/New_York close still
+    # targets the previous session, including when GitHub delivers it late.
+    - cron: '30 21 * * *' # 05:30 Shanghai
+    - cron: '45 22 * * *' # 06:45 Shanghai
+    - cron: '11 23 * * *' # 07:11 Shanghai
+    - cron: '17 0 * * *'  # 08:17 Shanghai
+    - cron: '37 1 * * *'  # 09:37 Shanghai
+    - cron: '30 2 * * *'  # 10:30 Shanghai
+    - cron: '19 4 * * *'  # 12:19 Shanghai
+    - cron: '41 7 * * *'  # 15:41 Shanghai
+    - cron: '13 11 * * *' # 19:13 Shanghai, before the next US cash open
 
 permissions:
   contents: write
@@ -19,7 +30,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +45,7 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
         run: node scripts/update-market-data.mjs
       - name: Commit snapshot only when changed
-        if: ${{ success() && steps.refresh.outcome == 'success' }}
+        if: steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -43,8 +54,17 @@ jobs:
             echo "No snapshot changes; no commit created."
             exit 0
           fi
+          MESSAGE=$(node --input-type=module <<'EOF'
+          import { readFileSync } from "node:fs";
+          const snapshot = JSON.parse(readFileSync("data/market.json", "utf8"));
+          const day = snapshot.refresh?.target_price_date || "unknown";
+          const held = [...new Set(Object.values(snapshot.symbols || {}).map((row) => row.price?.price_date).filter(Boolean))].join(",");
+          const current = snapshot.refresh?.freshness === "current";
+          console.log(current ? `chore: update public market snapshot (${day})` : `chore: update public market snapshot (stale, expected ${day}, held ${held})`);
+          EOF
+          )
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "chore: update public market snapshot"
+          git commit -m "$MESSAGE"
           git pull --rebase origin "$DEFAULT_BRANCH"
           git push origin "HEAD:$DEFAULT_BRANCH"

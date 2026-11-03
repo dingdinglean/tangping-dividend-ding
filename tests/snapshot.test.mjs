@@ -357,5 +357,112 @@ test("an incomplete refresh does not replace the last snapshot file", async () =
   await writeFile(output, original);
   const snapshot = await run({ output, now: NOW, priceAttempts: 1, waiter: async () => {}, fetcher: async () => { throw new Error("offline"); } });
   assert.equal(snapshotIsPublishable(snapshot), false);
+  assert.equal(snapshot.refresh.freshness, "stale");
+  assert.equal(await readFile(output, "utf8"), original);
+});
+
+test("Nasdaq timeouts are retried before Alpha Vantage is called", async () => {
+  let nasdaq = 0;
+  let alphaQuotes = 0;
+  const base = fetcher({ nasdaqHistorical: { QQQI: [{ date: "09/15/2026", close: "$100" }] } });
+  const snapshot = await updateSnapshot({ now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: async (url, opts) => {
+    const text = String(url);
+    if (text.includes("alphavantage") && text.includes("function=GLOBAL_QUOTE") && text.includes("symbol=QQQI")) alphaQuotes++;
+    if (text.includes("/QQQI/historical")) {
+      nasdaq++;
+      if (nasdaq < 3) { const error = new Error("timed out"); error.name = "TimeoutError"; throw error; }
+    }
+    return base(url, opts);
+  } });
+  assert.equal(nasdaq, 3);
+  assert.equal(alphaQuotes, 0);
+  assert.equal(snapshot.symbols.QQQI.price.source, "Nasdaq historical close");
+  assert.equal(snapshot.symbols.QQQI.price.price_date, "2026-09-15");
+  assert.equal(snapshot.refresh.freshness, "current");
+});
+
+test("an unresolved ETF gets a fourth price round", async () => {
+  const delays = [];
+  let calls = 0;
+  const base = fetcher({ alphaFails: ["SPYI"], yahooFails: ["SPYI"] });
+  const snapshot = await updateSnapshot({ now: NOW, apiKey: "test", priceAttempts: 4, retryDelays: [10, 20, 30], waiter: async (ms) => delays.push(ms), fetcher: async (url, opts) => {
+    if (String(url).includes("/SPYI/historical")) {
+      calls++;
+      if (calls < 4) throw new Error("not ready");
+      return response({ data: { tradesTable: { rows: [{ date: "09/15/2026", close: "$100" }] } } });
+    }
+    return base(url, opts);
+  } });
+  assert.equal(calls, 4);
+  assert.deepEqual(delays, [10, 20, 30]);
+  assert.equal(snapshot.symbols.SPYI.price.price, 100);
+  assert.equal(snapshot.refresh.freshness, "current");
+});
+
+const withXqqiHistory = (options) => {
+  const base = fetcher(options);
+  return async (url, opts) => String(url).includes("neosfunds.com/xqqi") ? { ok: true, text: async () => neos("21.04") + xqqiHistory } : base(url, opts);
+};
+
+test("a missed session keeps last good quotes, marks them stale, and does not rewrite an unchanged stale file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "stale-"));
+  const output = join(dir, "market.json");
+  const live = withXqqiHistory();
+  const first = await run({ output, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: live });
+  assert.equal(snapshotIsPublishable(first), true);
+  assert.equal(first.refresh.freshness, "current");
+  const before = JSON.parse(await readFile(output, "utf8"));
+  const older = Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, "2026-09-15"]));
+  const lagged = withXqqiHistory({
+    alphaDate: older,
+    yahooDate: older,
+    nasdaqHistorical: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, [{ date: "09/15/2026", close: "$100" }]])),
+  });
+  const next = Date.parse("2026-09-16T22:00:00Z");
+  const stale = await run({ output, now: next, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: lagged });
+  assert.equal(snapshotIsPublishable(stale), false);
+  assert.equal(stale.refresh.freshness, "stale");
+  assert.equal(stale.refresh.target_price_date, "2026-09-16");
+  const written = JSON.parse(await readFile(output, "utf8"));
+  assert.equal(written.refresh.freshness, "stale");
+  assert.equal(written.symbols.QQQI.price_status, "stale");
+  assert.equal(written.symbols.QQQI.price_error, "price_date_stale");
+  assert.equal(written.symbols.QQQI.price.price_date, "2026-09-15");
+  assert.equal(written.symbols.QQQI.price.price, before.symbols.QQQI.price.price);
+  assert.equal(written.symbols.QQQI.price.fetched_at, before.symbols.QQQI.price.fetched_at);
+  assert.ok(written.symbols.QQQI.dividends.data.length > 0);
+  assert.equal(written.symbols.SCHD.price_status, "stale");
+  assert.equal(written.symbols.XQQI.price_status, "stale");
+  const marked = await readFile(output, "utf8");
+  const again = await run({ output, now: next + 60000, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: lagged });
+  assert.equal(again.refresh.freshness, "stale");
+  assert.equal(await readFile(output, "utf8"), marked);
+});
+
+test("a thinner Yahoo dividend feed does not replace a verified history for the same ex date", async () => {
+  const previous = { schemaVersion: 2, symbols: { SCHD: { dividends: { data: [
+    { ex_date: "2026-09-23", payment_date: "2026-09-28", amount: 0.2665, declaration_date: "2026-02-18", record_date: "2026-09-23" },
+    { ex_date: "2026-06-24", payment_date: "2026-06-29", amount: 0.25, declaration_date: "2026-02-18", record_date: "2026-06-24" },
+    ...Array.from({ length: 10 }, (_, index) => ({ ex_date: `2025-${String(12 - index).padStart(2, "0")}-24`, payment_date: `2025-${String(12 - index).padStart(2, "0")}-28`, amount: 0.2 })),
+  ], source: "Alpha Vantage Dividends", fetched_at: "2026-09-15T21:00:00.000Z", status: "valid" } } } };
+  const snapshot = await updateSnapshot({ previous, now: NOW, apiKey: "", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher({ nasdaqDividendFails: ["SCHD"] }) });
+  const row = snapshot.symbols.SCHD.dividends;
+  assert.equal(row.source, "Alpha Vantage Dividends");
+  assert.equal(row.data.length, 12);
+  assert.equal(row.data[0].payment_date, "2026-09-28");
+  assert.equal(row.data[0].amount, 0.2665);
+  assert.equal(row.status, "stale");
+  assert.equal(row.fetched_at, "2026-09-15T21:00:00.000Z");
+});
+
+test("a later run does not rewrite a snapshot whose market fields are unchanged", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "fresh-"));
+  const output = join(dir, "market.json");
+  const live = withXqqiHistory();
+  const first = await run({ output, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: live });
+  assert.equal(first.refresh.freshness, "current");
+  const original = await readFile(output, "utf8");
+  const second = await run({ output, now: NOW + 3600000, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: live });
+  assert.equal(snapshotIsPublishable(second), true);
   assert.equal(await readFile(output, "utf8"), original);
 });

@@ -83,7 +83,8 @@ async function json(fetcher, url) {
   }
   return body;
 }
-async function html(fetcher, url) { const response = await fetcher(url, { signal: AbortSignal.timeout(18000), headers: { Accept: "text/html" } }); if (!response.ok) throw new Error("upstream_unavailable"); return response.text(); }
+async function html(fetcher, url) { const response = await fetcher(url, { signal: AbortSignal.timeout(18000), headers: { Accept: "text/html" } }); if (!response.ok) throw new Error(response.status === 429 ? "quota_exhausted" : `http_${response.status || 0}`); return response.text(); }
+const TRANSIENT_ERRORS = new Set(["request_timeout", "http_500", "http_502", "http_503", "http_504"]);
 
 export async function fetchAlphaPrice(symbol, apiKey, fetcher, fetched_at) {
   if (!apiKey) throw new Error("api_key_missing"); const url = new URL(ALPHA); url.search = new URLSearchParams({ function: "GLOBAL_QUOTE", symbol, apikey: apiKey }).toString();
@@ -285,6 +286,21 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     return fetcher(url, options);
   };
   const record = (entry) => { snapshot.refresh.price_attempts.push(entry); logger(entry); };
+  // Alpha Vantage is metered, so a timeout there is not retried. Nasdaq and Yahoo
+  // get two extra attempts on timeouts and 5xx before the next source is used.
+  const resolveWithRetry = async (source, resolvePrice) => {
+    const attempts = source === "Alpha Vantage" ? 1 : 3;
+    let last;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try { return await resolvePrice(); }
+      catch (error) {
+        last = error;
+        if (attempt === attempts || !TRANSIENT_ERRORS.has(errorCode(error))) throw error;
+        await waiter(Math.min(5000, 750 * attempt));
+      }
+    }
+    throw last;
+  };
   const refreshPrice = async (symbol, round) => {
     const old = snapshot.symbols[symbol] || {};
     let price;
@@ -295,7 +311,7 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       ["Yahoo", () => fetchYahooPrice(symbol, limitedFetcher, fetched_at, session.date)],
     ]) {
       try {
-        const row = await resolvePrice();
+        const row = await resolveWithRetry(source, resolvePrice);
         if (row.price_date !== session.date) throw Object.assign(new Error("price_date_stale"), { priceDate: row.price_date });
         price = row;
         record({ symbol, source, round, status: "success", price_date: row.price_date, price: row.price });
@@ -337,7 +353,11 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       try { dividends = await fetchNeosDividends(symbol, fetcher, fetched_at); dividendsFresh = true; }
       catch { dividends = old.dividends; }
     } else {
-      try { dividends = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); dividendsFresh = true; } catch { try { dividends = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); dividendsFresh = true; } catch { dividends = old.dividends; } } }
+      let fetched = null;
+      try { fetched = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); }
+      catch { try { fetched = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); } catch { try { fetched = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); } catch { fetched = null; } } }
+      if (shouldReplaceDividends(fetched, old.dividends)) { dividends = fetched; dividendsFresh = true; }
+      else dividends = old.dividends;
     }
     if (dividends) snapshot.symbols[symbol].dividends = { ...dividends, status: dividendsFresh ? "valid" : "stale" };
 
@@ -345,7 +365,7 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
   }
   try { snapshot.fx = await fetchFrankfurter(fetcher, fetched_at); } catch { try { snapshot.fx = await fetchOpenExchangeRate(fetcher, fetched_at); } catch { snapshot.fx = snapshot.fx ? { ...snapshot.fx, status: "stale" } : { status: "unavailable" }; } }
-  for (let round = 2; round <= Math.min(3, Math.max(1, priceAttempts)); round++) {
+  for (let round = 2; round <= Math.min(4, Math.max(1, priceAttempts)); round++) {
     const missing = SYMBOLS.filter(symbol => snapshot.symbols[symbol].price_status !== "valid");
     if (!missing.length) break;
     await waiter(Math.max(0, retryDelays[round - 2] ?? 90000));
@@ -359,24 +379,81 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     }
   }
   snapshot.refresh.summary = summarizePrices(snapshot);
-  logger({ type: "summary", ...snapshot.refresh.summary });
+  const pricesCurrent = SYMBOLS.every((symbol) => snapshot.symbols[symbol]?.price_status === "valid" && snapshot.symbols[symbol]?.price?.price_date === session.date);
+  snapshot.refresh.freshness = pricesCurrent ? "current" : "stale";
+  logger({ type: "summary", freshness: snapshot.refresh.freshness, ...snapshot.refresh.summary });
   return snapshot;
+}
+function stableMarket(snapshot) {
+  const strip = (value) => {
+    if (Array.isArray(value)) return value.map(strip);
+    if (!value || typeof value !== "object") return value;
+    const out = {};
+    for (const key of Object.keys(value).sort()) {
+      if (key === "fetched_at" || key === "generatedAt" || key === "generated_at") continue;
+      out[key] = strip(value[key]);
+    }
+    return out;
+  };
+  return JSON.stringify(strip({
+    target: snapshot?.refresh?.target_price_date || null,
+    freshness: snapshot?.refresh?.freshness || null,
+    fx: snapshot?.fx || null,
+    symbols: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, snapshot?.symbols?.[symbol] || null])),
+  }));
+}
+function hasDividendHistory(row) {
+  const dividends = row?.dividends?.data;
+  return Array.isArray(dividends) && dividends.length > 0 && dividends.every((item) => validDate(item.ex_date) && validPrice(item.amount));
+}
+function dividendCoverage(row) {
+  const data = row?.data || [];
+  const dated = data.filter((item) => validDate(item.payment_date) || validDate(item.declaration_date) || validDate(item.record_date)).length;
+  return { count: data.length, dated, latest: data[0]?.ex_date || "" };
+}
+// Yahoo can return a shorter, payment-date-free list for the same ex date.
+// That must not overwrite a longer verified history or look like a fresh update.
+function shouldReplaceDividends(fresh, previous) {
+  if (!fresh?.data?.length) return false;
+  const next = dividendCoverage(fresh);
+  const prior = dividendCoverage(previous);
+  if (!prior.count) return true;
+  if (next.latest > prior.latest) return true;
+  if (prior.dated > 0 && next.dated === 0) return false;
+  if (prior.count >= 12 && next.count * 2 < prior.count) return false;
+  return true;
 }
 export function snapshotIsPublishable(snapshot) {
   const summary = snapshot?.refresh?.summary;
   const target = snapshot?.refresh?.target_price_date;
-  if (!summary || summary.status !== "complete" || !validDate(target)) return false;
+  if (!summary || summary.status !== "complete" || snapshot.refresh?.freshness !== "current" || !validDate(target)) return false;
   return SYMBOLS.every((symbol) => {
     const row = snapshot.symbols?.[symbol];
-    const dividends = row?.dividends?.data;
-    return row?.price_status === "valid" && validPrice(row?.price?.price) && row?.price?.price_date === target && Array.isArray(dividends) && dividends.length > 0 && dividends.every((item) => validDate(item.ex_date) && validPrice(item.amount) && item.amount !== "");
+    return row?.price_status === "valid" && validPrice(row?.price?.price) && row?.price?.price_date === target && hasDividendHistory(row);
+  });
+}
+// A failed refresh may still be written when every ticker keeps a real last
+// close and its dividend history, and any quote older than the completed
+// session is explicitly stale. Timestamp-only repeats are not rewritten.
+export function snapshotIsRecordable(snapshot) {
+  const target = snapshot?.refresh?.target_price_date;
+  if (!validDate(target) || (snapshot?.refresh?.freshness !== "current" && snapshot?.refresh?.freshness !== "stale")) return false;
+  if (!Number.isFinite(Date.parse(snapshot?.generatedAt || ""))) return false;
+  return SYMBOLS.every((symbol) => {
+    const row = snapshot.symbols?.[symbol];
+    const price = row?.price;
+    if (!validPrice(price?.price) || !validDate(price?.price_date) || !hasDividendHistory(row)) return false;
+    if (row.price_status === "valid" && price.price_date === target) return true;
+    return row.price_status === "stale" && typeof row.price_error === "string" && price.price_date < target;
   });
 }
 export async function run({ apiKey = process.env.ALPHA_VANTAGE_API_KEY || "", output = fileURLToPath(new URL("../data/market.json", import.meta.url)), ...options } = {}) {
   let previous = {};
-  try { previous = JSON.parse(await readFile(output, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw new Error("旧快照读取失败，已停止写入以保留原文件"); }
-  const snapshot = await updateSnapshot({ priceAttempts: 3, alphaMinIntervalMs: 12000, ...options, previous, apiKey });
-  if (!snapshotIsPublishable(snapshot)) return snapshot;
+  let hadFile = true;
+  try { previous = JSON.parse(await readFile(output, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw new Error("旧快照读取失败，已停止写入以保留原文件"); hadFile = false; }
+  const snapshot = await updateSnapshot({ priceAttempts: 4, retryDelays: [20000, 60000, 180000], alphaMinIntervalMs: 12000, ...options, previous, apiKey });
+  const durable = snapshotIsPublishable(snapshot) || snapshotIsRecordable(snapshot);
+  if (!durable || (hadFile && stableMarket(previous) === stableMarket(snapshot))) return snapshot;
   await mkdir(dirname(output), { recursive: true });
   await writeFile(`${output}.tmp`, JSON.stringify(snapshot, null, 2) + "\n");
   await rename(`${output}.tmp`, output);
@@ -386,10 +463,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const snapshot = await run({ logger: entry => console.log(JSON.stringify(entry)) });
     const summary = snapshot.refresh.summary;
-    const text = `目标收盘日 ${snapshot.refresh.target_price_date}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
+    const held = [...new Set(SYMBOLS.map((symbol) => snapshot.symbols?.[symbol]?.price?.price_date).filter(Boolean))].join(", ");
+    const text = `新鲜度 ${snapshot.refresh.freshness}；目标收盘日 ${snapshot.refresh.target_price_date}；行情日期 ${held}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
     console.log(text);
-    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${summary.status}\n\n${text}\n`);
-    if (!snapshotIsPublishable(snapshot)) process.exitCode = 1;
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${snapshot.refresh.freshness}\n\n${text}\n\n工作流成功只表示脚本跑完。收盘价是否最新只看新鲜度和行情日期。\n`);
+    if (snapshot.refresh.freshness !== "current") process.exitCode = 1;
   } catch {
     console.error("行情快照更新失败，旧文件已保留；请检查网络与配置。");
     process.exitCode = 1;

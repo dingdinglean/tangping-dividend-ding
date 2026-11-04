@@ -3,22 +3,14 @@ name: Update market data
 on:
   workflow_dispatch:
   schedule:
-    # US cash close is 21:00 UTC in winter (EST) and 20:00 UTC in summer (EDT):
-    # 05:00 or 04:00 Asia/Shanghai. GitHub's scheduler often starts these
-    # 3–7 hours late and can drop a slot entirely; on 2026-11-03 the 21:30 UTC
-    # and 22:45 UTC slots were still absent more than five hours after their
-    # cron. The extra minutes are free catch-ups for that same completed
-    # session. A run before the next 16:00 America/New_York close still
-    # targets the previous session, including when GitHub delivers it late.
-    - cron: '30 21 * * *' # 05:30 Shanghai
-    - cron: '45 22 * * *' # 06:45 Shanghai
-    - cron: '11 23 * * *' # 07:11 Shanghai
-    - cron: '17 0 * * *'  # 08:17 Shanghai
-    - cron: '37 1 * * *'  # 09:37 Shanghai
-    - cron: '30 2 * * *'  # 10:30 Shanghai
-    - cron: '19 4 * * *'  # 12:19 Shanghai
-    - cron: '41 7 * * *'  # 15:41 Shanghai
-    - cron: '13 11 * * *' # 19:13 Shanghai, before the next US cash open
+    # One watcher, plus one backup if that start is dropped. The job itself
+    # waits until 16:00 or 13:00 America/New_York (so EST and EDT both work),
+    # then polls until the new closes are in or until 08:00 Asia/Shanghai.
+    # 18:05 UTC is a few hours before either cash close. A delayed start still
+    # falls inside the Beijing morning. 22:40 UTC (06:40 Shanghai) is only the
+    # safety start when the watcher never began.
+    - cron: '5 18 * * 1-5'
+    - cron: '40 22 * * 1-5'
 
 permissions:
   contents: write
@@ -30,7 +22,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
         with:

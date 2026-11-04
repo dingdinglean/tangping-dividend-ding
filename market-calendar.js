@@ -107,3 +107,77 @@ export function sessionDateFromTimestamp(value) {
   const parts = nyParts(parsed);
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
+
+function zonedParts(now, timeZone) {
+  const pieces = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(now));
+  return Object.fromEntries(pieces.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+
+// Convert a wall-clock time in a zone to UTC. 13:00 and 16:00 never fall in a DST overlap.
+export function zonedDateTimeToUtc(isoDate, hour, minute, timeZone) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  let utc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = zonedParts(utc, timeZone);
+    const got = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour) % 24, Number(parts.minute));
+    const want = Date.UTC(year, month - 1, day, hour, minute);
+    if (got === want) return utc;
+    utc += want - got;
+  }
+  return utc;
+}
+
+export function cashCloseUtc(sessionDate) {
+  if (!isUsTradingDay(sessionDate)) return null;
+  const earlyClose = isEarlyClose(sessionDate);
+  return { date: sessionDate, earlyClose, closeAt: zonedDateTimeToUtc(sessionDate, earlyClose ? 13 : 16, 0, "America/New_York") };
+}
+
+// 08:00 Asia/Shanghai on the Beijing calendar day that contains the cash close.
+export function beijingMorningDeadline(closeAt) {
+  const parts = zonedParts(closeAt, "Asia/Shanghai");
+  return zonedDateTimeToUtc(`${parts.year}-${parts.month}-${parts.day}`, 8, 0, "Asia/Shanghai");
+}
+
+const WATCH_LEAD_MS = 8 * 3600000;
+const CLOSE_GRACE_MS = 10 * 60 * 1000;
+
+export function upcomingCashClose(now = Date.now()) {
+  const parts = nyParts(now);
+  let date = `${parts.year}-${parts.month}-${parts.day}`;
+  for (let step = 0; step < 12; step += 1) {
+    const close = cashCloseUtc(date);
+    if (close && close.closeAt > now) return close;
+    date = addDays(date, 1);
+  }
+  return null;
+}
+
+// A run that starts in the hours before the bell must wait for that session.
+// After the bell it polls until 08:00 Asia/Shanghai. Later maintenance just
+// republishes the latest completed session.
+export function watchPlan(now = Date.now()) {
+  const upcoming = upcomingCashClose(now);
+  if (upcoming && upcoming.closeAt - now <= WATCH_LEAD_MS) {
+    return {
+      phase: "wait",
+      targetDate: upcoming.date,
+      earlyClose: upcoming.earlyClose,
+      waitUntil: upcoming.closeAt + CLOSE_GRACE_MS,
+      deadline: beijingMorningDeadline(upcoming.closeAt),
+    };
+  }
+  const completed = latestCompletedUsTradingSession(now);
+  const close = cashCloseUtc(completed.date);
+  const deadline = close ? beijingMorningDeadline(close.closeAt) : now;
+  return {
+    phase: now >= deadline ? "final" : "poll",
+    targetDate: completed.date,
+    earlyClose: completed.earlyClose,
+    waitUntil: now,
+    deadline,
+  };
+}

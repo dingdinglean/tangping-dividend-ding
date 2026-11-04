@@ -44,11 +44,11 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 3. 点击 **Run workflow**，选择 `main`，再点击绿色 **Run workflow**。
 4. 等待完成后检查 `data/market.json`；手机重新打开 App 即会读取新快照。缺 Secret 时会跳过 Alpha Vantage，不会覆盖已有有效记录。
 
-工作流在美股常规收盘之后多次刷新。北京时间的计划点是 **05:30、06:45、07:11、08:17、09:37、10:30、12:19、15:41、19:13**。GitHub 的定时任务经常晚数小时，也可能直接丢掉某一个点；多出来的时刻是同一笔已完成交易日的免费补跑，不另外部署服务。脚本以 `America/New_York` 的最近已完成 NYSE/Nasdaq 交易日为准：识别周末、法定休市和 13:00 ET 提前收盘，绝不以北京时间简单减一天。定时任务只在默认分支生效，因此需要先合并 PR。Actions 显示成功只说明脚本跑完；快照是否最新要看 `refresh.freshness` 和每只 ETF 的 `price_date`。源站拿不到新收盘时，任务会失败，但会保留上一笔真实价格和派息，并把 `price_status` 写成 `stale`。已经对齐当前交易日时，后面的补跑不再重复提交。
+工作流每个交易日有两次定时启动：UTC **18:05**（北京 02:05）和备用的 UTC **22:40**（北京 06:40）。真正的等待在任务里面完成。脚本按 `America/New_York` 计算当天 16:00（提前收盘日为 13:00），夏令时和标准时间都会跟着交易所走，不会把收盘写死成某一个 UTC 小时。若任务在收盘前就开始，它会睡到收盘后 10 分钟再抓；Nasdaq 历史表还没换日时改用 Nasdaq 官方 “Closed at” 收盘，再用 Alpha Vantage，最后用 Yahoo 日线。抓不到新交易日就每 3 分钟再试，直到北京时间 08:00。到点仍旧不是新收盘，就把上一笔价格标成 `stale` 并让任务失败。GitHub 仍可能整次不启动定时任务，所以不能保证每天 08:00 前一定更新；备用的那一次启动就是为了这种情况，而不是再铺一排整点。定时任务只在默认分支生效。
 
 ### 快照内容与额度
 
-- 默认 QQQI、SPYI、QNDX、SCHD、XQQI。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Alpha Vantage 返回旧日线时自动尝试 Nasdaq 的常规收盘价，再尝试 Yahoo 日线。
+- 默认 QQQI、SPYI、QNDX、SCHD、XQQI。每个行情记录保存 `symbol / price / price_date / source / fetched_at`；只有 `price_date` 等于最近完成交易日才会被写为有效值。Nasdaq 历史表落后时先用 Nasdaq 官方收盘，再用 Alpha Vantage，最后用 Yahoo 日线。
 - USD/CNY 单独每日刷新，保存 `rate / fx_date / source / fetched_at`；主源 Frankfurter 失败时使用 Open Exchange Rates。所有行情源失败时保留旧记录并标记 `stale`。页面在价格日期不是最近完成交易日时，仍用上一笔收盘价估算市值和预期现金流，并写明日期和“沿用上一交易日收盘价”；完全没有价格时不计入总市值。
 - QQQI、SPYI、XQQI 使用 NEOS 官方 `Distribution Rate`；QNDX 在派息历史不足时使用 State Street 的 `30 Day SEC Yield`；SCHD 使用实际 distributions 的 TTM。各自保留原指标名称，页面不把它们合成一个“股息率”。覆盖期不足明确显示“数据不足”，来源刷新失败时保留上次数值并标记过期。累计股息始终只来自用户确认的真实到账记录。
 - 文件只包含白名单公开价格、每股派息、日期及刷新状态/计数；脚本不读取浏览器持仓、交易或到账记录，密钥仅从环境变量读取，不写入文件和日志。

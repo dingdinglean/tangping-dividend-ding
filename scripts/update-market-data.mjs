@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, rename, appendFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "../market-calendar.js";
+import { latestCompletedUsTradingSession, sessionDateFromTimestamp, watchPlan } from "../market-calendar.js";
 
 export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"];
 const ALPHA = "https://www.alphavantage.co/query";
@@ -307,13 +307,16 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     let priceError = "upstream_unavailable";
     for (const [source, resolvePrice] of [
       ["Nasdaq", () => fetchNasdaqHistoricalPrice(symbol, limitedFetcher, fetched_at, session.date)],
+      // The historical table often lags the cash close. The quote page's
+      // "Closed at" print is the same official close and appears first.
+      ["Nasdaq official", () => fetchNasdaqPrice(symbol, limitedFetcher, fetched_at)],
       ["Alpha Vantage", () => fetchAlphaPrice(symbol, apiKey, limitedFetcher, fetched_at)],
       ["Yahoo", () => fetchYahooPrice(symbol, limitedFetcher, fetched_at, session.date)],
     ]) {
       try {
         const row = await resolveWithRetry(source, resolvePrice);
         if (row.price_date !== session.date) throw Object.assign(new Error("price_date_stale"), { priceDate: row.price_date });
-        price = row;
+        price = withCarriedHistory(row, old);
         record({ symbol, source, round, status: "success", price_date: row.price_date, price: row.price });
         break;
       } catch (e) {
@@ -402,6 +405,18 @@ function stableMarket(snapshot) {
     symbols: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, snapshot?.symbols?.[symbol] || null])),
   }));
 }
+function withCarriedHistory(price, old) {
+  if (!price || price.history) return price;
+  const history = safeHistory([...(old?.price_history || []), { date: price.price_date, close: price.price }]);
+  if (!history) return price;
+  const previous = history.find((item) => item.date < price.price_date);
+  const quote = { ...price, history };
+  if (previous && quote.change == null) {
+    quote.change = Number((quote.price - previous.close).toFixed(4));
+    quote.change_percent = Number(((quote.price - previous.close) / previous.close).toFixed(6));
+  }
+  return quote;
+}
 function hasDividendHistory(row) {
   const dividends = row?.dividends?.data;
   return Array.isArray(dividends) && dividends.length > 0 && dividends.every((item) => validDate(item.ex_date) && validPrice(item.amount));
@@ -459,15 +474,34 @@ export async function run({ apiKey = process.env.ALPHA_VANTAGE_API_KEY || "", ou
   await rename(`${output}.tmp`, output);
   return snapshot;
 }
+export async function runWatch({ now = () => Date.now(), waiter = sleep, pollMs = 180000, ...options } = {}) {
+  const initial = watchPlan(now());
+  options.logger?.({ type: "watch", phase: initial.phase, target: initial.targetDate, wait_until: new Date(initial.waitUntil).toISOString(), deadline: new Date(initial.deadline).toISOString() });
+  if (initial.phase === "wait" && initial.waitUntil > now()) await waiter(initial.waitUntil - now());
+  let snapshot;
+  let plan = initial;
+  for (;;) {
+    const at = now();
+    plan = watchPlan(at);
+    snapshot = await run({ priceAttempts: 2, retryDelays: [15000], waiter, ...options, now: at });
+    const aligned = snapshot?.refresh?.freshness === "current" && snapshot?.refresh?.target_price_date === plan.targetDate;
+    if (aligned) return { snapshot, plan, fresh: true };
+    if (at >= plan.deadline || plan.phase === "final") return { snapshot, plan, fresh: false };
+    const pause = Math.min(pollMs, Math.max(0, plan.deadline - now()));
+    if (pause <= 0) return { snapshot, plan, fresh: false };
+    options.logger?.({ type: "watch", phase: "poll", target: plan.targetDate, pause_ms: pause });
+    await waiter(pause);
+  }
+}
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const snapshot = await run({ logger: entry => console.log(JSON.stringify(entry)) });
+    const { snapshot, plan, fresh } = await runWatch({ logger: entry => console.log(JSON.stringify(entry)) });
     const summary = snapshot.refresh.summary;
     const held = [...new Set(SYMBOLS.map((symbol) => snapshot.symbols?.[symbol]?.price?.price_date).filter(Boolean))].join(", ");
-    const text = `新鲜度 ${snapshot.refresh.freshness}；目标收盘日 ${snapshot.refresh.target_price_date}；行情日期 ${held}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
+    const text = `新鲜度 ${snapshot.refresh.freshness}；观察目标 ${plan.targetDate}；北京截止 ${new Date(plan.deadline).toISOString()}；目标收盘日 ${snapshot.refresh.target_price_date}；行情日期 ${held}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
     console.log(text);
-    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${snapshot.refresh.freshness}\n\n${text}\n\n工作流成功只表示脚本跑完。收盘价是否最新只看新鲜度和行情日期。\n`);
-    if (snapshot.refresh.freshness !== "current") process.exitCode = 1;
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${fresh ? "current" : "stale"}\n\n${text}\n\n收盘价是否最新只看行情日期是否等于观察目标。未到北京 08:00 截止时，同一次任务会等到纽约收盘后再抓。\n`);
+    if (!fresh) process.exitCode = 1;
   } catch {
     console.error("行情快照更新失败，旧文件已保留；请检查网络与配置。");
     process.exitCode = 1;

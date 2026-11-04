@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay } from "../market-calendar.js";
+import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay, watchPlan, cashCloseUtc, beijingMorningDeadline } from "../market-calendar.js";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, snapshotIsPublishable, run } from "../scripts/update-market-data.mjs";
+import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, snapshotIsPublishable, run, runWatch } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
@@ -25,6 +25,13 @@ function fetcher(options = {}) {
       if (options.yahooFails?.includes(symbol)) throw new Error("network");
       if (parsed.searchParams.has("events")) return response({ chart: { result: [{ events: { dividends: { a: { date: dayStamp("2026-09-01"), amount: 1 }, b: { date: dayStamp("2025-09-15"), amount: 1 } } } }] } });
       const day = options.yahooDate?.[symbol] || "2026-09-15"; return response({ chart: { result: [{ timestamp: [dayStamp(day)], indicators: { quote: [{ close: [Number(options.yahooPrice?.[symbol] || 101)] }] } }] } });
+    }
+    if (parsed.hostname.includes("api.nasdaq.com") && parsed.pathname.endsWith("/info")) {
+      const ticker = parsed.pathname.split("/").filter(Boolean).at(-2);
+      if (options.nasdaqInfoFails?.includes(ticker)) throw new Error("network");
+      const info = options.nasdaqInfo?.[ticker];
+      if (!info) throw new Error("invalid_data");
+      return response({ data: { secondaryData: info } });
     }
     if (parsed.hostname.includes("api.nasdaq.com") && parsed.pathname.endsWith("/historical")) {
       const ticker = parsed.pathname.split("/").filter(Boolean).at(-2);
@@ -465,4 +472,105 @@ test("a later run does not rewrite a snapshot whose market fields are unchanged"
   const second = await run({ output, now: NOW + 3600000, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: live });
   assert.equal(snapshotIsPublishable(second), true);
   assert.equal(await readFile(output, "utf8"), original);
+});
+
+test("cash close and Beijing deadline follow New York daylight saving and early closes", () => {
+  assert.equal(new Date(cashCloseUtc("2026-11-03").closeAt).toISOString(), "2026-11-03T21:00:00.000Z");
+  assert.equal(new Date(beijingMorningDeadline(cashCloseUtc("2026-11-03").closeAt)).toISOString(), "2026-11-04T00:00:00.000Z");
+  assert.equal(new Date(cashCloseUtc("2026-03-09").closeAt).toISOString(), "2026-03-09T20:00:00.000Z");
+  assert.equal(new Date(beijingMorningDeadline(cashCloseUtc("2026-03-09").closeAt)).toISOString(), "2026-03-10T00:00:00.000Z");
+  assert.equal(cashCloseUtc("2026-11-27").earlyClose, true);
+  assert.equal(new Date(cashCloseUtc("2026-11-27").closeAt).toISOString(), "2026-11-27T18:00:00.000Z");
+  const before = watchPlan(Date.parse("2026-11-03T18:24:00Z"));
+  assert.equal(before.phase, "wait");
+  assert.equal(before.targetDate, "2026-11-03");
+  assert.equal(new Date(before.waitUntil).toISOString(), "2026-11-03T21:10:00.000Z");
+  assert.equal(new Date(before.deadline).toISOString(), "2026-11-04T00:00:00.000Z");
+  const summer = watchPlan(Date.parse("2026-07-15T18:00:00Z"));
+  assert.equal(summer.phase, "wait");
+  assert.equal(new Date(summer.waitUntil).toISOString(), "2026-07-15T20:10:00.000Z");
+  const late = watchPlan(Date.parse("2026-11-04T00:48:00Z"));
+  assert.equal(late.phase, "final");
+  assert.equal(late.targetDate, "2026-11-03");
+});
+
+test("Nasdaq official close supplies the session when the historical table is still behind", async () => {
+  const now = Date.parse("2026-11-03T21:20:00Z");
+  const snapshot = await updateSnapshot({
+    previous: { symbols: { QQQI: { price_history: [{ date: "2026-11-02", close: 51.05 }] } } },
+    now, apiKey: "", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher({
+    nasdaqHistorical: { QQQI: [{ date: "11/02/2026", close: "$51.05" }] },
+    nasdaqInfo: { QQQI: { lastSalePrice: "$51.31", lastTradeTimestamp: "Closed at Nov 3, 2026 4:00 PM ET" } },
+    alphaFails: ["QQQI"],
+  }) });
+  const row = snapshot.symbols.QQQI;
+  assert.equal(row.price.price, 51.31);
+  assert.equal(row.price.price_date, "2026-11-03");
+  assert.equal(row.price.source, "Nasdaq official close");
+  assert.equal(row.price_status, "valid");
+  assert.equal(row.price.change, 0.26);
+  assert.equal(snapshot.refresh.price_attempts.some((entry) => entry.symbol === "QQQI" && entry.source === "Alpha Vantage"), false);
+});
+
+test("a pre-close run waits for the New York bell and does not publish the previous session as done", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "watch-"));
+  const output = join(dir, "market.json");
+  let clock = Date.parse("2026-11-03T18:24:00Z");
+  const waits = [];
+  const base = withXqqiHistory();
+  const fetcherForClock = async (url, opts) => {
+    const text = String(url);
+    if (text.includes("/historical")) return response({ data: { tradesTable: { rows: [{ date: "11/02/2026", close: "$51.05" }] } } });
+    if (text.includes("/info")) {
+      const closed = clock >= Date.parse("2026-11-03T21:00:00Z");
+      return response({ data: { secondaryData: { lastSalePrice: closed ? "$51.31" : "$51.05", lastTradeTimestamp: closed ? "Closed at Nov 3, 2026 4:00 PM ET" : "Closed at Nov 2, 2026 4:00 PM ET" } } });
+    }
+    return base(url, opts);
+  };
+  const result = await runWatch({
+    output, apiKey: "test", pollMs: 60_000, priceAttempts: 1, retryDelays: [], alphaMinIntervalMs: 0,
+    now: () => clock,
+    waiter: async (ms) => { waits.push(ms); clock += ms; },
+    fetcher: fetcherForClock,
+  });
+  assert.equal(waits.length, 1);
+  assert.equal(waits[0], Date.parse("2026-11-03T21:10:00Z") - Date.parse("2026-11-03T18:24:00Z"));
+  assert.equal(result.fresh, true);
+  assert.equal(result.snapshot.refresh.target_price_date, "2026-11-03");
+  assert.equal(result.snapshot.symbols.QQQI.price.price, 51.31);
+  assert.equal(result.snapshot.symbols.SPYI.price.price_date, "2026-11-03");
+  const written = JSON.parse(await readFile(output, "utf8"));
+  assert.equal(written.refresh.freshness, "current");
+  assert.equal(written.symbols.SCHD.price.price_date, "2026-11-03");
+});
+
+test("after the Beijing deadline a missing session is stale instead of a successful previous close", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "deadline-"));
+  const output = join(dir, "market.json");
+  const prior = withXqqiHistory({
+    nasdaqInfo: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 2, 2026 4:00 PM ET" }])),
+  });
+  await run({ output, now: Date.parse("2026-11-03T18:00:00Z"), apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: prior });
+  let clock = Date.parse("2026-11-04T00:48:00Z");
+  const stalled = async (url, opts) => {
+    if (String(url).includes("/info") || String(url).includes("/historical")) {
+      if (String(url).includes("/info")) return response({ data: { secondaryData: { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 2, 2026 4:00 PM ET" } } });
+      return response({ data: { tradesTable: { rows: [{ date: "11/02/2026", close: "$10" }] } } });
+    }
+    return prior(url, opts);
+  };
+  const result = await runWatch({
+    output, apiKey: "", priceAttempts: 1, retryDelays: [], pollMs: 60_000,
+    now: () => clock,
+    waiter: async (ms) => { clock += ms; },
+    fetcher: stalled,
+  });
+  assert.equal(result.fresh, false);
+  assert.equal(result.plan.phase, "final");
+  assert.equal(result.snapshot.refresh.freshness, "stale");
+  assert.equal(result.snapshot.refresh.target_price_date, "2026-11-03");
+  const written = JSON.parse(await readFile(output, "utf8"));
+  assert.equal(written.symbols.QQQI.price_status, "stale");
+  assert.equal(written.symbols.QQQI.price.price_date, "2026-11-02");
+  assert.equal(written.refresh.freshness, "stale");
 });

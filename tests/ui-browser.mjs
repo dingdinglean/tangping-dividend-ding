@@ -66,6 +66,31 @@ async function finishMotion(page) {
   });
 }
 
+// WebKit can report animation-name as none once the 240ms page-enter animation
+// finishes. Sample it when the entering class is applied, not only afterward.
+async function expectPageEnter(page, tab) {
+  await page.evaluate(() => {
+    window.__pageEnterSeen = false;
+    const mark = () => {
+      const el = document.querySelector(".tab-page.is-entering");
+      if (!el) return;
+      const style = getComputedStyle(el);
+      const named = `${style.animationName} ${style.animation}`.includes("page-enter");
+      const running = (el.getAnimations?.() || []).some((animation) => animation.animationName === "page-enter");
+      if (named || running) window.__pageEnterSeen = true;
+    };
+    window.__pageEnterObserver?.disconnect();
+    window.__pageEnterObserver = new MutationObserver(() => {
+      mark();
+      requestAnimationFrame(mark);
+    });
+    window.__pageEnterObserver.observe(document.querySelector("#app"), { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  });
+  await page.locator(`[data-tab="${tab}"]`).click();
+  await page.waitForFunction(() => window.__pageEnterSeen === true);
+  assert.equal(await page.locator(`.tab-page.${tab}-page.is-entering`).count(), 1, tab);
+}
+
 async function checkSelection(page, month, amount) {
   await page.locator(`[data-chart-month="${month - 1}"]`).tap();
   await finishMotion(page);
@@ -162,8 +187,7 @@ async function runUi(browser, engine) {
     await page.locator('[data-chart-month="9"]').press("Escape");
     assert.equal(await page.locator('.bar-group[aria-pressed="true"]').count(), 0);
     for (const tab of ["portfolio", "calendar", "settings", "home"]) {
-      await page.locator(`[data-tab="${tab}"]`).click();
-      assert.ok(await page.locator(".tab-page").evaluate(el => getComputedStyle(el).animationName === "page-enter"));
+      await expectPageEnter(page, tab);
     }
     await page.evaluate(() => navigator.serviceWorker.ready);
     assert.ok(await page.evaluate(async version => (await caches.keys()).includes(`tangping-dividend-v${version}`), APP_VERSION));

@@ -125,7 +125,15 @@ for (const engine of ["Chromium", "WebKit"]) {
         for (const tab of ["home", "portfolio", "calendar", "settings"]) {
           await page.locator(`[data-tab="${tab}"]`).click();
           await settle(page);
-          if (tab === "calendar") await page.locator('[data-date="2026-10-14"]').click();
+          if (tab === "calendar") {
+            // The public snapshot clock is the current month. October 14 stays the
+            // fixture's event day, so step back until that cell is on screen.
+            const eventDay = page.locator('[data-date="2026-10-14"]');
+            for (let step = 0; step < 24 && await eventDay.count() === 0; step += 1) {
+              await page.locator('[data-action="prev-month"]').click();
+            }
+            await eventDay.click();
+          }
           await validatePage(page, tab, `${engine}/${profile.name}`);
           if (tab === "portfolio") {
             const layout = await page.evaluate(() => {

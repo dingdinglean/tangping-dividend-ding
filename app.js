@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.1";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.1";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.1";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.2";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.2";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.2";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -16,8 +16,7 @@ const THEME_LABELS = { system: "跟随系统", light: "浅色", dark: "深色" }
 const THEME_COLORS = { light: "#f5f5f7", dark: "#000000" };
 
 const defaultMilestones = [
-  { id: "milk-tea", icon: "☕", name: "奶茶自由", amountCny: 150 },
-  { id: "utilities", icon: "⚡", name: "水电自由", amountCny: 400 },
+  { id: "insurance", icon: "🛡️", name: "保费自由", amountCny: 1000 },
   { id: "meals", icon: "🍽", name: "三餐自由", amountCny: 2500 },
   { id: "semi-retired", icon: "🌴", name: "半步退休", amountCny: 6000 },
   { id: "journey", icon: "🏔", name: "诗和远方", amountCny: 12000 },
@@ -144,8 +143,9 @@ function loadState() {
 
 function normalizeMilestones(savedMilestones) {
   if (!Array.isArray(savedMilestones)) return structuredClone(defaultMilestones);
-  return defaultMilestones.map((fallback, index) => {
-    const saved = savedMilestones.find((item) => item?.id === fallback.id) || savedMilestones[index] || {};
+  // Match by id only. A removed level must not slide its name, icon, or amount onto another index.
+  return defaultMilestones.map((fallback) => {
+    const saved = savedMilestones.find((item) => item?.id === fallback.id) || {};
     return {
       id: fallback.id,
       icon: String(saved.icon || fallback.icon).trim().slice(0, 8) || fallback.icon,
@@ -975,7 +975,7 @@ function renderFreedomMilestones(monthlyIncomeCny) {
   return `
     <section class="card freedom-card">
       <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? escapeHtml(current.name) : "从第一步开始"}</h2></div><button class="milestone-edit" data-action="open-milestone-settings" aria-label="编辑自由里程碑"><span>${progress.toFixed(1)}%</span>${uiIcon("chevron")}</button></div>
-      <div class="freedom-next">${next ? `${animatedMoney("freedom-next", incomeUsd)} / ${displayCnyAmount(next.amountCny)} <span>· 下一站 ${escapeHtml(next.name)}</span>` : "六个里程碑已全部解锁"}</div>
+      <div class="freedom-next">${next ? `${animatedMoney("freedom-next", incomeUsd)} / ${displayCnyAmount(next.amountCny)} <span>· 下一站 ${escapeHtml(next.name)}</span>` : "五个里程碑已全部解锁"}</div>
       <div class="progress-track freedom-progress" role="progressbar" aria-label="下一自由里程碑进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.toFixed(1)}"><div class="progress-fill" data-progress-value="${progress}" style="transform:scaleX(${progress / 100})"></div></div>
     </section>`;
 }
@@ -1176,7 +1176,7 @@ function renderSettings() {
       <button class="settings-menu-row" data-action="open-display-settings"><span><b>显示货币</b><small>${state.settings.displayCurrency === "CNY" ? "人民币 CNY" : "美元 USD"}</small></span><em>›</em></button>
       <button class="settings-menu-row" data-action="open-theme-settings"><span><b>外观</b><small>${currentThemeLabel()}</small></span><em>›</em></button>
       <button class="settings-menu-row" data-action="open-goal-settings"><span><b>月收入目标</b><small>¥${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(state.settings.monthlyGoal)}/月</small></span><em>›</em></button>
-      <button class="settings-menu-row" data-action="open-milestone-settings"><span><b>自由里程碑</b><small>6 个等级</small></span><em>›</em></button>
+      <button class="settings-menu-row" data-action="open-milestone-settings"><span><b>自由里程碑</b><small>5 个等级</small></span><em>›</em></button>
     </section>
     <section class="card settings-menu" aria-label="数据与备份">
       <button class="settings-menu-row" data-action="export-data"><span><b>导出备份</b></span><em>›</em></button>

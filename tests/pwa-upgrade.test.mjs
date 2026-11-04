@@ -165,6 +165,14 @@ test("v8.2 ledger and delete-backup survive activation and the following app boo
   assert.equal(stored.settings.theme, "dark");
   assert.equal(stored.settings.customSetting, "keep");
   assert.equal(stored.assets[0].ticker, "SCHD");
+  assert.deepEqual(stored.settings.freedomMilestones.map((item) => [item.id, item.name, item.amountCny]), [
+    ["insurance", "保费自由", 1000],
+    ["meals", "三餐自由", 2500],
+    ["semi-retired", "半步退休", 6000],
+    ["journey", "诗和远方", 12000],
+    ["life", "人生自由", 20000],
+  ]);
+  assert.equal(stored.settings.freedomMilestones.some((item) => item.id === "milk-tea" || item.id === "utilities" || item.name === "奶茶自由" || item.name === "水电自由"), false);
   assert.equal(storage.get(USER_DATA_KEYS[1]), backupBefore);
 });
 
@@ -216,6 +224,13 @@ test("v7.3 direct-mode settings and v1 trades survive activation, then app migra
       assert.equal(stored.settings.customSetting, "from-v7.3");
     }
     assert.equal(stored.settings.lastBackupAt ?? null, saved.settings.lastBackupAt ?? null);
+    assert.deepEqual(stored.settings.freedomMilestones.map((item) => [item.id, item.amountCny]), [
+      ["insurance", 1000],
+      ["meals", 2500],
+      ["semi-retired", 6000],
+      ["journey", 12000],
+      ["life", 20000],
+    ]);
     assert.equal(storage.get(USER_DATA_KEYS[1]), backupBefore);
     assert.equal(result.remaining.includes(SNAPSHOT_CACHE), true);
     assert.equal(result.remaining.includes(cacheName), false);

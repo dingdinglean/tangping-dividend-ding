@@ -39,7 +39,10 @@ test("v1 migration preserves assets, transactions, key and unknown settings", ()
   assert.equal(stored.assets[0].currentPrice, 100);
   assert.equal(stored.settings.alphaVantageApiKey, "TEST-ONLY");
   assert.equal(stored.settings.customSetting, "keep");
-  assert.equal(stored.settings.freedomMilestones.length, 6);
+  assert.equal(stored.settings.freedomMilestones.length, 5);
+  assert.deepEqual(stored.settings.freedomMilestones.map((item) => item.id), ["insurance", "meals", "semi-retired", "journey", "life"]);
+  assert.equal(stored.settings.freedomMilestones[0].name, "保费自由");
+  assert.equal(stored.settings.freedomMilestones[0].amountCny, 1000);
 });
 test("future monthly projections are derived, not persisted; sold holdings project zero", () => {
   const a = app(fixture());
@@ -64,14 +67,60 @@ test("quarterly schedule follows history, unknown schedule remains blank", () =>
   a.run('state.assets[0].remoteDividends=[{exDate:"2026-06-20",paymentDate:"2026-06-30",amount:3}]');
   assert.deepEqual(Array.from(a.run("monthlyIncomeData(2026).forecast")), [0,0,0,0,0,0,0,0,300,0,0,300]);
 });
-test("all six milestone boundaries unlock; display currency doesn't affect CNY judgment", () => {
+test("milestone boundaries unlock on CNY monthly income, including ¥1000", () => {
   const a = app(fixture());
-  for (const [i, value] of [150,400,2500,6000,12000,20000].entries()) {
-    assert.equal(a.run(`getFreedomStatus(${value}).milestones.filter(x=>x.unlocked).length`), i+1);
-    assert.equal(a.run(`getFreedomStatus(${value-0.01}).milestones.filter(x=>x.unlocked).length`), i);
+  for (const [i, value] of [1000, 2500, 6000, 12000, 20000].entries()) {
+    assert.equal(a.run(`getFreedomStatus(${value}).milestones.filter(x=>x.unlocked).length`), i + 1);
+    assert.equal(a.run(`getFreedomStatus(${value - 0.01}).milestones.filter(x=>x.unlocked).length`), i);
   }
+  assert.equal(a.run("getFreedomStatus(1000).current.name"), "保费自由");
+  assert.equal(a.run("getFreedomStatus(1000).next.name"), "三餐自由");
+  assert.equal(a.run("getFreedomStatus(1000).progress"), 0);
+  assert.equal(a.run("getFreedomStatus(500).progress"), 50);
+  assert.equal(a.run("getFreedomStatus(1750).progress"), 50);
   a.run('state.settings.displayCurrency="USD"');
-  assert.equal(a.run('getFreedomStatus(getMonthlyPassiveIncomeUsd(calculatePortfolio().totals)*state.settings.exchangeRate).current.name'), "水电自由");
+  assert.equal(a.run("getFreedomStatus(1000).current.name"), "保费自由");
+  assert.equal(a.run("getFreedomStatus(999.99).current"), null);
+  assert.equal(a.run("getMonthlyPassiveIncomeUsd(calculatePortfolio().totals)*state.settings.exchangeRate"), 700);
+  assert.equal(a.run("getFreedomStatus(getMonthlyPassiveIncomeUsd(calculatePortfolio().totals)*state.settings.exchangeRate).current"), null);
+  assert.match(a.run("renderFreedomMilestones(20000)"), /五个里程碑已全部解锁/);
+  assert.doesNotMatch(a.run("renderFreedomMilestones(20000)"), /六个里程碑/);
+  assert.match(a.run("renderSettings()"), /5 个等级/);
+  assert.doesNotMatch(a.run("renderSettings()"), /6 个等级/);
+  const form = a.run("renderMilestoneSettingsModal()");
+  assert.equal((form.match(/milestone-setting-row/g) || []).length, 5);
+  assert.match(form, /保费自由/);
+  assert.doesNotMatch(form, /奶茶自由|水电自由/);
+});
+test("old milestone customizations stay on their ids when milk-tea and utilities are removed", () => {
+  const saved = fixture();
+  saved.settings.freedomMilestones = [
+    { id: "life", icon: "🌟", name: "自定义人生", amountCny: 18000 },
+    { id: "utilities", icon: "💡", name: "自定义水电", amountCny: 888 },
+    { id: "journey", icon: "✈️", name: "自定义远方", amountCny: 9000 },
+    { id: "milk-tea", icon: "🧋", name: "自定义奶茶", amountCny: 99 },
+    { id: "semi-retired", icon: "🏖️", name: "自定义半退", amountCny: 7000 },
+    { id: "meals", icon: "🍜", name: "自定义三餐", amountCny: 3333 },
+  ];
+  const a = app(saved);
+  const milestones = JSON.parse(a.run("JSON.stringify(state.settings.freedomMilestones)"));
+  assert.deepEqual(milestones, [
+    { id: "insurance", icon: "🛡️", name: "保费自由", amountCny: 1000 },
+    { id: "meals", icon: "🍜", name: "自定义三餐", amountCny: 3333 },
+    { id: "semi-retired", icon: "🏖️", name: "自定义半退", amountCny: 7000 },
+    { id: "journey", icon: "✈️", name: "自定义远方", amountCny: 9000 },
+    { id: "life", icon: "🌟", name: "自定义人生", amountCny: 18000 },
+  ]);
+  assert.equal(a.run("state.transactions[0].id"), "b");
+  assert.equal(a.run("state.assets[0].ticker"), "TEST");
+  assert.equal(a.run("state.settings.alphaVantageApiKey"), "TEST-ONLY");
+  assert.equal(a.run("state.settings.customSetting"), "keep");
+  a.run("saveState()");
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.deepEqual(stored.settings.freedomMilestones, milestones);
+  assert.equal(stored.settings.freedomMilestones.some((item) => item.id === "milk-tea" || item.id === "utilities"), false);
+  assert.equal(stored.transactions[0].shares, 100);
+  assert.equal(stored.assets[0].currentPrice, 100);
 });
 test("delete cancellation and cascading deletion with backup", () => {
   const a = app(fixture());
@@ -341,6 +390,7 @@ test("currency display changes no stored values and milestone progress still use
   const a = app(fixture());
   const chart = JSON.stringify(a.run("monthlyIncomeData(2026)"));
   const progress = a.run("getFreedomStatus(700).progress");
+  assert.equal(progress, 70);
   a.run('state.settings.displayCurrency="USD"');
   assert.match(a.run("renderHome()"), /data-count-key="monthly-income" data-count-value="100" data-count-currency="USD"/);
   assert.equal(a.run("getFreedomStatus(700).progress"), progress);

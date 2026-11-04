@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.2";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.2";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.2";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.3";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.3";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.3";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -928,7 +928,7 @@ function blendedYieldFoot(positions) {
     .map((item) => dividendYieldTypeLabel(item)));
   if (labels.size === 1) return `口径：${[...labels][0]}`;
   if (labels.size > 1) return "各标的口径不同，不是统一股息率";
-  return "尚无收益率";
+  return "尚无股息率";
 }
 
 function renderMarketCaption() {
@@ -972,10 +972,15 @@ function renderHome() {
 function renderFreedomMilestones(monthlyIncomeCny) {
   const { current, next, progress } = getFreedomStatus(monthlyIncomeCny);
   const incomeUsd = monthlyIncomeCny / number(state.settings.exchangeRate, 7.2);
+  const heading = current?.name || next?.name || "自由里程碑";
+  const nextStop = current && next ? ` <span>· 下一站 ${escapeHtml(next.name)}</span>` : "";
+  const detail = next
+    ? `${animatedMoney("freedom-next", incomeUsd)} / ${displayCnyAmount(next.amountCny)}${nextStop}`
+    : "五个里程碑已全部解锁";
   return `
     <section class="card freedom-card">
-      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${current ? escapeHtml(current.name) : "从第一步开始"}</h2></div><button class="milestone-edit" data-action="open-milestone-settings" aria-label="编辑自由里程碑"><span>${progress.toFixed(1)}%</span>${uiIcon("chevron")}</button></div>
-      <div class="freedom-next">${next ? `${animatedMoney("freedom-next", incomeUsd)} / ${displayCnyAmount(next.amountCny)} <span>· 下一站 ${escapeHtml(next.name)}</span>` : "五个里程碑已全部解锁"}</div>
+      <div class="card-heading"><div><span class="eyebrow">自由里程碑</span><h2>${escapeHtml(heading)}</h2></div><button class="milestone-edit" data-action="open-milestone-settings" aria-label="编辑自由里程碑"><span>${progress.toFixed(1)}%</span>${uiIcon("chevron")}</button></div>
+      <div class="freedom-next">${detail}</div>
       <div class="progress-track freedom-progress" role="progressbar" aria-label="下一自由里程碑进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.toFixed(1)}"><div class="progress-fill" data-progress-value="${progress}" style="transform:scaleX(${progress / 100})"></div></div>
     </section>`;
 }
@@ -1104,7 +1109,7 @@ function renderAssetCard(item) {
   return `
     <article class="card asset-card asset-card-compact ${expanded ? "is-expanded" : ""}" data-asset-card="${escapeHtml(asset.id)}">
       <button class="asset-toggle" type="button" data-action="toggle-asset" data-id="${escapeHtml(asset.id)}" aria-expanded="${expanded}" aria-controls="${detailsId}" aria-label="${expanded ? "收起" : "展开"} ${escapeHtml(asset.ticker)} 详情">
-        <span class="asset-compact-head"><strong class="asset-symbol">${escapeHtml(asset.ticker)}</strong><span class="asset-shares">${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span><span class="asset-compact-yield"><small>收益率</small><strong>${dividendRate}</strong><span class="asset-chevron" aria-hidden="true">⌄</span></span></span>
+        <span class="asset-compact-head"><strong class="asset-symbol">${escapeHtml(asset.ticker)}</strong><span class="asset-shares">${item.shares.toFixed(4).replace(/\.0+$/, "")} 股</span><span class="asset-compact-yield"><small>股息率</small><strong>${dividendRate}</strong><span class="asset-chevron" aria-hidden="true">⌄</span></span></span>
         <span class="asset-close-row"><span>收盘 <strong>${price}</strong></span>${changeText ? `<span class="price-change ${number(asset.priceChange) > 0 ? "positive" : number(asset.priceChange) < 0 ? "negative" : ""}">${changeText}</span>` : ""}<span>${shortDataDate(priceDateOf(asset))}</span><span class="price-state ${fresh ? "fresh" : "stale"}"><i class="status-dot ${fresh ? "fresh" : "stale"}"></i>${status}</span></span>
         <span class="asset-stat-grid"><span><label>已收分红 · USD</label><strong>${money(item.receivedDividends, "USD")}</strong></span><span><label>均价 · USD</label><strong>${item.shares > 0 ? money(avgCost, "USD") : "—"}</strong></span><span><label>净收益 · USD</label><strong class="${item.priceValid ? (item.pnl >= 0 ? "positive" : "negative") : ""}">${pnlText}</strong></span></span>
       </button>

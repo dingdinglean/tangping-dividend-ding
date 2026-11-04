@@ -85,6 +85,20 @@ test("milestone boundaries unlock on CNY monthly income, including ¥1000", () =
   assert.equal(a.run("getFreedomStatus(getMonthlyPassiveIncomeUsd(calculatePortfolio().totals)*state.settings.exchangeRate).current"), null);
   assert.match(a.run("renderFreedomMilestones(20000)"), /五个里程碑已全部解锁/);
   assert.doesNotMatch(a.run("renderFreedomMilestones(20000)"), /六个里程碑/);
+});
+test("home names the first milestone before it unlocks", () => {
+  const a = app(fixture());
+  const below = a.run("renderFreedomMilestones(598.81)");
+  assert.match(below, /<h2>保费自由<\/h2>/);
+  assert.match(below, /aria-valuenow="59.9"/);
+  assert.match(below, /¥598\.81<\/span> \/ ¥1,000\.00/);
+  assert.doesNotMatch(below, /从第一步开始|下一站/);
+  const reached = a.run("renderFreedomMilestones(1500)");
+  assert.match(reached, /<h2>保费自由<\/h2>/);
+  assert.match(reached, /下一站 三餐自由/);
+  const done = a.run("renderFreedomMilestones(20000)");
+  assert.match(done, /<h2>人生自由<\/h2>/);
+  assert.match(done, /五个里程碑已全部解锁/);
   assert.match(a.run("renderSettings()"), /5 个等级/);
   assert.doesNotMatch(a.run("renderSettings()"), /6 个等级/);
   const form = a.run("renderMilestoneSettingsModal()");
@@ -298,6 +312,8 @@ test("ETF cards preserve percentage units and render each published yield type",
     const html = a.run("renderAssetCard(calculatePortfolio().positions[0])");
     assert.match(html, new RegExp(`>${displayedRate.replace(".", "\\.")}</strong>`));
     assert.match(html, new RegExp(caption.replace(".", "\\.")));
+    assert.match(html, /<small>股息率<\/small>/);
+    assert.doesNotMatch(html, /收益率/);
   }
 });
 

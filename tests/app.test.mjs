@@ -838,3 +838,33 @@ test("XQQI quote refresh, distributions, tax edit and zero-share display", async
   assert.equal(a.run('state.assets.find(asset => asset.id === "a").currentPrice'), original.currentPrice);
   assert.equal(a.run('state.transactions.filter(tx => tx.assetId === "a").map(tx => tx.id).join(",")'), "b");
 });
+
+test("a shorter snapshot keeps holdings, custom milestones, older dividends and confirmed receipt amounts", () => {
+  const saved = fixture();
+  saved.settings.freedomMilestones = [
+    { id: "insurance", name: "保费自定义", amountCny: 1000 },
+    { id: "meals", name: "三餐自由", amountCny: 2500 },
+    { id: "semi-retired", name: "半步退休", amountCny: 6000 },
+    { id: "journey", name: "诗和远方", amountCny: 12000 },
+    { id: "life", name: "人生自由", amountCny: 20000 },
+  ];
+  saved.assets[0].remoteDividends = [
+    { exDate: "2026-08-01", amount: 0.5, paymentDate: "2026-08-05" },
+    { exDate: "2026-09-01", amount: 0.7, paymentDate: "2026-09-05" },
+  ];
+  saved.transactions.push({ id: "recv", assetId: "a", type: "dividend", status: "received", date: "2026-08-05", exDate: "2026-08-01", netDividend: 42, grossDividend: 50, perShare: 0.5, shareCount: 100 });
+  const a = app(saved);
+  a.run(`state.assets[0].remoteDividends = mergeSnapshotDividendHistory(state.assets[0].remoteDividends, [{ exDate: "2026-09-01", amount: 0.71, paymentDate: "2026-09-05" }, { exDate: "2026-12-02", amount: "" }]);
+    syncDeclaredDividendTransactions(state.assets[0]); saveState();`);
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(stored.assets[0].currentPrice, 100);
+  assert.equal(stored.transactions.find((tx) => tx.id === "b").shares, 100);
+  assert.equal(stored.settings.freedomMilestones[0].name, "保费自定义");
+  assert.equal(stored.assets[0].remoteDividends.find((row) => row.exDate === "2026-08-01").amount, 0.5);
+  assert.equal(stored.assets[0].remoteDividends.some((row) => row.exDate === "2026-12-02"), false);
+  assert.equal(stored.assets[0].remoteDividends.find((row) => row.exDate === "2026-09-01").amount, 0.71);
+  const receipt = stored.transactions.find((tx) => tx.id === "recv");
+  assert.equal(receipt.status, "received");
+  assert.equal(receipt.netDividend, 42);
+  assert.equal(receipt.perShare, 0.5);
+});

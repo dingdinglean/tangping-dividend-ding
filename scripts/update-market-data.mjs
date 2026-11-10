@@ -13,6 +13,14 @@ const DAY = 86400000;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
 const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
 const validDividendRate = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
+// Blank and unparsable cells are unreleased. A published 0 is a real amount.
+export function explicitDividendAmount(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).replace(/[$,]/g, "").trim();
+  if (!text || !/^[+]?(?:\d+\.?\d*|\.\d+)$/.test(text)) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
 const time = (now) => new Date(now).toISOString();
 const SAFE_ERRORS = new Set(["invalid_data", "quota_exhausted", "price_date_stale", "api_key_missing", "api_not_entitled", "request_timeout", "daily_budget_exhausted"]);
 const errorCode = (e) => SAFE_ERRORS.has(e?.message) ? e.message : /^http_\d{3}$/.test(e?.message || "") ? e.message : e?.name === "TimeoutError" || e?.name === "AbortError" ? "request_timeout" : "upstream_unavailable";
@@ -49,14 +57,21 @@ function safeHistory(rows) {
   return data.length ? data.slice(0, 120) : null;
 }
 function safeDividends(row) {
-  const data = (row?.data || []).map((item) => {
-    const entry = { ex_date: isoDate(item.ex_date || item.ex_dividend_date || item.exDate), payment_date: isoDate(item.payment_date || item.paymentDate || ""), amount: Number(item.amount) };
+  const data = (row?.data || []).flatMap((item) => {
+    const amount = explicitDividendAmount(item?.amount);
+    const ex_date = isoDate(item?.ex_date || item?.ex_dividend_date || item?.exDate);
+    if (!validDate(ex_date) || amount === null) return [];
+    const entry = { ex_date, amount };
+    const payment = isoDate(item.payment_date || item.paymentDate || "");
     const declaration = isoDate(item.declaration_date || item.declarationDate || "");
     const record = isoDate(item.record_date || item.recordDate || "");
+    if (validDate(payment)) entry.payment_date = payment;
     if (validDate(declaration)) entry.declaration_date = declaration;
     if (validDate(record)) entry.record_date = record;
-    return entry;
-  }).filter((item) => validDate(item.ex_date) && validPrice(item.amount)).sort((a, b) => b.ex_date.localeCompare(a.ex_date));
+    if (item.source) entry.source = String(item.source);
+    if (item.amount_provenance) entry.amount_provenance = item.amount_provenance;
+    return [entry];
+  }).sort((a, b) => b.ex_date.localeCompare(a.ex_date) || b.amount - a.amount);
   return data.length ? { data, source: String(row.source || ""), fetched_at: Number.isFinite(Date.parse(row.fetched_at)) ? new Date(row.fetched_at).toISOString() : null } : null;
 }
 function previousSnapshot(input) {
@@ -193,9 +208,10 @@ export async function fetchNeosDividends(symbol, fetcher, fetched_at) {
       const ex_date = isoDate(values[1]);
       const record_date = isoDate(values[2]);
       const payment_date = isoDate(values[3]);
-      const amount = Number(String(values[4] || "").replace(/[$,\s]/g, ""));
+      const amount = explicitDividendAmount(values[4]);
       // Blank future calendar rows stay unpublished. The 19-23% target is not an amount.
-      if (validDate(declaration_date) && validDate(ex_date) && validDate(record_date) && validDate(payment_date) && validPrice(amount)) data.push({ declaration_date, ex_date, record_date, payment_date, amount });
+      // An explicit 0 is kept; an empty cell is not turned into one.
+      if (validDate(declaration_date) && validDate(ex_date) && validDate(record_date) && validDate(payment_date) && amount !== null) data.push({ declaration_date, ex_date, record_date, payment_date, amount });
     }
   }
   const result = safeDividends({ data, source: "NEOS official Distribution History", fetched_at });
@@ -265,7 +281,7 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
   const priorUsage = previous.refresh?.alpha_vantage_usage;
   const usage = { date: usageDate, count: priorUsage?.date === usageDate ? Math.max(0, Number(priorUsage.count) || 0) : 0 };
   snapshot.generatedAt = fetched_at;
-  snapshot.refresh = { target_price_date: session.date, generated_at: fetched_at, alpha_vantage_usage: usage, price_attempts: [] };
+  snapshot.refresh = { target_price_date: session.date, generated_at: fetched_at, alpha_vantage_usage: usage, price_attempts: [], dividend_notes: [] };
   let alphaBlocked = false;
   let alphaLastCall = null;
   const limitedFetcher = async (url, options) => {
@@ -349,23 +365,22 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
   for (const symbol of SYMBOLS) {
     const old = snapshot.symbols[symbol] || {};
     const price = await refreshPrice(symbol, 1);
-    let dividends; let dividendsFresh = false;
+    let fetched = null;
     if (symbol === "XQQI") {
-      // Official amounts and payment dates are required for XQQI. Preserve the
-      // prior verified record on failure instead of inventing dates from Yahoo.
-      try { dividends = await fetchNeosDividends(symbol, fetcher, fetched_at); dividendsFresh = true; }
-      catch { dividends = old.dividends; }
+      // Official amounts and payment dates are required for XQQI. A failed or
+      // blank NEOS table must not be replaced with Yahoo dates or invented rows.
+      try { fetched = await fetchNeosDividends(symbol, fetcher, fetched_at); }
+      catch { fetched = null; }
     } else {
-      let fetched = null;
       try { fetched = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); }
       catch { try { fetched = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); } catch { try { fetched = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); } catch { fetched = null; } } }
-      if (shouldReplaceDividends(fetched, old.dividends)) { dividends = fetched; dividendsFresh = true; }
-      else dividends = old.dividends;
     }
-    if (dividends) snapshot.symbols[symbol].dividends = { ...dividends, status: dividendsFresh ? "valid" : "stale" };
+    const merged = mergeDividends(old.dividends, fetched);
+    for (const note of merged.notes) snapshot.refresh.dividend_notes.push({ symbol, ...note });
+    if (merged.dividends) snapshot.symbols[symbol].dividends = { ...merged.dividends, status: merged.fresh ? "valid" : "stale" };
 
     if (NEOS.has(symbol)) { try { snapshot.symbols[symbol].dividend_rate = await fetchNeosDistributionRate(symbol, fetcher, fetched_at); } catch { snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { coverage: "insufficient", source: "NEOS official Distribution Rate", status: "unavailable" }; } }
-    else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
+    else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh: merged.fresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
   }
   try { snapshot.fx = await fetchFrankfurter(fetcher, fetched_at); } catch { try { snapshot.fx = await fetchOpenExchangeRate(fetcher, fetched_at); } catch { snapshot.fx = snapshot.fx ? { ...snapshot.fx, status: "stale" } : { status: "unavailable" }; } }
   for (let round = 2; round <= Math.min(4, Math.max(1, priceAttempts)); round++) {
@@ -381,6 +396,7 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       }
     }
   }
+  if (!snapshot.refresh.dividend_notes.length) delete snapshot.refresh.dividend_notes;
   snapshot.refresh.summary = summarizePrices(snapshot);
   const pricesCurrent = SYMBOLS.every((symbol) => snapshot.symbols[symbol]?.price_status === "valid" && snapshot.symbols[symbol]?.price?.price_date === session.date);
   snapshot.refresh.freshness = pricesCurrent ? "current" : "stale";
@@ -419,24 +435,195 @@ function withCarriedHistory(price, old) {
 }
 function hasDividendHistory(row) {
   const dividends = row?.dividends?.data;
-  return Array.isArray(dividends) && dividends.length > 0 && dividends.every((item) => validDate(item.ex_date) && validPrice(item.amount));
+  return Array.isArray(dividends) && dividends.length > 0 && dividends.every((item) => validDate(item.ex_date) && explicitDividendAmount(item.amount) !== null);
 }
-function dividendCoverage(row) {
-  const data = row?.data || [];
-  const dated = data.filter((item) => validDate(item.payment_date) || validDate(item.declaration_date) || validDate(item.record_date)).length;
-  return { count: data.length, dated, latest: data[0]?.ex_date || "" };
+const DIVIDEND_SOURCE_RANK = new Map([
+  ["NEOS official Distribution History", 100],
+  ["Nasdaq official dividends", 80],
+  ["Alpha Vantage Dividends", 60],
+  ["Yahoo Finance Dividends", 40],
+]);
+function dividendSourceRank(source) {
+  return DIVIDEND_SOURCE_RANK.get(source) ?? (source ? 10 : 0);
 }
-// Yahoo can return a shorter, payment-date-free list for the same ex date.
-// That must not overwrite a longer verified history or look like a fresh update.
-function shouldReplaceDividends(fresh, previous) {
-  if (!fresh?.data?.length) return false;
-  const next = dividendCoverage(fresh);
-  const prior = dividendCoverage(previous);
-  if (!prior.count) return true;
-  if (next.latest > prior.latest) return true;
-  if (prior.dated > 0 && next.dated === 0) return false;
-  if (prior.count >= 12 && next.count * 2 < prior.count) return false;
-  return true;
+function datedDividend(row) {
+  return validDate(row?.payment_date) || validDate(row?.declaration_date) || validDate(row?.record_date);
+}
+function copyKnownDates(base, incoming, allowReplace) {
+  const out = { ...base };
+  for (const key of ["declaration_date", "record_date", "payment_date"]) {
+    if (!validDate(incoming?.[key])) continue;
+    if (!validDate(out[key]) || (allowReplace && out[key] !== incoming[key])) out[key] = incoming[key];
+  }
+  return out;
+}
+function richerRow(rows) {
+  return [...rows].sort((a, b) => Number(datedDividend(b)) - Number(datedDividend(a)))[0];
+}
+// Merge by ex date. A shorter, empty, or blank feed cannot delete a known row
+// or replace a known amount with a blank. A same-or-higher-priority source may
+// correct an amount; the previous amount stays on the row. Two different
+// explicit amounts on one ex date are both kept. A lower-priority source that
+// disagrees is reported and does not override.
+export function mergeDividends(previous, incoming) {
+  const priorSource = String(previous?.source || "");
+  const incomingSource = String(incoming?.source || "");
+  const priorRows = (previous?.data || []).flatMap((item) => {
+    const amount = explicitDividendAmount(item?.amount);
+    const ex_date = isoDate(item?.ex_date);
+    if (!validDate(ex_date) || amount === null) return [];
+    return [{ ...item, ex_date, amount, source: item.source || priorSource }];
+  });
+  const incomingRows = (incoming?.data || []).flatMap((item) => {
+    const amount = explicitDividendAmount(item?.amount);
+    const ex_date = isoDate(item?.ex_date);
+    if (!validDate(ex_date) || amount === null) return [];
+    return [{ ...item, ex_date, amount, source: incomingSource || item.source || "" }];
+  });
+  const notes = [];
+  const blanks = (incoming?.data || []).filter((item) => validDate(isoDate(item?.ex_date)) && explicitDividendAmount(item?.amount) === null);
+  for (const item of blanks) notes.push({ kind: "missing_amount", ex_date: isoDate(item.ex_date), source: incomingSource });
+  if (!incoming || !incomingRows.length) {
+    return {
+      dividends: previous?.data?.length ? previous : null,
+      fresh: false,
+      notes: notes.length ? notes : [{ kind: "empty_or_failed", kept: priorRows.length, source: incomingSource }],
+    };
+  }
+  const priorLatest = priorRows.map((row) => row.ex_date).sort().at(-1) || "";
+  const incomingLatest = incomingRows.map((row) => row.ex_date).sort().at(-1) || "";
+  const priorRank = dividendSourceRank(priorSource);
+  const incomingRank = dividendSourceRank(incomingSource);
+  const priorDated = priorRows.some(datedDividend);
+  const incomingDated = incomingRows.some(datedDividend);
+  const truncated = priorRows.length >= 12 && incomingRows.length * 2 < priorRows.length;
+  const rejectPartial = priorRows.length > 0 && incomingLatest <= priorLatest && incomingRank <= priorRank && ((priorDated && !incomingDated) || truncated);
+  if (rejectPartial) {
+    return {
+      dividends: previous?.data ? previous : { data: priorRows, source: priorSource, fetched_at: previous?.fetched_at || null },
+      fresh: false,
+      notes: [{ kind: "rejected_partial", kept: priorRows.length, incoming: incomingRows.length, latest: incomingLatest || null, source: incomingSource }],
+    };
+  }
+  const byEx = new Map();
+  for (const row of priorRows) {
+    const list = byEx.get(row.ex_date) || [];
+    list.push(row);
+    byEx.set(row.ex_date, list);
+  }
+  const incomingByEx = new Map();
+  for (const row of incomingRows) {
+    const list = incomingByEx.get(row.ex_date) || [];
+    list.push(row);
+    incomingByEx.set(row.ex_date, list);
+  }
+  for (const [ex, rows] of incomingByEx) {
+    const distinct = [];
+    for (const row of rows) {
+      const same = distinct.find((item) => item.amount === row.amount);
+      if (same) Object.assign(same, copyKnownDates(same, row, true));
+      else distinct.push(row);
+    }
+    const prior = byEx.get(ex) || [];
+    if (distinct.length > 1) {
+      const kept = prior.map((row) => ({ ...row }));
+      for (const row of distinct) {
+        const match = kept.find((item) => item.amount === row.amount);
+        if (match) Object.assign(match, copyKnownDates(match, row, incomingRank >= dividendSourceRank(match.source || priorSource)));
+        else kept.push(row);
+        notes.push({ kind: "distinct_amounts", ex_date: ex, amount: row.amount, source: incomingSource });
+      }
+      byEx.set(ex, kept);
+      continue;
+    }
+    const row = distinct[0];
+    if (!prior.length) {
+      byEx.set(ex, [row]);
+      continue;
+    }
+    if (prior.length > 1) {
+      const match = prior.find((item) => item.amount === row.amount);
+      if (match) byEx.set(ex, prior.map((item) => item.amount === row.amount ? copyKnownDates(item, row, incomingRank >= dividendSourceRank(item.source || priorSource)) : item));
+      else notes.push({ kind: "conflict", ex_date: ex, kept_amount: prior.map((item) => item.amount), kept_source: prior[0].source || priorSource, incoming_amount: row.amount, incoming_source: incomingSource });
+      continue;
+    }
+    const old = prior[0];
+    if (old.amount === row.amount) {
+      byEx.set(ex, [copyKnownDates(old, row, incomingRank >= dividendSourceRank(old.source || priorSource))]);
+      continue;
+    }
+    if (incomingRank >= dividendSourceRank(old.source || priorSource)) {
+      const history = Array.isArray(old.amount_provenance) ? old.amount_provenance : [];
+      const corrected = copyKnownDates({ ...old, amount: row.amount, source: incomingSource || old.source }, row, true);
+      corrected.amount_provenance = [...history, { previous_amount: old.amount, previous_source: old.source || priorSource || "snapshot", source: incomingSource }];
+      byEx.set(ex, [corrected]);
+      notes.push({ kind: "correction", ex_date: ex, previous_amount: old.amount, amount: row.amount, previous_source: old.source || priorSource, source: incomingSource });
+    } else {
+      notes.push({ kind: "conflict", ex_date: ex, kept_amount: old.amount, kept_source: old.source || priorSource, incoming_amount: row.amount, incoming_source: incomingSource });
+    }
+  }
+  for (const [ex, rows] of byEx) {
+    if (!incomingByEx.has(ex)) notes.push({ kind: "preserved_absent", ex_date: ex, amount: richerRow(rows)?.amount ?? null, source: richerRow(rows)?.source || priorSource });
+  }
+  const parentSource = incomingRank >= priorRank ? (incomingSource || priorSource) : (priorSource || incomingSource);
+  const data = [...byEx.values()].flat().map((row) => {
+    const entry = { ...row };
+    if (!entry.source || entry.source === parentSource) delete entry.source;
+    return entry;
+  }).sort((a, b) => b.ex_date.localeCompare(a.ex_date) || b.amount - a.amount);
+  notes.sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || String(a.ex_date).localeCompare(String(b.ex_date)) || String(a.amount ?? "").localeCompare(String(b.amount ?? "")));
+  const built = { data, source: parentSource, fetched_at: incoming.fetched_at || previous?.fetched_at || null };
+  const sameRows = JSON.stringify(data) === JSON.stringify(previous?.data || []);
+  return {
+    dividends: sameRows && parentSource === priorSource ? (previous?.data ? previous : built) : built,
+    fresh: true,
+    notes,
+  };
+}
+export function buildRunSummary({ snapshot, plan, fresh }) {
+  const summary = snapshot?.refresh?.summary || {};
+  const target = snapshot?.refresh?.target_price_date || "unknown";
+  const lines = SYMBOLS.map((symbol) => {
+    const row = snapshot?.symbols?.[symbol] || {};
+    const price = row.price || {};
+    const dividends = row.dividends || {};
+    const latest = dividends.data?.[0];
+    const attempt = [...(snapshot?.refresh?.price_attempts || [])].reverse().find((entry) => entry.symbol === symbol);
+    const fetchedThisRun = price.fetched_at && price.fetched_at === snapshot?.generatedAt;
+    const sessionState = row.price_status === "valid" && price.price_date === target
+      ? "current"
+      : attempt?.error === "price_date_stale" || (attempt?.price_date && attempt.price_date !== target)
+        ? "source_returned_older_session"
+        : fetchedThisRun ? "fetched_this_run_not_current" : "preserved_last_good";
+    return [
+      symbol,
+      `price ${price.price ?? "—"}`,
+      `price_date ${price.price_date || "—"}`,
+      `expected ${row.expected_price_date || target}`,
+      `price_status ${row.price_status || "—"}`,
+      `session ${sessionState}`,
+      `price_source ${price.source || "—"}`,
+      `price_fetched_at ${price.fetched_at || "—"}`,
+      `dividends ${dividends.data?.length || 0}`,
+      `latest_ex ${latest?.ex_date || "—"}`,
+      `latest_amount ${latest?.amount ?? "—"}`,
+      `dividend_source ${dividends.source || "—"}`,
+      `dividend_status ${dividends.status || "—"}`,
+      `dividend_fetched_at ${dividends.fetched_at || "—"}`,
+    ].join(" | ");
+  });
+  const notes = snapshot?.refresh?.dividend_notes || [];
+  const header = [
+    `新鲜度 ${snapshot?.refresh?.freshness || "unknown"}`,
+    `观察目标 ${plan?.targetDate || "unknown"}`,
+    `阶段 ${plan?.phase || "unknown"}`,
+    `北京截止 ${plan?.deadline ? new Date(plan.deadline).toISOString() : "unknown"}`,
+    `目标收盘日 ${target}`,
+    `有效收盘价 ${summary.valid ?? "—"}/${summary.total ?? SYMBOLS.length}`,
+    `本次获取 ${summary.updated ?? "—"}/${summary.total ?? SYMBOLS.length}`,
+    fresh ? "本次对齐观察目标" : "本次未对齐观察目标",
+  ].join("；");
+  return { header, lines, notes };
 }
 export function snapshotIsPublishable(snapshot) {
   const summary = snapshot?.refresh?.summary;
@@ -496,14 +683,36 @@ export async function runWatch({ now = () => Date.now(), waiter = sleep, pollMs 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { snapshot, plan, fresh } = await runWatch({ logger: entry => console.log(JSON.stringify(entry)) });
+    const report = buildRunSummary({ snapshot, plan, fresh });
     const summary = snapshot.refresh.summary;
-    const held = [...new Set(SYMBOLS.map((symbol) => snapshot.symbols?.[symbol]?.price?.price_date).filter(Boolean))].join(", ");
-    const text = `新鲜度 ${snapshot.refresh.freshness}；观察目标 ${plan.targetDate}；北京截止 ${new Date(plan.deadline).toISOString()}；目标收盘日 ${snapshot.refresh.target_price_date}；行情日期 ${held}；有效收盘价 ${summary.valid}/${summary.total}；本次获取 ${summary.updated}/${summary.total}${summary.failed_symbols.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
+    const text = `${report.header}${summary.failed_symbols?.length ? `；获取失败 ${summary.failed_symbols.join(", ")}` : ""}${summary.stale_symbols?.length ? `；过期 ${summary.stale_symbols.join(", ")}` : ""}`;
     console.log(text);
-    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## 行情更新：${fresh ? "current" : "stale"}\n\n${text}\n\n收盘价是否最新只看行情日期是否等于观察目标。未到北京 08:00 截止时，同一次任务会等到纽约收盘后再抓。\n`);
+    for (const line of report.lines) console.log(line);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const noteLines = report.notes.length ? report.notes.map((note) => `- ${note.symbol || ""} ${note.kind} ${note.ex_date || ""} ${note.amount ?? note.previous_amount ?? ""} ${note.source || note.incoming_source || ""}`.trim()) : ["- 无派息合并异常"];
+      await appendFile(process.env.GITHUB_STEP_SUMMARY, [
+        `## 行情更新：${fresh ? "current" : "stale"}`,
+        "",
+        report.header,
+        "",
+        "收盘价是否最新只看行情日期是否等于观察目标。任务在收盘前会等到纽约 16:00（提前收盘日 13:00）之后 10 分钟；未到北京 08:00 截止前会继续重试。GitHub 可以整次不创建 schedule 运行，本任务无法补回没有创建的事件。",
+        "",
+        "### 每只标的",
+        "",
+        ...report.lines.map((line) => `- ${line}`),
+        "",
+        "### 派息合并",
+        "",
+        ...noteLines,
+        "",
+        `调度：event=${process.env.GITHUB_EVENT_NAME || "local"} schedule=${process.env.SCHEDULE_CRON || "n/a"} actor=${process.env.GITHUB_ACTOR || "local"} triggering_actor=${process.env.GITHUB_TRIGGERING_ACTOR || "n/a"} run=${process.env.GITHUB_RUN_ID || "local"}`,
+        "",
+      ].join("\n"));
+    }
     if (!fresh) process.exitCode = 1;
   } catch {
     console.error("行情快照更新失败，旧文件已保留；请检查网络与配置。");
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, "\n行情快照更新失败，旧文件已保留。\n");
     process.exitCode = 1;
   }
 }

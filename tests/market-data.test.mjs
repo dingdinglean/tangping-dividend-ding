@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configureMarketEndpoint, fetchAlphaQuote, parseSnapshot, snapshotUrls, refreshSnapshot } from "../market-data.js";
+import { configureMarketEndpoint, fetchAlphaQuote, normalizeSnapshotDividends, parseSnapshot, snapshotUrls, refreshSnapshot } from "../market-data.js";
 import { latestCompletedUsTradingSession } from "../market-calendar.js";
 
 const snapshot = { schemaVersion: 2, generatedAt: "2026-09-15T22:00:00.000Z", fx: { rate: 7.2, fx_date: "2026-09-15", source: "Frankfurter", fetched_at: "2026-09-15T22:00:00.000Z" }, symbols: { QQQI: { price: { symbol: "QQQI", price: 100, price_date: "2026-09-15", source: "Yahoo Finance Chart", fetched_at: "2026-09-15T22:00:00.000Z" }, price_status: "valid", expected_price_date: "2026-09-15", dividends: { data: [{ ex_date: "2026-09-01", amount: 1 }], source: "test", fetched_at: "2026-09-15T22:00:00.000Z" }, dividend_rate: { rate: .14, data_date: "2026-08-31", kind: "distribution_rate", source: "NEOS official Distribution Rate" } } } };
@@ -39,6 +39,16 @@ test("QNDX normalization preserves the decimal yield unit and published type", (
   assert.equal(row.rate, 0.0044);
   assert.equal(row.yield_type, "30 Day SEC Yield");
   assert.equal(row._status, "valid");
+});
+
+test("snapshot dividends keep an explicit zero and drop a blank instead of inventing one", () => {
+  const rows = normalizeSnapshotDividends([
+    { ex_date: "2026-11-04", amount: 0.7548, payment_date: "2026-11-06" },
+    { ex_date: "2026-12-02", amount: "" },
+    { ex_date: "2026-12-03", amount: null },
+    { ex_date: "2026-01-02", amount: 0 },
+  ]);
+  assert.deepEqual(rows.map((row) => [row.exDate, row.amount]), [["2026-11-04", 0.7548], ["2026-01-02", 0]]);
 });
 
 test("browser quote reader uses the snapshot and does not call Nasdaq or Yahoo", async () => {

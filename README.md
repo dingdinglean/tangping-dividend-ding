@@ -44,7 +44,11 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 3. 点击 **Run workflow**，选择 `main`，再点击绿色 **Run workflow**。
 4. 等待完成后检查 `data/market.json`；手机重新打开 App 即会读取新快照。缺 Secret 时会跳过 Alpha Vantage，不会覆盖已有有效记录。
 
-工作流每个交易日有两次定时启动：UTC **18:05**（北京 02:05）和备用的 UTC **22:40**（北京 06:40）。真正的等待在任务里面完成。脚本按 `America/New_York` 计算当天 16:00（提前收盘日为 13:00），夏令时和标准时间都会跟着交易所走，不会把收盘写死成某一个 UTC 小时。若任务在收盘前就开始，它会睡到收盘后 10 分钟再抓；Nasdaq 历史表还没换日时改用 Nasdaq 官方 “Closed at” 收盘，再用 Alpha Vantage，最后用 Yahoo 日线。抓不到新交易日就每 3 分钟再试，直到北京时间 08:00。到点仍旧不是新收盘，就把上一笔价格标成 `stale` 并让任务失败。GitHub 仍可能整次不启动定时任务，所以不能保证每天 08:00 前一定更新；备用的那一次启动就是为了这种情况，而不是再铺一排整点。定时任务只在默认分支生效。
+工作流保留两次官方定时启动：UTC **18:05**（北京 02:05）和独立备用的 UTC **22:40**（北京 06:40）。另有一次幂等补偿：UTC **00:17**、周二到周六（北京 08:17），只在北京 08:00 截止之后跑；快照已经是最近完成交易日时不提交。三次启动各自使用独立的 concurrency group，`cancel-in-progress` 为 false，避免正在等待收盘的任务把备用启动排进同一个队列。这不是再铺一排整点重试，也不能保证 GitHub 一定创建 schedule 事件。
+
+脚本按 `America/New_York` 计算当天 16:00（提前收盘日为 13:00），夏令时和标准时间都会跟着交易所走，不会把收盘写死成某一个 UTC 小时。若任务在收盘前就开始，它会睡到收盘后 10 分钟再抓；提前收盘日如果启动时已经过了 13:00、但还没到收盘后 10 分钟，同样会等到那 10 分钟。Nasdaq 历史表还没换日时改用 Nasdaq 官方 “Closed at” 收盘，再用 Alpha Vantage，最后用 Yahoo 日线。抓不到新交易日就每 3 分钟再试，直到北京时间 08:00。到点仍旧不是新收盘，就把上一笔价格标成 `stale` 并让任务失败。周末和休市日不会把前一个交易日标成“当日已收盘”之前的新交易日；收盘前的等待目标是即将完成的那场，写入时仍用已经完成的那场。
+
+GitHub 可以延迟或直接不创建 schedule 运行。没被创建的事件在 Actions API 里没有 run、没有日志。定时任务只在默认分支生效。Actions 摘要会写明本次 event、`github.event.schedule`、actor、triggering actor、run id，以及每只标的的价格日期、来源、获取时间和派息合并结果。
 
 ### 快照内容与额度
 
@@ -53,7 +57,7 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 - QQQI、SPYI、XQQI 使用 NEOS 官方 `Distribution Rate`；QNDX 在派息历史不足时使用 State Street 的 `30 Day SEC Yield`；SCHD 使用实际 distributions 的 TTM。各自保留原指标名称，页面不把它们合成一个“股息率”。覆盖期不足明确显示“数据不足”，来源刷新失败时保留上次数值并标记过期。累计股息始终只来自用户确认的真实到账记录。
 - 文件只包含白名单公开价格、每股派息、日期及刷新状态/计数；脚本不读取浏览器持仓、交易或到账记录，密钥仅从环境变量读取，不写入文件和日志。
 - 首次快照为空，等待配置 Secret 后真实抓取，不提供假行情。免费套餐未提供某接口时会回退或保留旧值，不承诺实时行情。
-- 同一密钥被其他程序使用、删除预算文件、强制取消流程或 push 失败可能影响共享额度；不要并行使用其他抓取器或清空快照。工作流串行运行。五只 ETF 都还能对上已完成交易日、且派息历史仍在时，才记为最新并提交。源站失败时，只要每只都还留着上一笔真实收盘价和派息记录，就会把过期状态写进 `data/market.json` 再提交，避免旧文件继续显示为刚更新成功。价格或派息历史会因此丢失时不覆盖原文件。
+- 同一密钥被其他程序使用、删除预算文件、强制取消流程或 push 失败可能影响共享额度；不要并行使用其他抓取器或清空快照。同一次 cron 不会并行两份，不同 cron 可以各自启动，提交时 rebase。五只 ETF 都还能对上已完成交易日、且派息历史仍在时，才记为最新并提交。源站失败时，只要每只都还留着上一笔真实收盘价和派息记录，就会把过期状态写进 `data/market.json` 再提交，然后工作流失败，避免旧文件继续显示为刚更新成功。价格或派息历史会因此丢失、响应损坏或 push 失败时，不覆盖已发布的上一份文件，并且该步失败。较短或空白的派息列表不会删掉已保存的除息记录。
 
 ### GitHub Pages 更新与离线
 
@@ -67,7 +71,7 @@ GitHub → **Settings → Secrets and variables → Actions → New repository s
 
 打开页面会注册模块化 Service Worker（`updateViaCache: "none"`）并调用 `registration.update()`。新版本 `skipWaiting` 后接管页面，并只删除名称以 `tangping-dividend-` 开头、且不是当前版本的 Cache Storage。行情快照缓存 `tangping-market-snapshots-v2` 会留下，供离线回退。持仓、交易、设置和删除前备份在 `localStorage`（`tangping-dividend.v1`、`tangping-dividend.backup-before-delete`），升级不会读取、改写或删除这些键。应用版本没有写进存储键，避免一次发布把旧账本留在浏览器里却不再打开。
 
-已发布过的应用壳缓存名包括 `tangping-dividend-v1`（仓库初次提交）、`tangping-dividend-v7.1`、`tangping-dividend-v7.3` 和升级前的 `tangping-dividend-v8.2`。当前名是 `tangping-dividend-v7.3.0`，和 `v7.3` 不是同一个缓存。`npm test` 会模拟这些旧缓存加上旧账本，跑当前 worker 的 `activate`，并确认交易、设置和 `tangping-dividend.backup-before-delete` 还在。GitHub Actions 工作流 **Test** 在 pull request 上运行同一套 `npm test`。
+已发布过的应用壳缓存名包括 `tangping-dividend-v1`（仓库初次提交）、`tangping-dividend-v7.1`、`tangping-dividend-v7.3` 和升级前的 `tangping-dividend-v8.2`。当前名是 `tangping-dividend-v7.7.4`。`tangping-dividend-v7.3.0` 和 `v7.3` 不是同一个缓存。`npm test` 会模拟这些旧缓存加上旧账本，跑当前 worker 的 `activate`，并确认交易、设置和 `tangping-dividend.backup-before-delete` 还在。GitHub Actions 工作流 **Test** 在 pull request 上运行同一套 `npm test`。
 
 ### Safari 与 iOS（没有在 iPhone 上验证）
 
@@ -85,7 +89,7 @@ App 固定使用 Actions 静态快照，不向普通用户展示 API Key、服�
 
 ### XQQI（7.7.0）
 
-升级只补充一次零持仓 XQQI；按代码识别已有自定义标的，保留原 ID、交易和设置。删除后不会在下次打开时重新添加。第五卡沿用持仓页自然滚动，前四卡尺寸不变。行情价只用 Nasdaq / Yahoo 收盘价，或 NEOS 页面的 Closing Market Price；Closing NAV 不会写入市价。涨跌额和涨跌幅、以及最近收盘序列随同一 Actions 快照更新。抓取失败时保留上一笔有效价格和派息，并显示原来的更新时间；价格或派息不完整时工作流以失败退出，不提交 `data/market.json`。
+升级只补充一次零持仓 XQQI；按代码识别已有自定义标的，保留原 ID、交易和设置。删除后不会在下次打开时重新添加。第五卡沿用持仓页自然滚动，前四卡尺寸不变。行情价只用 Nasdaq / Yahoo 收盘价，或 NEOS 页面的 Closing Market Price；Closing NAV 不会写入市价。涨跌额和涨跌幅、以及最近收盘序列随同一 Actions 快照更新。抓取失败时保留上一笔有效价格和派息，并显示原来的更新时间。五只标的仍保有上一笔真实收盘和派息时，过期状态会写入快照，然后工作流失败。会丢掉价格或派息历史时不提交 `data/market.json`。
 
-XQQI 自 2026-02 成立以来的已公布分配（宣布日、除息日、登记日、支付日、每股金额）来自 [NEOS 官方页面](https://neosfunds.com/xqqi/)。11 月和 12 月日历行没有金额，不生成记录。页面上的 Distribution Rate（截至 2026-09-30 为 21.04%）按原名称展示；19%–23% 的 Annualized Distribution Target 不是实际收益率。可编辑预扣税率，留空继续沿用历史到账比例；不追溯改写历史记录。税后现金流才进入月度统计、图表和提醒。
+XQQI 自 2026-02 成立以来的已公布分配（宣布日、除息日、登记日、支付日、每股金额）来自 [NEOS 官方页面](https://neosfunds.com/xqqi/)。2026-11-10 官方页面与 Nasdaq 现金分红表都列出 2026-11-04 除息、宣布日 2026-11-03、登记日 2026-11-04、支付日 2026-11-06、每股 0.7548 美元；当前快照保留这一行，来源是 NEOS official Distribution History。12 月日历行没有金额，不生成记录，也不把空白写成 0。页面上的 Distribution Rate 按原名称展示；19%–23% 的 Annualized Distribution Target 不是实际收益率。可编辑预扣税率，留空继续沿用历史到账比例；不追溯改写历史记录。税后现金流才进入月度统计、图表和提醒。
 

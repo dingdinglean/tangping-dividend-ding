@@ -173,6 +173,17 @@ export function watchPlan(now = Date.now()) {
   const completed = latestCompletedUsTradingSession(now);
   const close = cashCloseUtc(completed.date);
   const deadline = close ? beijingMorningDeadline(close.closeAt) : now;
+  const graceUntil = close ? close.closeAt + CLOSE_GRACE_MS : now;
+  // The bell has passed, but the 10-minute print delay has not.
+  if (close && now < graceUntil && now < deadline) {
+    return {
+      phase: "wait",
+      targetDate: completed.date,
+      earlyClose: completed.earlyClose,
+      waitUntil: graceUntil,
+      deadline,
+    };
+  }
   return {
     phase: now >= deadline ? "final" : "poll",
     targetDate: completed.date,

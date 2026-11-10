@@ -3,20 +3,26 @@ name: Update market data
 on:
   workflow_dispatch:
   schedule:
-    # One watcher, plus one backup if that start is dropped. The job itself
-    # waits until 16:00 or 13:00 America/New_York (so EST and EDT both work),
-    # then polls until the new closes are in or until 08:00 Asia/Shanghai.
-    # 18:05 UTC is a few hours before either cash close. A delayed start still
-    # falls inside the Beijing morning. 22:40 UTC (06:40 Shanghai) is only the
-    # safety start when the watcher never began.
+    # Watcher. 18:05 UTC is 02:05 Asia/Shanghai, before the 16:00 or 13:00
+    # America/New_York cash close. The job waits until 10 minutes after that
+    # close, then polls until 08:00 Asia/Shanghai.
     - cron: '5 18 * * 1-5'
+    # Independent backup if the watcher event is never created. It uses its
+    # own concurrency group so a sleeping watcher cannot queue it.
     - cron: '40 22 * * 1-5'
+    # One idempotent compensation after the in-job Beijing deadline:
+    # 00:17 UTC Tue-Sat is 08:17 Asia/Shanghai. If the session is already
+    # current this run does not commit. GitHub can still drop this event;
+    # extra cron lines are not a delivery guarantee.
+    - cron: '17 0 * * 2-6'
 
 permissions:
   contents: write
 
+# One group per cron (or per manual dispatch). cancel-in-progress stays off
+# so a delayed duplicate does not kill a run that is waiting for the close.
 concurrency:
-  group: update-market-data
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.schedule || 'manual' }}
   cancel-in-progress: false
 
 jobs:
@@ -31,32 +37,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Record scheduler evidence
+        if: always()
+        env:
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+        run: |
+          {
+            echo "## Scheduler evidence"
+            echo
+            echo "- event: \`${{ github.event_name }}\`"
+            echo "- schedule: \`${SCHEDULE_CRON:-workflow_dispatch}\`"
+            echo "- actor: \`${{ github.actor }}\`"
+            echo "- triggering_actor: \`${{ github.triggering_actor }}\`"
+            echo "- run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- run_attempt: ${{ github.run_attempt }}"
+            echo "- ref: \`${{ github.ref }}\`"
+            echo "- sha: \`${{ github.sha }}\`"
+            echo "- workflow_id: 350907457"
+            echo
+            echo "Official windows remain \`5 18 * * 1-5\` and \`40 22 * * 1-5\` UTC. Compensation is \`17 0 * * 2-6\` UTC (08:17 Asia/Shanghai), after the 08:00 deadline. A dropped schedule creates no run, so this log cannot prove an earlier tick was accepted."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Refresh public snapshot
         id: refresh
         env:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
         run: node scripts/update-market-data.mjs
       - name: Commit snapshot only when changed
         if: steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/commit-market-snapshot.mjs
+      - name: Fail unless the expected session was reached
+        if: steps.refresh.outcome != 'success'
         run: |
-          git add -- data/market.json
-          if git diff --cached --quiet; then
-            echo "No snapshot changes; no commit created."
-            exit 0
-          fi
-          MESSAGE=$(node --input-type=module <<'EOF'
-          import { readFileSync } from "node:fs";
-          const snapshot = JSON.parse(readFileSync("data/market.json", "utf8"));
-          const day = snapshot.refresh?.target_price_date || "unknown";
-          const held = [...new Set(Object.values(snapshot.symbols || {}).map((row) => row.price?.price_date).filter(Boolean))].join(",");
-          const current = snapshot.refresh?.freshness === "current";
-          console.log(current ? `chore: update public market snapshot (${day})` : `chore: update public market snapshot (stale, expected ${day}, held ${held})`);
-          EOF
-          )
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "$MESSAGE"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:$DEFAULT_BRANCH"
+          echo "The refresh did not align with the expected completed session. A recordable stale snapshot may already have been committed. Push errors fail the commit step. This step keeps the job red."
+          exit 1

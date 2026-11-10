@@ -4,7 +4,7 @@ import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay, watchPla
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, snapshotIsPublishable, run, runWatch } from "../scripts/update-market-data.mjs";
+import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, snapshotIsPublishable, run, runWatch, mergeDividends, buildRunSummary } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
@@ -573,4 +573,156 @@ test("after the Beijing deadline a missing session is stale instead of a success
   assert.equal(written.symbols.QQQI.price_status, "stale");
   assert.equal(written.symbols.QQQI.price.price_date, "2026-11-02");
   assert.equal(written.refresh.freshness, "stale");
+});
+
+const verifiedHistory = {
+  data: [
+    { ex_date: "2026-10-07", payment_date: "2026-10-09", declaration_date: "2026-10-06", record_date: "2026-10-07", amount: 0.8823 },
+    { ex_date: "2026-09-02", payment_date: "2026-09-04", declaration_date: "2026-09-01", record_date: "2026-09-02", amount: 0.8403 },
+    { ex_date: "2026-02-04", payment_date: "2026-02-06", declaration_date: "2026-02-03", record_date: "2026-02-04", amount: 0.85 },
+  ],
+  source: "NEOS official Distribution History",
+  fetched_at: "2026-10-08T00:00:00.000Z",
+  status: "valid",
+};
+
+test("a shorter newer distribution list keeps older ex dates and can correct one amount", () => {
+  const merged = mergeDividends(verifiedHistory, {
+    data: [{ ex_date: "2026-11-04", payment_date: "2026-11-06", declaration_date: "2026-11-03", record_date: "2026-11-04", amount: 0.7548 }, { ex_date: "2026-10-07", amount: 0.88 }],
+    source: "NEOS official Distribution History",
+    fetched_at: "2026-11-10T01:05:37.000Z",
+  });
+  const amounts = Object.fromEntries(merged.dividends.data.map((row) => [row.ex_date, row.amount]));
+  assert.equal(amounts["2026-11-04"], 0.7548);
+  assert.equal(amounts["2026-10-07"], 0.88);
+  assert.equal(amounts["2026-09-02"], 0.8403);
+  assert.equal(amounts["2026-02-04"], 0.85);
+  assert.equal(merged.dividends.data.find((row) => row.ex_date === "2026-10-07").amount_provenance[0].previous_amount, 0.8823);
+  assert.ok(merged.notes.some((note) => note.kind === "preserved_absent" && note.ex_date === "2026-02-04"));
+  const again = mergeDividends(merged.dividends, {
+    data: [{ ex_date: "2026-11-04", amount: 0.7548 }, { ex_date: "2026-10-07", amount: 0.88 }],
+    source: "NEOS official Distribution History",
+    fetched_at: "2026-11-10T02:00:00.000Z",
+  });
+  assert.equal(again.dividends.data.filter((row) => row.ex_date === "2026-10-07").length, 1);
+  assert.equal(again.dividends.data.find((row) => row.ex_date === "2026-10-07").amount_provenance.length, 1);
+});
+
+test("an empty distribution list and a blank amount keep the known non-zero row", () => {
+  const empty = mergeDividends(verifiedHistory, { data: [], source: "NEOS official Distribution History", fetched_at: "2026-11-10T00:00:00.000Z" });
+  assert.equal(empty.fresh, false);
+  assert.equal(empty.dividends.data.length, 3);
+  assert.equal(empty.dividends.data[0].amount, 0.8823);
+  const blank = mergeDividends(verifiedHistory, {
+    data: [{ ex_date: "2026-10-07", amount: "" }, { ex_date: "2026-12-02", amount: null }, { ex_date: "2026-11-04", amount: "0.7548" }],
+    source: "NEOS official Distribution History",
+    fetched_at: "2026-11-10T00:00:00.000Z",
+  });
+  assert.equal(blank.dividends.data.find((row) => row.ex_date === "2026-10-07").amount, 0.8823);
+  assert.equal(blank.dividends.data.find((row) => row.ex_date === "2026-11-04").amount, 0.7548);
+  assert.equal(blank.dividends.data.some((row) => row.ex_date === "2026-12-02"), false);
+  assert.ok(blank.notes.some((note) => note.kind === "missing_amount" && note.ex_date === "2026-10-07"));
+  assert.ok(blank.notes.some((note) => note.kind === "missing_amount" && note.ex_date === "2026-12-02"));
+});
+
+test("an explicit zero is stored and a lower-priority conflict does not override a known amount", () => {
+  const zero = mergeDividends(null, { data: [{ ex_date: "2026-05-06", amount: "0", payment_date: "2026-05-08" }], source: "Nasdaq official dividends", fetched_at: "2026-05-08T00:00:00.000Z" });
+  assert.equal(zero.dividends.data[0].amount, 0);
+  const stillZero = mergeDividends(zero.dividends, { data: [{ ex_date: "2026-05-06", amount: "" }], source: "Nasdaq official dividends", fetched_at: "2026-05-09T00:00:00.000Z" });
+  assert.equal(stillZero.fresh, false);
+  assert.equal(stillZero.dividends.data[0].amount, 0);
+  const distinct = mergeDividends(zero.dividends, {
+    data: [
+      { ex_date: "2026-05-06", amount: "0", payment_date: "2026-05-08" },
+      { ex_date: "2026-05-06", amount: "0.10", payment_date: "2026-05-08" },
+    ],
+    source: "Nasdaq official dividends",
+    fetched_at: "2026-05-09T00:00:00.000Z",
+  });
+  assert.deepEqual(distinct.dividends.data.map((row) => row.amount).sort(), [0, 0.1]);
+  const conflict = mergeDividends(verifiedHistory, {
+    data: [{ ex_date: "2026-10-07", amount: 0.1, payment_date: "2026-10-09" }],
+    source: "Yahoo Finance Dividends",
+    fetched_at: "2026-11-10T00:00:00.000Z",
+  });
+  assert.equal(conflict.dividends.data.find((row) => row.ex_date === "2026-10-07").amount, 0.8823);
+  assert.ok(conflict.notes.some((note) => note.kind === "conflict" && note.incoming_amount === 0.1));
+});
+
+test("XQQI official November row is retained when a later table is only that row, and a blank December is not invented", async () => {
+  const page = `<table><tr><th>Declaration Date</th><th>Ex-Div Date</th><th>Record Date</th><th>Payable Date</th><th>Amount ($)</th></tr>
+    <tr><td>11/03/2026</td><td>11/04/2026</td><td>11/04/2026</td><td>11/06/2026</td><td>$0.7548</td></tr>
+    <tr><td>10/06/2026</td><td>10/07/2026</td><td>10/07/2026</td><td>10/09/2026</td><td>$0.8823</td></tr>
+    <tr><td>12/01/2026</td><td>12/02/2026</td><td>12/02/2026</td><td>12/04/2026</td><td></td></tr></table>`;
+  const full = await fetchNeosDividends("XQQI", async () => ({ ok: true, text: async () => page }), "2026-11-10T01:05:37.000Z");
+  assert.deepEqual(full.data.map((row) => [row.ex_date, row.amount]), [["2026-11-04", 0.7548], ["2026-10-07", 0.8823]]);
+  const onlyLatest = `<table><tr><th>Declaration Date</th><th>Ex-Div Date</th><th>Record Date</th><th>Payable Date</th><th>Amount ($)</th></tr>
+    <tr><td>11/03/2026</td><td>11/04/2026</td><td>11/04/2026</td><td>11/06/2026</td><td>$0.7548</td></tr></table>`;
+  const previous = { schemaVersion: 2, symbols: { XQQI: { dividends: full } } };
+  const snapshot = await updateSnapshot({ previous, now: Date.parse("2026-11-10T01:05:37Z"), fetcher: async (url) => String(url).includes("neosfunds.com/xqqi") ? { ok: true, text: async () => onlyLatest } : fetcher()(url) });
+  const rows = snapshot.symbols.XQQI.dividends.data;
+  assert.equal(rows.find((row) => row.ex_date === "2026-11-04").amount, 0.7548);
+  assert.equal(rows.find((row) => row.ex_date === "2026-10-07").amount, 0.8823);
+  assert.equal(rows.some((row) => row.ex_date === "2026-12-02"), false);
+});
+
+test("weekend keeps Friday as the completed session, and Monday after the close marks all five stale when sources are still Friday", async () => {
+  const friday = "2026-11-06";
+  const previous = { schemaVersion: 2, symbols: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, {
+    price: { symbol, price: 10 + symbol.length, price_date: friday, source: "Nasdaq official close", fetched_at: "2026-11-07T02:19:50.000Z" },
+    dividends: { data: [{ ex_date: "2026-10-21", amount: 0.5, payment_date: "2026-10-23" }], source: "Nasdaq official dividends", fetched_at: "2026-11-07T02:19:50.000Z" },
+  }])) };
+  const older = Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, friday]));
+  const sources = {
+    alphaDate: older, yahooDate: older,
+    nasdaqHistorical: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, [{ date: "11/06/2026", close: "$10" }]])),
+    nasdaqInfo: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 6, 2026 4:00 PM ET" }])),
+  };
+  const weekend = await updateSnapshot({ previous, now: Date.parse("2026-11-08T12:00:00Z"), apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher(sources) });
+  assert.equal(weekend.refresh.target_price_date, friday);
+  assert.equal(weekend.refresh.freshness, "current");
+  const snapshot = await updateSnapshot({ previous, now: Date.parse("2026-11-09T22:40:00Z"), apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher(sources) });
+  assert.equal(snapshot.refresh.target_price_date, "2026-11-09");
+  assert.equal(snapshot.refresh.freshness, "stale");
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) {
+    assert.equal(snapshot.symbols[symbol].price_status, "stale", symbol);
+    assert.equal(snapshot.symbols[symbol].price.price_date, friday, symbol);
+    assert.equal(snapshot.symbols[symbol].expected_price_date, "2026-11-09", symbol);
+    assert.equal(snapshot.symbols[symbol].price_error, "price_date_stale", symbol);
+    assert.ok(snapshot.symbols[symbol].dividends.data.length >= 1, symbol);
+  }
+  const beforeMondayClose = watchPlan(Date.parse("2026-11-09T18:05:00Z"));
+  assert.equal(beforeMondayClose.phase, "wait");
+  assert.equal(beforeMondayClose.targetDate, "2026-11-09");
+  assert.equal(new Date(beforeMondayClose.waitUntil).toISOString(), "2026-11-09T21:10:00.000Z");
+  assert.equal(new Date(beforeMondayClose.deadline).toISOString(), "2026-11-10T00:00:00.000Z");
+  const compensation = watchPlan(Date.parse("2026-11-10T00:17:00Z"));
+  assert.equal(compensation.phase, "final");
+  assert.equal(compensation.targetDate, "2026-11-09");
+  const early = watchPlan(Date.parse("2026-11-27T18:05:00Z"));
+  assert.equal(early.phase, "wait");
+  assert.equal(early.targetDate, "2026-11-27");
+  assert.equal(early.earlyClose, true);
+  assert.equal(new Date(early.waitUntil).toISOString(), "2026-11-27T18:10:00.000Z");
+  const holiday = watchPlan(Date.parse("2026-11-26T18:05:00Z"));
+  assert.equal(holiday.targetDate, "2026-11-25");
+  assert.equal(isUsTradingDay("2026-11-26"), false);
+  const report = buildRunSummary({ snapshot, plan: compensation, fresh: false });
+  assert.equal(report.lines.length, 5);
+  assert.match(report.lines.join("\n"), /QQQI/);
+  assert.match(report.lines.join("\n"), /XQQI/);
+  assert.match(report.header, /2026-11-09/);
+});
+
+test("a malformed upstream response and a write failure both leave the last snapshot file in place", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "guard-"));
+  const output = join(dir, "market.json");
+  const original = `${JSON.stringify({ schemaVersion: 2, keep: true, symbols: { QQQI: { price: { price: 1, price_date: "2026-11-06" } } } })}\n`;
+  await writeFile(output, original);
+  const malformed = await run({ output, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: async () => ({ ok: true, json: async () => { throw new SyntaxError("malformed"); }, text: async () => "not-html" }) });
+  assert.equal(malformed.refresh.freshness, "stale");
+  assert.equal(await readFile(output, "utf8"), original);
+  await writeFile(join(dir, "not-a-directory"), "blocked");
+  await assert.rejects(run({ output: join(dir, "not-a-directory", "market.json"), now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher() }));
+  assert.equal(await readFile(output, "utf8"), original);
 });

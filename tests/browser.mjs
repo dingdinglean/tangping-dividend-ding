@@ -44,7 +44,7 @@ async function testStaticSnapshots(browser, engine) {
     // WebKit reports an aborted initial SW registration as a page error.
     // Finish installation before the fixture's first reload.
     await page.evaluate(async()=>{const registration=await navigator.serviceWorker.ready;await registration.update();});
-    await page.evaluate(()=>localStorage.setItem("tangping-dividend.v1",JSON.stringify({version:1,settings:{autoRefresh:true},assets:[{id:"test",ticker:"QQQI",frequency:"monthly",currentPrice:0}],transactions:[]})));
+    await page.evaluate(()=>localStorage.setItem("tangping-dividend.v1",JSON.stringify({version:1,settings:{autoRefresh:true,marketDataMode:"snapshot",freedomMilestones:[{id:"insurance",name:"保费自定义",amountCny:1000},{id:"meals",name:"三餐自由",amountCny:2500},{id:"semi-retired",name:"半步退休",amountCny:6000},{id:"journey",name:"诗和远方",amountCny:12000},{id:"life",name:"人生自由",amountCny:20000}]},assets:[{id:"test",ticker:"QQQI",frequency:"monthly",currentPrice:0,remoteDividends:[{exDate:"2026-08-01",amount:0.5,paymentDate:"2026-08-05"}]}],transactions:[{id:"buy",assetId:"test",type:"buy",date:"2026-01-01",shares:3,price:10},{id:"recv",assetId:"test",type:"dividend",status:"received",date:"2026-08-05",exDate:"2026-08-01",netDividend:1.2,grossDividend:1.5,perShare:0.5,shareCount:3}]})));
     await page.reload();
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.alphaVantageApiKey),"");
     const snapshotPrice=()=>page.evaluate(async()=>{const response=await fetch("./data/market.json?snapshot="+Date.now(),{cache:"no-store"});return (await response.json()).symbols.QQQI.price.price;});
@@ -81,6 +81,12 @@ async function testStaticSnapshots(browser, engine) {
     fail=false; price=107;
     await page.evaluate(()=>window.dispatchEvent(new Event("focus")));
     await page.waitForFunction(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice===107);
+    const ledger = await page.evaluate(() => JSON.parse(localStorage.getItem("tangping-dividend.v1")));
+    assert.equal(ledger.transactions.find((tx) => tx.id === "recv").netDividend, 1.2);
+    assert.equal(ledger.transactions.find((tx) => tx.id === "recv").status, "received");
+    assert.equal(ledger.transactions.find((tx) => tx.id === "buy").shares, 3);
+    assert.equal(ledger.settings.freedomMilestones[0].name, "保费自定义");
+    assert.equal(ledger.assets[0].remoteDividends.some((row) => row.exDate === "2026-08-01" && row.amount === 0.5), true);
     assert.deepEqual(errors,[]);
     console.log(`PASS ${engine} snapshot: initial/online/focus sync, query URL offline cache, no personal key, new network snapshot, offline/503 last-good fallback`);
   } finally {await context.close();await new Promise(r=>snapshotServer.close(r));}

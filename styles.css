@@ -273,7 +273,7 @@ button, .btn, .nav-btn, .floating-add { touch-action: manipulation; }
 .chart-grid-lines i { border-top-style: solid; font-style: normal; }
 .chart-grid-lines i span, .chart-tooltip small { font-size: .6875rem; }
 .chart-bars .month-label { font-size: .6875rem; }
-.legend { font-size: var(--font-caption); gap: 16px; margin-top: 10px; }
+.legend { font-size: var(--font-caption); gap: 16px; margin-top: 6px; }
 .market-caption { margin: -4px 4px 0; padding: 0; line-height: 1.4; font-size: var(--font-caption); }
 .navigation-dock { bottom: calc(env(safe-area-inset-bottom) + 10px); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); max-width: 448px; }
 .bottom-nav { background: var(--surface-1); border: 1px solid var(--divider); border-radius: var(--radius-pill); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 2px 12px rgba(0, 0, 0, .035); }

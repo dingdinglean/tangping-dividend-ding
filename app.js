@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.3";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.3";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.3";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.4";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.4";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.4";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -484,6 +484,42 @@ function getNextDeclaredDividend(asset) {
   return (asset.remoteDividends || [])
     .filter((row) => row.canAutoCreate !== false && (row.paymentDate || row.exDate) >= today && number(row.amount) > 0)
     .sort((a, b) => (a.paymentDate || a.exDate).localeCompare(b.paymentDate || b.exDate))[0] || null;
+}
+
+function mergeSnapshotDividendHistory(existingRows, incomingRows) {
+  const byEx = new Map();
+  for (const row of existingRows || []) {
+    if (!row?.exDate) continue;
+    const list = byEx.get(row.exDate) || [];
+    list.push({ ...row });
+    byEx.set(row.exDate, list);
+  }
+  for (const row of incomingRows || []) {
+    if (!row?.exDate) continue;
+    const text = row.amount === null || row.amount === undefined ? "" : String(row.amount).trim();
+    const amountKnown = text !== "" && Number.isFinite(Number(text)) && Number(text) >= 0;
+    const prior = byEx.get(row.exDate) || [];
+    if (!amountKnown) continue;
+    const amount = Number(text);
+    if (!prior.length) {
+      byEx.set(row.exDate, [{ ...row, amount }]);
+      continue;
+    }
+    const match = prior.find((item) => Number(item.amount) === amount);
+    if (match) {
+      const canAutoCreate = match.canAutoCreate;
+      Object.assign(match, row, { amount });
+      if (canAutoCreate === false) match.canAutoCreate = false;
+    } else if (prior.length === 1) {
+      const canAutoCreate = prior[0].canAutoCreate;
+      Object.assign(prior[0], row, { amount });
+      if (canAutoCreate === false) prior[0].canAutoCreate = false;
+    } else {
+      prior.push({ ...row, amount });
+    }
+    byEx.set(row.exDate, prior);
+  }
+  return [...byEx.values()].flat().sort((a, b) => String(b.exDate || "").localeCompare(String(a.exDate || "")) || Number(b.amount) - Number(a.amount));
 }
 
 function mergeDividendRows(existingRows, fallbackRows) {
@@ -1677,7 +1713,7 @@ async function updateAssetMarketData(asset, options = {}) {
         if (getAsset(asset.id) !== asset) return { skipped: true };
         if (index < 2 && !result.dividends.length) throw new Error("接口没有返回有效股息记录");
         if (index === 0) {
-          asset.remoteDividends = result.dividends;
+          asset.remoteDividends = mergeSnapshotDividendHistory(asset.remoteDividends, result.dividends);
           asset.snapshotAnnualDividendPerShare = 0;
           asset.snapshotDividendYield = 0;
           asset.dividendNoData = false;

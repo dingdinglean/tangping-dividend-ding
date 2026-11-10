@@ -1,5 +1,5 @@
-import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.7.3";
-import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.7.3";
+import { githubPagesSnapshotMirror } from "./pwa-release.js?v=7.7.4";
+import { latestCompletedUsTradingSession, sessionDateFromTimestamp } from "./market-calendar.js?v=7.7.4";
 
 const FX_PRIMARY = "https://api.frankfurter.dev/v2/rate/USD/CNY";
 const FX_BACKUP = "https://open.er-api.com/v6/latest/USD";
@@ -51,7 +51,16 @@ function quoteFromRecord(record) { return { price: Number(record.price), trading
 // Nasdaq and Yahoo responses do not allow browser reads. The phone only
 // re-reads the static snapshot; Actions keeps those sources on the server.
 export async function fetchAlphaQuote(symbol) { const snapshot = await loadSnapshot(); const record = parseSnapshot(snapshot, symbol, "PRICE"); const expected = latestCompletedUsTradingSession().date; if (!validPrice(record.price) || !validDate(record.price_date) || record.price_date > expected) throw new Error(`${symbol} 收盘价或日期无效`); const quote = record.price_date === expected && record._status === "valid" ? quoteFromRecord(record) : quoteFromRecord({ ...record, _status: "stale" }); const history = snapshot.symbols?.[symbol]?.price_history; if (Array.isArray(history)) quote.history = history; return quote; }
-export async function fetchAlphaDividends(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDENDS"); const dividends = (row.data || []).map((item) => ({ exDate: item.ex_date, declarationDate: item.declaration_date || "", recordDate: item.record_date || "", paymentDate: item.payment_date || "", amount: Number(item.amount) })).filter((item) => validDate(item.exDate) && validPrice(item.amount)); if (!dividends.length) throw new Error(`${symbol} 未返回有效股息记录`); return { dividends, source: row.source, quality: "exact", fetchedAt: row.fetched_at, refreshWarning: row._status === "stale" ? "股息来源刷新失败，继续使用上次有效数据" : null }; }
+export function normalizeSnapshotDividends(data) {
+  return (data || []).flatMap((item) => {
+    if (item?.amount === null || item?.amount === undefined || String(item.amount).trim() === "") return [];
+    const amount = Number(item.amount);
+    const exDate = item.ex_date || item.exDate;
+    if (!validDate(exDate) || !Number.isFinite(amount) || amount < 0) return [];
+    return [{ exDate, declarationDate: item.declaration_date || item.declarationDate || "", recordDate: item.record_date || item.recordDate || "", paymentDate: item.payment_date || item.paymentDate || "", amount }];
+  });
+}
+export async function fetchAlphaDividends(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDENDS"); const dividends = normalizeSnapshotDividends(row.data); if (!dividends.length) throw new Error(`${symbol} 未返回有效股息记录`); return { dividends, source: row.source, quality: "exact", fetchedAt: row.fetched_at, refreshWarning: row._status === "stale" ? "股息来源刷新失败，继续使用上次有效数据" : null }; }
 export async function fetchAlphaMonthlyAdjustedDividends() { throw new Error("静态快照未提供月度估算股息"); }
 export async function fetchAlphaOverviewDividend(symbol) { const row = parseSnapshot(await loadSnapshot(), symbol, "DIVIDEND_RATE"); if (!validPrice(row.rate) || row.coverage === "insufficient") throw new Error(`${symbol} 股息历史不足 12 个月`); return { annualDividendPerShare: Number(row.annual_per_share || 0), dividendYield: Number(row.rate), dataDate: row.data_date || "", source: row.source, fetchedAt: row.fetched_at || null, quality: row.kind || "snapshot", yieldType: row.yield_type || row.kind || "snapshot", stale: row._status === "stale", refreshWarning: row._status === "stale" ? "股息率来源刷新失败，继续使用上次有效数据" : null, coverage: row.coverage || "complete" }; }
 async function fxPrimary() { const row = await fetchJson(FX_PRIMARY); if (!validPrice(row.rate) || !validDate(row.date)) throw new Error("汇率数据格式异常"); return { rate: Number(row.rate), date: row.date, source: "Frankfurter", fetchedAt: new Date().toISOString() }; }

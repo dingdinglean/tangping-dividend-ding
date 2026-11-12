@@ -12,6 +12,7 @@ const PREVIOUS_APP_CACHES = [
   "tangping-dividend-v7.1", // docs/PR-V7.md
   "tangping-dividend-v7.3", // docs/TESTING-V7.md; not the same name as v7.3.0
   "tangping-dividend-v7.7.3", // package version immediately before 7.7.4
+  "tangping-dividend-v7.7.4", // package version immediately before 7.7.5
   "tangping-dividend-v8.2", // main immediately before this branch
 ];
 

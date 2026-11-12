@@ -1,0 +1,1677 @@
+{
+  "baseline": false,
+  "fixture": "illustrative holdings + committed public snapshot",
+  "snapshot": "2026-11-12T03:37:37.816Z",
+  "engines": [
+    {
+      "engine": "Chromium",
+      "profiles": [
+        {
+          "name": "iphone17promax-safari",
+          "viewport": {
+            "width": 440,
+            "height": 763
+          },
+          "scrollHeight": 763,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.8125,
+            "bottom": 681.609375,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 693,
+            "bottom": 753,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 422.8125,
+            "bottom": 656.8125,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 693,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone17promax-pwa",
+          "viewport": {
+            "width": 440,
+            "height": 956
+          },
+          "scrollHeight": 956,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 726.8125,
+            "bottom": 743.609375,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 852,
+            "bottom": 912,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 484.8125,
+            "bottom": 718.8125,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 263.09375,
+                "bottom": 376.125,
+                "height": 113.03125
+              },
+              {
+                "top": 384.125,
+                "bottom": 497.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 505.15625,
+                "bottom": 618.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 626.1875,
+                "bottom": 739.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 747.21875,
+                "bottom": 860.25,
+                "height": 113.03125
+              },
+              {
+                "top": 868.25,
+                "bottom": 981.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 852,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone375",
+          "viewport": {
+            "width": 375,
+            "height": 667
+          },
+          "scrollHeight": 749,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 651.9375,
+            "bottom": 668.734375,
+            "left": 18,
+            "right": 357,
+            "width": 339,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 597,
+            "bottom": 657,
+            "left": 16,
+            "right": 359,
+            "width": 343,
+            "height": 60
+          },
+          "chart": {
+            "top": 411.9375,
+            "bottom": 645.9375,
+            "left": 14,
+            "right": 361,
+            "width": 347,
+            "height": 234
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 597,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone390",
+          "viewport": {
+            "width": 390,
+            "height": 744
+          },
+          "scrollHeight": 750,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 653.515625,
+            "bottom": 670.3125,
+            "left": 20,
+            "right": 370,
+            "width": 350,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 674,
+            "bottom": 734,
+            "left": 16,
+            "right": 374,
+            "width": 358,
+            "height": 60
+          },
+          "chart": {
+            "top": 413.515625,
+            "bottom": 647.515625,
+            "left": 16,
+            "right": 374,
+            "width": 358,
+            "height": 234
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 674,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone402",
+          "viewport": {
+            "width": 402,
+            "height": 774
+          },
+          "scrollHeight": 774,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 660.796875,
+            "bottom": 677.59375,
+            "left": 20,
+            "right": 382,
+            "width": 362,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 704,
+            "bottom": 764,
+            "left": 16,
+            "right": 386,
+            "width": 370,
+            "height": 60
+          },
+          "chart": {
+            "top": 418.796875,
+            "bottom": 652.796875,
+            "left": 16,
+            "right": 386,
+            "width": 370,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 704,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone430",
+          "viewport": {
+            "width": 430,
+            "height": 832
+          },
+          "scrollHeight": 832,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 663.765625,
+            "bottom": 680.5625,
+            "left": 20,
+            "right": 410,
+            "width": 390,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 762,
+            "bottom": 822,
+            "left": 16,
+            "right": 414,
+            "width": 398,
+            "height": 60
+          },
+          "chart": {
+            "top": 421.765625,
+            "bottom": 655.765625,
+            "left": 16,
+            "right": 414,
+            "width": 398,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 762,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "width440",
+          "viewport": {
+            "width": 440,
+            "height": 900
+          },
+          "scrollHeight": 900,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.8125,
+            "bottom": 681.609375,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 830,
+            "bottom": 890,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 422.8125,
+            "bottom": 656.8125,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 830,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "tablet768",
+          "viewport": {
+            "width": 768,
+            "height": 1024
+          },
+          "scrollHeight": 1024,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.8125,
+            "bottom": 681.609375,
+            "left": 124,
+            "right": 644,
+            "width": 520,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 954,
+            "bottom": 1014,
+            "left": 160,
+            "right": 608,
+            "width": 448,
+            "height": 60
+          },
+          "chart": {
+            "top": 422.8125,
+            "bottom": 656.8125,
+            "left": 120,
+            "right": 648,
+            "width": 528,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 954,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "desktop1440",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "scrollHeight": 900,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.8125,
+            "bottom": 681.609375,
+            "left": 460,
+            "right": 980,
+            "width": 520,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 830,
+            "bottom": 890,
+            "left": 496,
+            "right": 944,
+            "width": 448,
+            "height": 60
+          },
+          "chart": {
+            "top": 422.8125,
+            "bottom": 656.8125,
+            "left": 456,
+            "right": 984,
+            "width": 528,
+            "height": 234
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 830,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "landscape390",
+          "viewport": {
+            "width": 844,
+            "height": 390
+          },
+          "scrollHeight": 756,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 658.8125,
+            "bottom": 675.609375,
+            "left": 162,
+            "right": 682,
+            "width": 520,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 320,
+            "bottom": 380,
+            "left": 198,
+            "right": 646,
+            "width": 448,
+            "height": 60
+          },
+          "chart": {
+            "top": 418.8125,
+            "bottom": 652.8125,
+            "left": 158,
+            "right": 686,
+            "width": 528,
+            "height": 234
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 201.09375,
+                "bottom": 314.125,
+                "height": 113.03125
+              },
+              {
+                "top": 322.125,
+                "bottom": 435.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 443.15625,
+                "bottom": 556.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 564.1875,
+                "bottom": 677.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 685.21875,
+                "bottom": 798.25,
+                "height": 113.03125
+              },
+              {
+                "top": 806.25,
+                "bottom": 919.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 320,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "large-text",
+          "viewport": {
+            "width": 440,
+            "height": 763
+          },
+          "scrollHeight": 902,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 796.515625,
+            "bottom": 821.703125,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 25.1875
+          },
+          "dock": {
+            "top": 693,
+            "bottom": 753,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 530.515625,
+            "bottom": 788.515625,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 258
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 239.140625,
+                "bottom": 388.171875,
+                "height": 149.03125
+              },
+              {
+                "top": 396.171875,
+                "bottom": 545.203125,
+                "height": 149.03125
+              },
+              {
+                "top": 553.203125,
+                "bottom": 702.234375,
+                "height": 149.03125
+              },
+              {
+                "top": 710.234375,
+                "bottom": 859.265625,
+                "height": 149.03125
+              },
+              {
+                "top": 867.265625,
+                "bottom": 1016.296875,
+                "height": 149.03125
+              },
+              {
+                "top": 1024.296875,
+                "bottom": 1173.328125,
+                "height": 149.03125
+              }
+            ],
+            "dockTop": 693,
+            "cardCount": 6
+          }
+        }
+      ],
+      "money": {
+        "CNY": {
+          "monthly-income": {
+            "value": 284.5772191527083,
+            "currency": "CNY"
+          },
+          "received-income": {
+            "value": 1199.7540000000001,
+            "currency": "CNY"
+          },
+          "annual-forecast": {
+            "value": 3414.9266298325,
+            "currency": "CNY"
+          },
+          "chart-total": {
+            "value": 1769.0996435447503,
+            "currency": "CNY"
+          },
+          "year-received": {
+            "value": 1199.7540000000001,
+            "currency": "CNY"
+          }
+        },
+        "USD": {
+          "monthly-income": {
+            "value": 42.695335416666666,
+            "currency": "USD"
+          },
+          "received-income": {
+            "value": 180,
+            "currency": "USD"
+          },
+          "annual-forecast": {
+            "value": 512.344025,
+            "currency": "USD"
+          },
+          "chart-total": {
+            "value": 444.63135750000004,
+            "currency": "USD"
+          },
+          "year-received": {
+            "value": 180,
+            "currency": "USD"
+          }
+        }
+      },
+      "chart": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        45,
+        45,
+        45,
+        45,
+        0.5705,
+        42.424428750000004,
+        42.424428750000004
+      ]
+    },
+    {
+      "engine": "WebKit",
+      "profiles": [
+        {
+          "name": "iphone17promax-safari",
+          "viewport": {
+            "width": 440,
+            "height": 763
+          },
+          "scrollHeight": 763,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.3125,
+            "bottom": 681.109375,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 693,
+            "bottom": 753,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 423.3125,
+            "bottom": 656.3125,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 693,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone17promax-pwa",
+          "viewport": {
+            "width": 440,
+            "height": 956
+          },
+          "scrollHeight": 956,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 726.3125,
+            "bottom": 743.109375,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 852,
+            "bottom": 912,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 485.3125,
+            "bottom": 718.3125,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 262.09375,
+                "bottom": 375.125,
+                "height": 113.03125
+              },
+              {
+                "top": 383.125,
+                "bottom": 496.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 504.15625,
+                "bottom": 617.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 625.1875,
+                "bottom": 738.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 746.21875,
+                "bottom": 859.25,
+                "height": 113.03125
+              },
+              {
+                "top": 867.25,
+                "bottom": 980.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 852,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone375",
+          "viewport": {
+            "width": 375,
+            "height": 667
+          },
+          "scrollHeight": 748,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 651.421875,
+            "bottom": 668.21875,
+            "left": 18,
+            "right": 357,
+            "width": 339,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 597,
+            "bottom": 657,
+            "left": 16,
+            "right": 359,
+            "width": 343,
+            "height": 60
+          },
+          "chart": {
+            "top": 412.421875,
+            "bottom": 645.421875,
+            "left": 14,
+            "right": 361,
+            "width": 347,
+            "height": 233
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 597,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone390",
+          "viewport": {
+            "width": 390,
+            "height": 744
+          },
+          "scrollHeight": 750,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 653.015625,
+            "bottom": 669.8125,
+            "left": 20,
+            "right": 370,
+            "width": 350,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 674,
+            "bottom": 734,
+            "left": 16,
+            "right": 374,
+            "width": 358,
+            "height": 60
+          },
+          "chart": {
+            "top": 414.015625,
+            "bottom": 647.015625,
+            "left": 16,
+            "right": 374,
+            "width": 358,
+            "height": 233
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 674,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone402",
+          "viewport": {
+            "width": 402,
+            "height": 774
+          },
+          "scrollHeight": 774,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 660.28125,
+            "bottom": 677.078125,
+            "left": 20,
+            "right": 382,
+            "width": 362,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 704,
+            "bottom": 764,
+            "left": 16,
+            "right": 386,
+            "width": 370,
+            "height": 60
+          },
+          "chart": {
+            "top": 419.28125,
+            "bottom": 652.28125,
+            "left": 16,
+            "right": 386,
+            "width": 370,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 704,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "iphone430",
+          "viewport": {
+            "width": 430,
+            "height": 832
+          },
+          "scrollHeight": 832,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 663.265625,
+            "bottom": 680.0625,
+            "left": 20,
+            "right": 410,
+            "width": 390,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 762,
+            "bottom": 822,
+            "left": 16,
+            "right": 414,
+            "width": 398,
+            "height": 60
+          },
+          "chart": {
+            "top": 422.265625,
+            "bottom": 655.265625,
+            "left": 16,
+            "right": 414,
+            "width": 398,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 762,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "width440",
+          "viewport": {
+            "width": 440,
+            "height": 900
+          },
+          "scrollHeight": 900,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.3125,
+            "bottom": 681.109375,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 830,
+            "bottom": 890,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 423.3125,
+            "bottom": 656.3125,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 830,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "tablet768",
+          "viewport": {
+            "width": 768,
+            "height": 1024
+          },
+          "scrollHeight": 1024,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.3125,
+            "bottom": 681.109375,
+            "left": 124,
+            "right": 644,
+            "width": 520,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 954,
+            "bottom": 1014,
+            "left": 160,
+            "right": 608,
+            "width": 448,
+            "height": 60
+          },
+          "chart": {
+            "top": 423.3125,
+            "bottom": 656.3125,
+            "left": 120,
+            "right": 648,
+            "width": 528,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 954,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "desktop1440",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "scrollHeight": 900,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 664.3125,
+            "bottom": 681.109375,
+            "left": 460,
+            "right": 980,
+            "width": 520,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 830,
+            "bottom": 890,
+            "left": 496,
+            "right": 944,
+            "width": 448,
+            "height": 60
+          },
+          "chart": {
+            "top": 423.3125,
+            "bottom": 656.3125,
+            "left": 456,
+            "right": 984,
+            "width": 528,
+            "height": 233
+          },
+          "oneScreen": true,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 830,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "landscape390",
+          "viewport": {
+            "width": 844,
+            "height": 390
+          },
+          "scrollHeight": 755,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 658.3125,
+            "bottom": 675.109375,
+            "left": 162,
+            "right": 682,
+            "width": 520,
+            "height": 16.796875
+          },
+          "dock": {
+            "top": 320,
+            "bottom": 380,
+            "left": 198,
+            "right": 646,
+            "width": 448,
+            "height": 60
+          },
+          "chart": {
+            "top": 419.3125,
+            "bottom": 652.3125,
+            "left": 158,
+            "right": 686,
+            "width": 528,
+            "height": 233
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 200.09375,
+                "bottom": 313.125,
+                "height": 113.03125
+              },
+              {
+                "top": 321.125,
+                "bottom": 434.15625,
+                "height": 113.03125
+              },
+              {
+                "top": 442.15625,
+                "bottom": 555.1875,
+                "height": 113.03125
+              },
+              {
+                "top": 563.1875,
+                "bottom": 676.21875,
+                "height": 113.03125
+              },
+              {
+                "top": 684.21875,
+                "bottom": 797.25,
+                "height": 113.03125
+              },
+              {
+                "top": 805.25,
+                "bottom": 918.28125,
+                "height": 113.03125
+              }
+            ],
+            "dockTop": 320,
+            "cardCount": 6
+          }
+        },
+        {
+          "name": "large-text",
+          "viewport": {
+            "width": 440,
+            "height": 763
+          },
+          "scrollHeight": 904,
+          "horizontalOverflow": false,
+          "caption": {
+            "top": 798.515625,
+            "bottom": 823.703125,
+            "left": 20,
+            "right": 420,
+            "width": 400,
+            "height": 25.1875
+          },
+          "dock": {
+            "top": 693,
+            "bottom": 753,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 60
+          },
+          "chart": {
+            "top": 530.515625,
+            "bottom": 790.515625,
+            "left": 16,
+            "right": 424,
+            "width": 408,
+            "height": 260
+          },
+          "oneScreen": false,
+          "portfolio": {
+            "cards": [
+              {
+                "top": 241.140625,
+                "bottom": 390.171875,
+                "height": 149.03125
+              },
+              {
+                "top": 398.171875,
+                "bottom": 547.203125,
+                "height": 149.03125
+              },
+              {
+                "top": 555.203125,
+                "bottom": 704.234375,
+                "height": 149.03125
+              },
+              {
+                "top": 712.234375,
+                "bottom": 861.265625,
+                "height": 149.03125
+              },
+              {
+                "top": 869.265625,
+                "bottom": 1018.296875,
+                "height": 149.03125
+              },
+              {
+                "top": 1026.296875,
+                "bottom": 1175.328125,
+                "height": 149.03125
+              }
+            ],
+            "dockTop": 693,
+            "cardCount": 6
+          }
+        }
+      ],
+      "money": {
+        "CNY": {
+          "monthly-income": {
+            "value": 284.5772191527083,
+            "currency": "CNY"
+          },
+          "received-income": {
+            "value": 1199.7540000000001,
+            "currency": "CNY"
+          },
+          "annual-forecast": {
+            "value": 3414.9266298325,
+            "currency": "CNY"
+          },
+          "chart-total": {
+            "value": 1769.0996435447503,
+            "currency": "CNY"
+          },
+          "year-received": {
+            "value": 1199.7540000000001,
+            "currency": "CNY"
+          }
+        },
+        "USD": {
+          "monthly-income": {
+            "value": 42.695335416666666,
+            "currency": "USD"
+          },
+          "received-income": {
+            "value": 180,
+            "currency": "USD"
+          },
+          "annual-forecast": {
+            "value": 512.344025,
+            "currency": "USD"
+          },
+          "chart-total": {
+            "value": 444.63135750000004,
+            "currency": "USD"
+          },
+          "year-received": {
+            "value": 180,
+            "currency": "USD"
+          }
+        }
+      },
+      "chart": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        45,
+        45,
+        45,
+        45,
+        0.5705,
+        42.424428750000004,
+        42.424428750000004
+      ]
+    }
+  ]
+}

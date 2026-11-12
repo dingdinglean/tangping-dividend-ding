@@ -14,6 +14,71 @@ const fixture={version:1,settings:{displayCurrency:"CNY",exchangeRate:7,autoRefr
  transactions:[{id:"buy",assetId:"demo",type:"buy",date:"2026-01-01",shares:100,price:90},
  ...[4,5,6,7,8].map(m=>({id:`d${m}`,assetId:"demo",type:"dividend",status:"received",date:`2026-${String(m).padStart(2,"0")}-01`,netDividend:m*10,shareCount:100}))]};
 
+async function testChpyLedger(browser, engine) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, timezoneId: "Asia/Shanghai" });
+  await context.addInitScript(() => {
+    const NativeDate = Date;
+    window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : ["2026-11-12T12:00:00Z"])); }
+      static now() { return new NativeDate("2026-11-12T12:00:00Z").getTime(); }
+    };
+  });
+  const page = await context.newPage();
+  try {
+    const ledger = {
+      version: 1,
+      migrations: { xqqi: true, chpy: true },
+      settings: { displayCurrency: "CNY", exchangeRate: 7, autoRefresh: false, marketDataMode: "snapshot", theme: "light", freedomMilestones: [
+        { id: "insurance", name: "保费自由", amountCny: 1000 }, { id: "meals", name: "三餐自由", amountCny: 2500 },
+        { id: "semi-retired", name: "半步退休", amountCny: 6000 }, { id: "journey", name: "诗和远方", amountCny: 12000 }, { id: "life", name: "人生自由", amountCny: 20000 },
+      ] },
+      assets: [{ id: "chpy", ticker: "CHPY", apiSymbol: "CHPY", name: "YieldMax Semiconductor Portfolio Option Income ETF", type: "ETF", frequency: "weekly", currentPrice: 55.07, priceDate: "2026-11-11", priceSource: "Nasdaq historical close", manualDividendYieldPercent: null, dividendRate: 0.5, dividendRateDate: "2026-11-04", dividendRateKind: "ttm_distribution_yield", dividendRateYieldType: "TTM Distribution Yield", dividendCoverage: "complete", remoteDividends: [
+        { declarationDate: "2026-09-29", exDate: "2026-09-30", recordDate: "2026-09-30", paymentDate: "2026-10-01", amount: 0.5385 },
+      ] }],
+      transactions: [
+        { id: "buy", assetId: "chpy", type: "buy", date: "2026-09-01", shares: 8, price: 50 },
+        { id: "div", assetId: "chpy", type: "dividend", status: "announced", date: "2026-10-01", exDate: "2026-09-30", paymentDate: "2026-10-01", recordDate: "2026-09-30", declarationDate: "2026-09-29", perShare: 0.5385, shareCount: 8, grossDividend: 4.308, taxAndFees: 1.08, netDividend: 3.228, sourceDividendKey: "alpha:CHPY:2026-09-30" },
+      ],
+    };
+    await page.goto(base);
+    await page.evaluate((data) => localStorage.setItem("tangping-dividend.v1", JSON.stringify(data)), ledger);
+    await page.reload();
+    await page.waitForSelector(".income-hero");
+    await page.locator('[data-tab="portfolio"]').click();
+    await page.getByRole("button", { name: "展开 CHPY 详情", exact: true }).click();
+    await page.screenshot({ path: `/opt/cursor/artifacts/chpy-${engine.toLowerCase()}-portfolio.png`, fullPage: true });
+    assert.match(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
+    await page.locator('[data-tab="calendar"]').click();
+    for (let step = 0; step < 6 && await page.locator('[data-date="2026-10-01"]').count() === 0; step += 1) await page.locator('[data-action="prev-month"]').click();
+    await page.locator('[data-date="2026-10-01"]').click();
+    await page.getByRole("button", { name: "确认" }).click();
+    await page.locator("#confirmDividendForm").evaluate((form) => {
+      form.elements.actualDate.value = "2026-10-01";
+      form.elements.grossDividend.value = "4.31";
+      form.elements.taxAndFees.value = "1.08";
+      form.elements.netDividend.value = "3.23";
+    });
+    await page.locator("#confirmDividendForm").getByRole("button", { name: "确认已到账" }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("tangping-dividend.v1")).transactions.filter((tx) => tx.exDate === "2026-09-30" && tx.status === "received").length === 1);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("tangping-dividend.v1")));
+    const receipt = stored.transactions.find((tx) => tx.exDate === "2026-09-30");
+    assert.equal(receipt.netDividend, 3.23);
+    assert.equal(receipt.grossDividend, 4.31);
+    assert.equal(stored.transactions.filter((tx) => tx.exDate === "2026-09-30" && tx.status === "received").length, 1);
+    assert.ok(stored.transactions.some((tx) => tx.type === "dividend" && tx.status === "announced"));
+    assert.equal(stored.transactions.find((tx) => tx.id === "buy").shares, 8);
+    await page.locator('[data-tab="home"]').click();
+    await page.screenshot({ path: `/opt/cursor/artifacts/chpy-${engine.toLowerCase()}-home.png`, fullPage: true });
+    const shown = await page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem("tangping-dividend.v1"));
+      return { received: document.querySelector("[data-count-key='received-income']").dataset.countValue, rate: saved.settings.exchangeRate, net: saved.transactions.find((tx) => tx.exDate === "2026-09-30").netDividend };
+    });
+    assert.equal(shown.net, 3.23);
+    assert.ok(Math.abs(Number(shown.received) - shown.net * shown.rate) < 0.02);
+    console.log(`PASS ${engine} CHPY: holding, cross-month receipt, CNY conversion; viewport simulation is not an iPhone`);
+  } finally { await context.close(); }
+}
+
 async function testStaticSnapshots(browser, engine) {
   let price=101;let requests=0;let fail=false;
   const sessionDate="2026-09-18";
@@ -147,7 +212,7 @@ try {
   assert.equal(await page.getByText("尚未备份，升级前建议导出").count(), 0);
   assert.equal(await page.getByText(`v${appVersion}`).count(), 0);
   assert.ok(await page.locator('[data-action="export-data"]').isVisible());
-  assert.equal(await page.locator(".settings-menu-row").count(),7);
+  assert.equal(await page.locator(".settings-menu-row").count(),8);
   assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top;}));
   await page.locator('[data-action="open-milestone-settings"]').click();
   assert.ok(await page.locator("#milestoneSettingsForm").isVisible());
@@ -155,17 +220,18 @@ try {
   await page.locator("#milestoneSettingsForm [type=submit]").click();
   await page.reload();
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")).settings.freedomMilestones[0].name),"咖啡自由");
-  for(const width of [390,430]) {
-    await page.setViewportSize({width,height:844});
+  for(const size of [{width:375,height:812},{width:390,height:844},{width:440,height:956},{width:768,height:1024},{width:1440,height:900},{width:844,height:390}]) {
+    await page.setViewportSize(size);
     for(const tab of ["home","portfolio","calendar","settings"]) {
       await page.locator(`[data-tab="${tab}"]`).click();
-      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${tab} horizontal overflow at ${width}`);
-      assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top&&nav.bottom<=innerHeight;}),`${tab} fixed chrome at ${width}`);
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${tab} horizontal overflow at ${size.width}x${size.height}`);
+      assert.ok(await page.evaluate(()=>{const head=document.querySelector('.topbar').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return head.top>=0&&head.bottom<nav.top&&nav.bottom<=innerHeight;}),`${tab} fixed chrome at ${size.width}x${size.height}`);
     }
   }
   assert.deepEqual(errors,[]);
   console.log("PASS Chromium: mobile home/portfolio/calendar/settings, sheets, appearance, and no page errors");
   await context.close();
+  await testChpyLedger(browser, "Chromium");
   // Upgrade a controlled v6 cache to v7 and count real page navigations.
   let legacy=true;
   const sw=await readFile(new URL("../sw.js",import.meta.url),"utf8");
@@ -220,6 +286,14 @@ try {
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     for(const tab of ["home","portfolio","calendar","settings"]) { await page.locator(`[data-tab="${tab}"]`).click(); assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`WebKit horizontal overflow ${tab}`); }
     console.log("PASS WebKit: 390px tabs, nonzero chart bars and no horizontal overflow");
+    for (const size of [{width:375,height:812},{width:390,height:844},{width:440,height:956},{width:768,height:1024},{width:1440,height:900},{width:844,height:390}]) {
+      await page.setViewportSize(size);
+      for (const tab of ["home","portfolio","calendar","settings"]) {
+        await page.locator(`[data-tab="${tab}"]`).click();
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `WebKit ${tab} overflow ${size.width}x${size.height}`);
+      }
+    }
+    await testChpyLedger(browser, "WebKit");
     await testStaticSnapshots(browser,"WebKit");
   }
 } finally { if(browser) await browser.close(); await new Promise(r=>server.close(r)); }

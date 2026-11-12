@@ -1,9 +1,10 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.4";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.4";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.4";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.5";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.5";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.5";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
+const UPGRADE_BACKUP_KEY = "tangping-dividend.backup-before-upgrade";
 const INCOME_CHART_PLOT_HEIGHT = 80;
 const FX_REFRESH_MS = 12 * 60 * 60 * 1000;
 const MARKET_REFRESH_MS = 18 * 60 * 60 * 1000;
@@ -50,8 +51,9 @@ const defaultState = {
     { id: crypto.randomUUID(), ticker: "QNDX", apiSymbol: "QNDX", name: "State Street SPDR Portfolio Nasdaq 100 ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "资产增长" },
     { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "股息增长" },
     { id: crypto.randomUUID(), ticker: "XQQI", apiSymbol: "XQQI", name: "NEOS Boosted Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "CHPY", apiSymbol: "CHPY", name: "YieldMax Semiconductor Portfolio Option Income ETF", type: "ETF", frequency: "weekly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
   ],
-  migrations: { xqqi: true },
+  migrations: { xqqi: true, chpy: true },
   transactions: [],
 };
 
@@ -80,6 +82,35 @@ const displayedNumbers = new Map();
 let displayedFreedomProgress = null;
 
 // Never replace an in-progress form when a background request completes.
+function writeUpgradeBackupOnce(raw) {
+  try {
+    const existing = localStorage.getItem(UPGRADE_BACKUP_KEY);
+    if (existing) {
+      const parsed = JSON.parse(existing);
+      if (parsed && typeof parsed.raw === "string" && parsed.raw.length) return true;
+    }
+    localStorage.setItem(UPGRADE_BACKUP_KEY, JSON.stringify({
+      createdAt: new Date().toISOString(),
+      migration: "chpy",
+      appVersion: APP_VERSION,
+      raw,
+    }));
+    const written = JSON.parse(localStorage.getItem(UPGRADE_BACKUP_KEY) || "");
+    return written?.raw === raw;
+  } catch {
+    return false;
+  }
+}
+
+function hasUpgradeBackup() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(UPGRADE_BACKUP_KEY) || "");
+    return Boolean(parsed && typeof parsed.raw === "string" && parsed.raw.length);
+  } catch {
+    return false;
+  }
+}
+
 function renderAfterSync() {
   if (modal || currentTab === "settings") return;
   render();
@@ -124,13 +155,18 @@ function loadState() {
       apiSymbol: asset.apiSymbol || asset.ticker,
       remoteDividends: Array.isArray(asset.remoteDividends) ? asset.remoteDividends : [],
     }));
-    // One-time catalog addition; preserve IDs, ledger, settings and user deletion.
+    // One-time catalog additions. A deleted symbol stays deleted. The original
+    // localStorage string is copied once before either addition is saved.
     merged.migrations = { ...saved.migrations };
-    if (!merged.migrations.xqqi) {
-      if (!merged.assets.some(asset => [asset.ticker, asset.apiSymbol].some(value => String(value || "").trim().toUpperCase() === "XQQI"))) {
-        merged.assets.push({ dividendDataQuality: null, dividendLastError: null, dividendNoData: false, snapshotAnnualDividendPerShare: 0, snapshotDividendYield: 0, ...structuredClone(defaultState.assets.find(asset => asset.ticker === "XQQI")) });
+    const catalog = [["xqqi", "XQQI"], ["chpy", "CHPY"]];
+    const pending = catalog.filter(([flag]) => !merged.migrations[flag]);
+    if (pending.length && writeUpgradeBackupOnce(raw)) {
+      for (const [flag, ticker] of pending) {
+        if (!merged.assets.some(asset => [asset.ticker, asset.apiSymbol].some(value => String(value || "").trim().toUpperCase() === ticker))) {
+          merged.assets.push({ dividendDataQuality: null, dividendLastError: null, dividendNoData: false, snapshotAnnualDividendPerShare: 0, snapshotDividendYield: 0, ...structuredClone(defaultState.assets.find(asset => asset.ticker === ticker)) });
+        }
+        merged.migrations[flag] = true;
       }
-      merged.migrations.xqqi = true;
       stateNeedsMigration = true;
     }
     return merged;
@@ -463,6 +499,15 @@ function getTtmDividendPerShare(asset) {
   return snapshotYield > 0 && number(asset.currentPrice) > 0 ? snapshotYield * number(asset.currentPrice) : 0;
 }
 
+function frequencyPlan(frequency) {
+  if (frequency === "weekly") return { sample: 13, multiplier: 52 };
+  if (frequency === "monthly") return { sample: 3, multiplier: 12 };
+  if (frequency === "quarterly") return { sample: 4, multiplier: 4 };
+  if (frequency === "semiannual") return { sample: 2, multiplier: 2 };
+  if (frequency === "annual") return { sample: 1, multiplier: 1 };
+  return null;
+}
+
 function getForwardDividendPerShare(asset) {
   const rows = getHistoricalRemoteDividends(asset);
   if (!rows.length) {
@@ -472,11 +517,40 @@ function getForwardDividendPerShare(asset) {
     return snapshotYield > 0 && number(asset.currentPrice) > 0 ? snapshotYield * number(asset.currentPrice) : 0;
   }
   if (asset.frequency === "irregular") return getTtmDividendPerShare(asset);
-  const count = asset.frequency === "monthly" ? 3 : asset.frequency === "quarterly" ? 4 : asset.frequency === "semiannual" ? 2 : 1;
-  const multiplier = asset.frequency === "monthly" ? 12 : asset.frequency === "quarterly" ? 4 : asset.frequency === "semiannual" ? 2 : 1;
-  const sample = rows.slice(0, count);
+  const plan = frequencyPlan(asset.frequency);
+  if (!plan) return getTtmDividendPerShare(asset);
+  const sample = rows.slice(0, plan.sample);
   const average = sample.reduce((sum, row) => sum + number(row.amount), 0) / sample.length;
-  return average * multiplier;
+  return average * plan.multiplier;
+}
+
+function isoWeekday(date) {
+  const parsed = Date.parse(`${date}T00:00:00Z`);
+  return Number.isFinite(parsed) ? new Date(parsed).getUTCDay() : null;
+}
+
+function modalPaymentWeekday(dates) {
+  const counts = new Map();
+  for (const date of dates) {
+    const day = isoWeekday(date);
+    if (day === null) continue;
+    counts.set(day, (counts.get(day) || 0) + 1);
+  }
+  let best = null;
+  let bestCount = 0;
+  for (const [day, count] of counts) {
+    if (count > bestCount) { best = day; bestCount = count; }
+  }
+  return bestCount >= 4 ? best : null;
+}
+
+function weekdayCountInMonth(year, month, weekday) {
+  const days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  let count = 0;
+  for (let day = 1; day <= days; day += 1) {
+    if (new Date(Date.UTC(year, month, day)).getUTCDay() === weekday) count += 1;
+  }
+  return count;
 }
 
 function getNextDeclaredDividend(asset) {
@@ -696,6 +770,7 @@ function dividendYieldTypeLabel(item) {
     trailing_distribution_yield: "Trailing Distribution Yield",
     fund_distribution_yield: "Fund Distribution Yield",
     "30_day_sec_yield": "30 Day SEC Yield",
+    rolling_weekly_estimate: "滚动周派息年化（样本不足一年）",
   };
   const publishedType = String(item.asset.dividendRateYieldType || "").trim();
   if (publishedType) return labels[publishedType] || publishedType;
@@ -808,12 +883,11 @@ function estimateAnnualDividend(item, remoteForwardPerShare = 0) {
   }
   const records = [...item.dividendRecords].sort((a, b) => b.date.localeCompare(a.date));
   if (!records.length) return 0;
-  const frequency = item.asset.frequency;
-  const count = frequency === "monthly" ? 3 : frequency === "quarterly" ? 4 : frequency === "semiannual" ? 2 : 1;
-  const multiplier = frequency === "monthly" ? 12 : frequency === "quarterly" ? 4 : frequency === "semiannual" ? 2 : 1;
-  const sample = records.slice(0, count);
+  const plan = frequencyPlan(item.asset.frequency);
+  if (!plan) return 0;
+  const sample = records.slice(0, plan.sample);
   const avgPerShare = sample.reduce((sum, row) => sum + row.perShareNet, 0) / sample.length;
-  return avgPerShare * item.shares * multiplier;
+  return avgPerShare * item.shares * plan.multiplier;
 }
 
 function monthlyIncomeData(year) {
@@ -833,6 +907,22 @@ function monthlyIncomeData(year) {
   const now = new Date();
   calculatePortfolio().positions.forEach((item) => {
     if (item.shares <= 0 || item.annualForecast <= 0 || item.asset.frequency === "irregular") return;
+    if (item.asset.frequency === "weekly") {
+      const payDates = [
+        ...(item.asset.remoteDividends || []).map((row) => row.paymentDate),
+        ...state.transactions.filter((tx) => tx.assetId === item.asset.id && tx.type === "dividend").map((tx) => tx.paymentDate || tx.date),
+      ].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date || ""));
+      const weekday = modalPaymentWeekday(payDates);
+      if (weekday === null) return;
+      const weeklyNet = item.annualForecast / 52;
+      for (let month = 0; month < 12; month += 1) {
+        if (year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth())) continue;
+        const expected = weekdayCountInMonth(year, month, weekday);
+        const booked = state.transactions.filter((tx) => tx.assetId === item.asset.id && tx.type === "dividend" && String(tx.date || "").startsWith(`${year}-${String(month + 1).padStart(2, "0")}`) && ["received", "announced", "forecast"].includes(tx.status)).length;
+        forecast[month] += weeklyNet * Math.max(0, expected - booked);
+      }
+      return;
+    }
     const interval = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 }[item.asset.frequency];
     if (!interval) return;
     const dates = [...(item.asset.remoteDividends || []).map((row) => row.paymentDate || row.exDate),
@@ -972,7 +1062,8 @@ function renderMarketCaption() {
 }
 
 function renderHome() {
-  const { totals } = calculatePortfolio();
+  const { positions, totals } = calculatePortfolio();
+  const caveat = estimateCaveat(positions);
   const year = incomeChartYear();
   const chart = monthlyIncomeData(year);
   const monthExpected = getMonthlyPassiveIncomeUsd(totals);
@@ -997,6 +1088,7 @@ function renderHome() {
       <div class="income-goal"><button class="goal-edit" data-action="open-goal-settings" aria-label="编辑月收入目标">月目标 <strong>${displayCnyAmount(state.settings.monthlyGoal)}</strong></button><span>${goalProgress.toFixed(1)}%</span></div>
       <div class="progress-track income-progress" role="progressbar" aria-label="月收入目标进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${goalProgress.toFixed(1)}"><div class="progress-fill" style="width:${goalProgress}%"></div></div>
       <div class="income-facts"><div><span>累计股息</span><strong>${animatedMoney("received-income", totals.received)}</strong></div><div><span>预计年股息</span><strong>${animatedMoney("annual-forecast", totals.annualForecast)}</strong></div><div><span>预期现金流/市值</span><strong>${totals.marketValue > 0 && totals.dividendCoverageComplete && totals.priceCoverageComplete ? `${(currentYield * 100).toFixed(2)}%` : "待更新"}</strong></div></div>
+      ${caveat ? `<p class="hero-sub">${escapeHtml(caveat)}</p>` : ""}
     </section>
 
     ${renderFreedomMilestones(monthlyIncomeCny)}
@@ -1124,10 +1216,18 @@ function renderPriceHistory(asset) {
 function dividendRateCaption(item) {
   const asset = item.asset;
   const hasRate = item.manualYield !== null || item.dividendYield > 0;
-  if (!hasRate) return "数据不足";
+  const weekly = asset.frequency === "weekly" ? (asset.dividendCoverage === "estimate" ? " · 样本不足一年 · 估算" : " · 每周") : "";
+  if (!hasRate) return `数据不足${weekly}`;
   if (item.manualYield !== null) return "手动股息率";
-  if (!asset.dividendRateDate) return "数据不足";
-  return `${dividendYieldTypeLabel(item)} · ${shortDataDate(asset.dividendRateDate)}${asset.dividendRateStale ? " · 已过期，沿用上次" : ""}`;
+  if (!asset.dividendRateDate) return `数据不足${weekly}`;
+  return `${dividendYieldTypeLabel(item)} · ${shortDataDate(asset.dividendRateDate)}${weekly}${asset.dividendRateStale ? " · 已过期，沿用上次" : ""}`;
+}
+
+function estimateCaveat(positions) {
+  const names = positions
+    .filter((item) => item.shares > 0 && item.asset.frequency === "weekly" && item.asset.dividendCoverage === "estimate")
+    .map((item) => item.asset.ticker);
+  return names.length ? `${names.join("、")} 派息样本不足一年，年预测按已有周派息估算，不是已公告金额` : "";
 }
 
 function renderAssetCard(item) {
@@ -1221,6 +1321,7 @@ function renderSettings() {
     </section>
     <section class="card settings-menu" aria-label="数据与备份">
       <button class="settings-menu-row" data-action="export-data"><span><b>导出备份</b></span><em>›</em></button>
+      ${hasUpgradeBackup() ? `<button class="settings-menu-row" data-action="restore-upgrade-backup"><span><b>恢复升级前本机副本</b><small>只恢复这次升级前的本地账本</small></span><em>›</em></button>` : ""}
       <button class="settings-menu-row" data-action="import-data"><span><b>导入备份</b></span><em>›</em></button>
       <button class="settings-menu-row danger-row" data-action="reset-data"><span><b>清空数据</b></span><em>›</em></button>
     </section>
@@ -1324,7 +1425,7 @@ function renderAssetModal(assetId) {
         <div class="form-grid advanced-grid">
           <div class="form-row"><label>行情代码</label><input class="input" name="apiSymbol" maxlength="24" value="${escapeHtml(asset?.apiSymbol || asset?.ticker || "")}" /></div>
           <div class="form-row"><label>类型</label><select name="assetType"><option ${asset?.type === "ETF" ? "selected" : ""}>ETF</option><option ${asset?.type === "Stock" ? "selected" : ""}>Stock</option><option ${asset?.type === "ADR" ? "selected" : ""}>ADR</option><option ${asset?.type === "Other" ? "selected" : ""}>Other</option></select></div>
-          <div class="form-row"><label>分红频率</label><select name="frequency"><option value="monthly" ${asset?.frequency === "monthly" ? "selected" : ""}>每月</option><option value="quarterly" ${asset?.frequency === "quarterly" ? "selected" : ""}>每季度</option><option value="semiannual" ${asset?.frequency === "semiannual" ? "selected" : ""}>每半年</option><option value="annual" ${asset?.frequency === "annual" ? "selected" : ""}>每年</option><option value="irregular" ${asset?.frequency === "irregular" ? "selected" : ""}>不固定</option></select></div>
+          <div class="form-row"><label>分红频率</label><select name="frequency"><option value="weekly" ${asset?.frequency === "weekly" ? "selected" : ""}>每周</option><option value="monthly" ${asset?.frequency === "monthly" ? "selected" : ""}>每月</option><option value="quarterly" ${asset?.frequency === "quarterly" ? "selected" : ""}>每季度</option><option value="semiannual" ${asset?.frequency === "semiannual" ? "selected" : ""}>每半年</option><option value="annual" ${asset?.frequency === "annual" ? "selected" : ""}>每年</option><option value="irregular" ${asset?.frequency === "irregular" ? "selected" : ""}>不固定</option></select></div>
           <div class="form-row"><label>组合定位</label><select name="role"><option ${asset?.role === "高现金流" ? "selected" : ""}>高现金流</option><option ${asset?.role === "股息增长" ? "selected" : ""}>股息增长</option><option ${asset?.role === "资产增长" ? "selected" : ""}>资产增长</option><option ${asset?.role === "自定义" ? "selected" : ""}>自定义</option></select></div>
           <div class="form-row"><label>备用价格（USD）</label><input class="input" name="currentPrice" type="number" step="0.0001" min="0" value="${asset?.currentPrice || 0}" /></div>
         </div>
@@ -1482,6 +1583,17 @@ async function handleAction(action, element) {
   if (action === "refresh-fx") { captureSettingsForm(); await refreshFxOnly(); }
   if (action === "refresh-asset") { await refreshSingleAsset(element.dataset.id); }
   if (action === "export-data") { exportData(); }
+  if (action === "restore-upgrade-backup") {
+    if (!confirm("恢复升级前保存在这台设备上的账本副本？当前未导出的修改会被这份副本替换。")) return;
+    try {
+      restoreUpgradeBackup();
+      modal = null;
+      showToast("已恢复升级前账本");
+      render();
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
   if (action === "import-data") { document.querySelector("#importFile")?.click(); }
   if (action === "reset-data") { resetData(); }
   if (action === "delete-asset") { deleteAsset(element.dataset.id); }
@@ -1887,6 +1999,19 @@ async function maybeAutoRefresh() {
       setTimeout(() => maybeAutoRefresh(), 0);
     }
   }
+}
+
+function restoreUpgradeBackup() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(UPGRADE_BACKUP_KEY) || ""); }
+  catch { throw new Error("升级前副本无法读取，未改动当前账本"); }
+  if (!saved || typeof saved.raw !== "string") throw new Error("没有可恢复的升级前副本");
+  const imported = JSON.parse(saved.raw);
+  if (!imported || imported.version !== 1 || !Array.isArray(imported.assets) || !Array.isArray(imported.transactions)) throw new Error("升级前副本格式无效，未改动当前账本");
+  localStorage.setItem(STORAGE_KEY, saved.raw);
+  state = loadState();
+  saveState();
+  applyTheme();
 }
 
 function exportData() {

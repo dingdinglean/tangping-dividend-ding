@@ -8,7 +8,7 @@ const hour = 3600000;
 const functions = new Map([["GLOBAL_QUOTE", 18 * hour], ["DIVIDENDS", 24 * hour], ["TIME_SERIES_MONTHLY_ADJUSTED", 7 * 24 * hour], ["OVERVIEW", 7 * 24 * hour]]);
 
 // Only public market data lives here. No portfolios, personal keys or transactions.
-export async function createMarketService({ apiKey = "", symbols = ["QQQI", "SPYI", "QNDX", "SCHD"], budget = 25, cacheFile, fetcher = fetch, now = Date.now } = {}) {
+export async function createMarketService({ apiKey = "", symbols = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"], budget = 25, cacheFile, fetcher = fetch, now = Date.now } = {}) {
   const allowed = new Set(symbols);
   let data = { day: "", used: 0, cache: {}, failures: {} };
   if (cacheFile) {
@@ -113,7 +113,7 @@ export function createServer(service, allowedOrigin = "") {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const service = await createMarketService({ apiKey: process.env.ALPHA_VANTAGE_API_KEY,
-    symbols: (process.env.MARKET_SYMBOLS || "QQQI,SPYI,QNDX,SCHD,XQQI").split(",").map((s) => s.trim()).filter(Boolean),
+    symbols: (process.env.MARKET_SYMBOLS || "QQQI,SPYI,QNDX,SCHD,XQQI,CHPY").split(",").map((s) => s.trim()).filter(Boolean),
     budget: Math.max(1, Number(process.env.MARKET_DAILY_BUDGET) || 25),
     cacheFile: resolve(process.env.MARKET_CACHE_FILE || resolve(root, ".market-cache/data.json")) });
   const server = createServer(service, process.env.ALLOWED_ORIGIN || "");

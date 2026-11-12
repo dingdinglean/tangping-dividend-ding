@@ -307,20 +307,22 @@ export function rollingWeeklyDistributionRate(dividends, price, target, fetched_
   if (!rows.length || !validPrice(price?.price) || !validDate(target)) {
     return { coverage: "insufficient", data_date: rows[0]?.ex_date || null, source, kind: "rolling_weekly_estimate", yield_type: "滚动周派息年化（样本不足一年）", frequency: "weekly", method: "unavailable", sample_count: rows.length, sample_span_days: 0, status: "unavailable" };
   }
-  const newest = rows[0].ex_date;
   const oldest = rows.at(-1).ex_date;
-  const spanDays = Math.round((Date.parse(`${newest}T00:00:00Z`) - Date.parse(`${oldest}T00:00:00Z`)) / DAY);
   const cutoff = Date.parse(`${target}T00:00:00Z`) - 365 * DAY;
+  // sample_span_days is the ex-date distance of the rows inside the statistic.
+  // It is not the distance from the fund's first distribution to the newest one.
+  const sampleSpanDays = (sample) => Math.round((Date.parse(`${sample[0].ex_date}T00:00:00Z`) - Date.parse(`${sample.at(-1).ex_date}T00:00:00Z`)) / DAY);
   if (Date.parse(`${oldest}T00:00:00Z`) <= cutoff) {
     const sample = rows.filter((row) => Date.parse(`${row.ex_date}T00:00:00Z`) >= cutoff);
-    const annual_per_share = sample.reduce((sum, row) => sum + row.amount, 0);
-    return { rate: annual_per_share / Number(price.price), annual_per_share, data_date: newest, source, kind: "ttm_distribution_yield", yield_type: "TTM Distribution Yield", coverage: "complete", frequency: "weekly", method: "trailing_365_day_sum", sample_count: sample.length, sample_span_days: spanDays, fetched_at, status: "valid" };
+    if (sample.length) {
+      const annual_per_share = sample.reduce((sum, row) => sum + row.amount, 0);
+      return { rate: annual_per_share / Number(price.price), annual_per_share, data_date: sample[0].ex_date, source, kind: "ttm_distribution_yield", yield_type: "TTM Distribution Yield", coverage: "complete", frequency: "weekly", method: "trailing_365_day_sum", sample_count: sample.length, sample_span_days: sampleSpanDays(sample), fetched_at, status: "valid" };
+    }
   }
   const sample = rows.slice(0, Math.min(13, rows.length));
   const average = sample.reduce((sum, row) => sum + row.amount, 0) / sample.length;
   const annual_per_share = average * 52;
-  const sampleSpan = Math.round((Date.parse(`${sample[0].ex_date}T00:00:00Z`) - Date.parse(`${sample.at(-1).ex_date}T00:00:00Z`)) / DAY);
-  return { rate: annual_per_share / Number(price.price), annual_per_share, data_date: newest, source, kind: "rolling_weekly_estimate", yield_type: "滚动周派息年化（样本不足一年）", coverage: "estimate", frequency: "weekly", method: "mean_of_available_weeks_times_52", sample_count: sample.length, sample_span_days: sampleSpan, fetched_at, status: "valid" };
+  return { rate: annual_per_share / Number(price.price), annual_per_share, data_date: sample[0].ex_date, source, kind: "rolling_weekly_estimate", yield_type: "滚动周派息年化（样本不足一年）", coverage: "estimate", frequency: "weekly", method: "mean_of_available_weeks_times_52", sample_count: sample.length, sample_span_days: sampleSpanDays(sample), fetched_at, status: "valid" };
 }
 function stateStreetDate(plain) {
   const match = /Yields\s+as of\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})/i.exec(plain);

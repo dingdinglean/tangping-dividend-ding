@@ -773,8 +773,10 @@ test("weekly rolling yield uses a 365-day sum or a 52-week estimate, never a mon
   assert.equal(short.method, "mean_of_available_weeks_times_52");
   assert.equal(short.annual_per_share, 78);
   assert.notEqual(short.annual_per_share, 18);
+  assert.equal(short.sample_span_days, 7);
   const full = rollingWeeklyDistributionRate({
     data: [
+      { ex_date: "2026-11-12", payment_date: "2026-11-13", amount: 5 },
       { ex_date: "2026-11-04", amount: 0.4 },
       { ex_date: "2025-11-12", amount: 0.5 },
       { ex_date: "2025-04-17", amount: 9 },
@@ -785,6 +787,42 @@ test("weekly rolling yield uses a 365-day sum or a 52-week estimate, never a mon
   assert.equal(full.method, "trailing_365_day_sum");
   assert.equal(Number(full.annual_per_share.toFixed(4)), 0.9);
   assert.equal(full.sample_count, 2);
+  assert.equal(full.sample_span_days, 357);
+  assert.equal(full.data_date, "2026-11-04");
+});
+
+test("published CHPY trailing year is the 52 in-window ex-dates, not the future payable or the full history", async () => {
+  const snapshot = JSON.parse(await readFile(new URL("../data/market.json", import.meta.url), "utf8"));
+  const dividends = snapshot.symbols.CHPY.dividends;
+  const price = snapshot.symbols.CHPY.price;
+  assert.equal(price.price_date, "2026-11-11");
+  assert.equal(price.price, 55.07);
+  const future = dividends.data.find((row) => row.ex_date === "2026-11-12");
+  assert.equal(future.payment_date, "2026-11-13");
+  assert.equal(future.amount, 0.4127);
+  const cutoff = Date.parse("2026-11-11T00:00:00Z") - 365 * 86400000;
+  const sample = dividends.data.filter((row) => row.ex_date <= price.price_date && Date.parse(`${row.ex_date}T00:00:00Z`) >= cutoff);
+  const exDates = sample.map((row) => row.ex_date);
+  assert.equal(sample.length, 52);
+  assert.equal(new Set(exDates).size, 52);
+  assert.equal(sample.some((row) => row.payment_date === "2026-11-13" || row.ex_date === "2026-11-12"), false);
+  const ordered = [...exDates].sort();
+  assert.equal(ordered[0], "2025-11-12");
+  assert.equal(ordered.at(-1), "2026-11-04");
+  const span = Math.round((Date.parse(`${ordered.at(-1)}T00:00:00Z`) - Date.parse(`${ordered[0]}T00:00:00Z`)) / 86400000);
+  assert.equal(span, 357);
+  const sum = sample.reduce((total, row) => total + row.amount, 0);
+  assert.equal(Number(sum.toFixed(4)), 27.6161);
+  const rate = rollingWeeklyDistributionRate(dividends, price, price.price_date, dividends.fetched_at);
+  assert.equal(rate.coverage, "complete");
+  assert.equal(rate.method, "trailing_365_day_sum");
+  assert.equal(rate.sample_count, 52);
+  assert.equal(rate.sample_span_days, 357);
+  assert.equal(rate.data_date, "2026-11-04");
+  assert.equal(Number(rate.annual_per_share.toFixed(4)), 27.6161);
+  assert.equal(snapshot.symbols.CHPY.dividend_rate.sample_span_days, 357);
+  assert.equal(Number(snapshot.symbols.CHPY.dividend_rate.annual_per_share.toFixed(4)), 27.6161);
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) assert.equal(snapshot.symbols[symbol].dividend_rate.sample_span_days, undefined);
 });
 
 test("a failed CHPY refresh leaves the other five current and keeps CHPY's last close as stale", async () => {

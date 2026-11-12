@@ -2380,7 +2380,7 @@
         "frequency": "weekly",
         "method": "trailing_365_day_sum",
         "sample_count": 52,
-        "sample_span_days": 566,
+        "sample_span_days": 357,
         "fetched_at": "2026-11-12T03:37:37.816Z",
         "status": "valid",
         "official_distribution_rate": {

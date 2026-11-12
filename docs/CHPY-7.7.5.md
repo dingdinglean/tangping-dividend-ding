@@ -5,6 +5,7 @@
 ## 基线
 
 - 工作起点：`origin/main` `a0bf1cc4e918b5acbc1fad1d8d42700f55e663d7`
+- 实现提交：`ffc4121ee2201b2c2f24fa87bf6cd46504593e9d`。PR head 以 GitHub 上该分支最新提交为准。
 - 快照备份：`/tmp/chpy-baseline/market-a0bf1cc.json`
 - SHA256：`f9fe241d83595eda251b8ce4727ebddd648b819e9a2899783789230817dc9767`
 - 回退该公开快照时，用这个提交里的 `data/market.json`。它不含用户持仓。

@@ -6,7 +6,7 @@
 // Holdings stay in localStorage under tangping-dividend.v1 (app.js STORAGE_KEY).
 // Do not interpolate APP_VERSION into that key.
 
-export const APP_VERSION = "7.7.4";
+export const APP_VERSION = "7.7.5";
 
 export const APP_CACHE = `tangping-dividend-v${APP_VERSION}`;
 
@@ -16,6 +16,7 @@ export const SNAPSHOT_CACHE = "tangping-market-snapshots-v2";
 export const USER_DATA_KEYS = Object.freeze([
   "tangping-dividend.v1",
   "tangping-dividend.backup-before-delete",
+  "tangping-dividend.backup-before-upgrade",
 ]);
 
 export const SHELL_ASSETS = Object.freeze([

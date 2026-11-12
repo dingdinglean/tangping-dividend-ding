@@ -3,12 +3,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { latestCompletedUsTradingSession, sessionDateFromTimestamp, watchPlan } from "../market-calendar.js";
 
-export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"];
+export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"];
 const ALPHA = "https://www.alphavantage.co/query";
 const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const NASDAQ = "https://api.nasdaq.com/api/quote/";
 const NEOS = new Map([["QQQI", "https://neosfunds.com/qqqi/"], ["SPYI", "https://neosfunds.com/spyi/"], ["XQQI", "https://neosfunds.com/xqqi/"]]);
 const STATE_STREET = new Map([["QNDX", "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-nasdaq-100-etf-qndx"]]);
+// US listing only. The Irish UCITS fund IE000T8QD852 also uses the ticker CHPY and is never read.
+export const YIELDMAX_CHPY_URL = "https://yieldmaxetfs.com/our-etfs/chpy/";
+const YIELDMAX_CHPY_CUSIP = "88636R693";
 const DAY = 86400000;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
 const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
@@ -82,7 +85,7 @@ function previousSnapshot(input) {
       safePrice({ symbol, price: legacy["05. price"], price_date: legacy["07. latest trading day"], source: "Alpha Vantage EOD (legacy)", fetched_at: old.GLOBAL_QUOTE?._fetchedAt || input.generatedAt }) : null);
     const dividends = safeDividends(old.dividends) || safeDividends({ data: old.DIVIDENDS?.data, source: "Alpha Vantage Dividends (legacy)", fetched_at: old.DIVIDENDS?._fetchedAt });
     const history = safeHistory(old.price_history);
-    result.symbols[symbol] = { ...(price ? { price } : {}), ...(history ? { price_history: history } : {}), ...(dividends ? { dividends } : {}), ...(old.dividend_rate ? { dividend_rate: old.dividend_rate } : {}) };
+    result.symbols[symbol] = { ...(price ? { price } : {}), ...(history ? { price_history: history } : {}), ...(dividends ? { dividends } : {}), ...(old.dividend_rate ? { dividend_rate: old.dividend_rate } : {}), ...(old.identity ? { identity: old.identity } : {}) };
   }
   if (validPrice(input?.fx?.rate) && validDate(input.fx.fx_date) && input.fx.source && Number.isFinite(Date.parse(input.fx.fetched_at))) result.fx = { rate: Number(input.fx.rate), fx_date: input.fx.fx_date, source: String(input.fx.source), fetched_at: new Date(input.fx.fetched_at).toISOString() };
   return result;
@@ -224,6 +227,103 @@ export async function fetchNeosDistributionRate(symbol, fetcher, fetched_at) {
   const rate = /Distribution\s*Rate(?:\s*Image[^%]{0,120})?\s*([0-9]+(?:\.[0-9]+)?)%/i.exec(plain); const asOf = /(?:Distribution Information\s*)?\(?\s*as of\s*([0-9]{1,2})[\/-]([0-9]{1,2})[\/-]([0-9]{4})/i.exec(plain);
   if (!rate || !asOf) throw new Error("invalid_data"); return { rate: Number(rate[1]) / 100, data_date: `${asOf[3]}-${asOf[1].padStart(2, "0")}-${asOf[2].padStart(2, "0")}`, source: "NEOS official Distribution Rate", kind: "distribution_rate", fetched_at };
 }
+function yieldMaxPlain(page) {
+  return String(page || "").replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/\s+/g, " ").trim();
+}
+// Reject the European UCITS share class before any amount is stored.
+export function assertUsChpyIdentity(plain) {
+  const text = String(plain || "");
+  if (!text.includes(YIELDMAX_CHPY_CUSIP) || !/NYSE Arca/.test(text) || !/Semiconductor Portfolio Option Income ETF/.test(text)) throw new Error("invalid_data");
+  if (/IE000T8QD852|\bUCITS\b/.test(text)) throw new Error("invalid_data");
+}
+export async function fetchYieldMaxPage(symbol, fetcher) {
+  if (symbol !== "CHPY") throw new Error("invalid_data");
+  const page = await html(fetcher, YIELDMAX_CHPY_URL);
+  const plain = yieldMaxPlain(page);
+  assertUsChpyIdentity(plain);
+  return { page, plain };
+}
+export async function fetchYieldMaxPrice(symbol, fetcher, fetched_at) {
+  const { plain } = await fetchYieldMaxPage(symbol, fetcher);
+  const match = /Closing Price:\s*\$([0-9,.]+)[\s\S]{0,600}?As of\s+(\d{1,2}\/\d{1,2}\/\d{4})/i.exec(plain);
+  const price = Number(String(match?.[1] || "").replace(/[$,]/g, ""));
+  const price_date = isoDate(match?.[2] || "");
+  if (!match || !validPrice(price) || !validDate(price_date)) throw new Error("invalid_data");
+  return { symbol, price, price_date, source: "YieldMax official Closing Price", fetched_at };
+}
+// Declared rows only. A blank amount stays unpublished and is not stored as zero.
+export async function fetchYieldMaxDividends(symbol, fetcher, fetched_at) {
+  const { page } = await fetchYieldMaxPage(symbol, fetcher);
+  const data = [];
+  for (const table of page.match(/<table\b[^>]*>[\s\S]*?<\/table>/gi) || []) {
+    if (!/DISTRIBUTION PER SHARE/i.test(table) || !/DECLARED DATE/i.test(table) || !/EX DATE/i.test(table) || !/RECORD DATE/i.test(table) || !/PAYABLE DATE/i.test(table)) continue;
+    const rows = table.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
+    const cells = (row) => (row.match(/<t[dh]\b[^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map((cell) => cell.replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/\s+/g, " ").trim());
+    for (const row of rows) {
+      const values = cells(row);
+      if (values.length < 6 || /DISTRIBUTION PER SHARE/i.test(values[0])) continue;
+      const amount = explicitDividendAmount(values[0]);
+      const declaration_date = isoDate(values[1]);
+      const ex_date = isoDate(values[2]);
+      const record_date = isoDate(values[3]);
+      const payment_date = isoDate(values[4]);
+      if (amount === null || ![declaration_date, ex_date, record_date, payment_date].every(validDate)) continue;
+      data.push({ declaration_date, ex_date, record_date, payment_date, amount });
+    }
+  }
+  const result = safeDividends({ data, source: "YieldMax official Distribution History", fetched_at });
+  if (!result) throw new Error("invalid_data");
+  const plain = yieldMaxPlain(page);
+  const inception = /Fund Inception:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i.exec(plain);
+  result.identity = {
+    name: "YieldMax Semiconductor Portfolio Option Income ETF",
+    exchange: "NYSE Arca",
+    cusip: YIELDMAX_CHPY_CUSIP,
+    currency: "USD",
+    frequency: /weekly basis/i.test(plain) ? "weekly" : null,
+    inception: inception && validDate(isoDate(inception[1])) ? isoDate(inception[1]) : null,
+    source: YIELDMAX_CHPY_URL,
+  };
+  return result;
+}
+export async function fetchYieldMaxDistributionRate(symbol, fetcher, fetched_at) {
+  const { plain } = await fetchYieldMaxPage(symbol, fetcher);
+  const rate = /([0-9]+(?:\.[0-9]+)?)%\s+Distribution Rate/i.exec(plain);
+  const asOf = /Distribution Rate[\s\S]{0,240}?As of:?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i.exec(plain);
+  if (!rate || !asOf || !validDate(isoDate(asOf[1]))) throw new Error("invalid_data");
+  return { rate: Number(rate[1]) / 100, data_date: isoDate(asOf[1]), source: "YieldMax official Distribution Rate", kind: "distribution_rate", fetched_at };
+}
+// A full year uses the trailing 365-day sum. A shorter listing uses the mean of
+// the weeks on hand times 52 and is marked as an estimate. Neither path treats
+// one weekly distribution as a monthly distribution.
+export function rollingWeeklyDistributionRate(dividends, price, target, fetched_at) {
+  const rows = (dividends?.data || []).flatMap((row) => {
+    const amount = explicitDividendAmount(row?.amount);
+    const ex_date = isoDate(row?.ex_date);
+    if (!validDate(ex_date) || amount === null || ex_date > target) return [];
+    return [{ ex_date, amount }];
+  }).sort((a, b) => b.ex_date.localeCompare(a.ex_date));
+  const source = dividends?.source || "YieldMax official Distribution History";
+  if (!rows.length || !validPrice(price?.price) || !validDate(target)) {
+    return { coverage: "insufficient", data_date: rows[0]?.ex_date || null, source, kind: "rolling_weekly_estimate", yield_type: "滚动周派息年化（样本不足一年）", frequency: "weekly", method: "unavailable", sample_count: rows.length, sample_span_days: 0, status: "unavailable" };
+  }
+  const oldest = rows.at(-1).ex_date;
+  const cutoff = Date.parse(`${target}T00:00:00Z`) - 365 * DAY;
+  // sample_span_days is the ex-date distance of the rows inside the statistic.
+  // It is not the distance from the fund's first distribution to the newest one.
+  const sampleSpanDays = (sample) => Math.round((Date.parse(`${sample[0].ex_date}T00:00:00Z`) - Date.parse(`${sample.at(-1).ex_date}T00:00:00Z`)) / DAY);
+  if (Date.parse(`${oldest}T00:00:00Z`) <= cutoff) {
+    const sample = rows.filter((row) => Date.parse(`${row.ex_date}T00:00:00Z`) >= cutoff);
+    if (sample.length) {
+      const annual_per_share = sample.reduce((sum, row) => sum + row.amount, 0);
+      return { rate: annual_per_share / Number(price.price), annual_per_share, data_date: sample[0].ex_date, source, kind: "ttm_distribution_yield", yield_type: "TTM Distribution Yield", coverage: "complete", frequency: "weekly", method: "trailing_365_day_sum", sample_count: sample.length, sample_span_days: sampleSpanDays(sample), fetched_at, status: "valid" };
+    }
+  }
+  const sample = rows.slice(0, Math.min(13, rows.length));
+  const average = sample.reduce((sum, row) => sum + row.amount, 0) / sample.length;
+  const annual_per_share = average * 52;
+  return { rate: annual_per_share / Number(price.price), annual_per_share, data_date: sample[0].ex_date, source, kind: "rolling_weekly_estimate", yield_type: "滚动周派息年化（样本不足一年）", coverage: "estimate", frequency: "weekly", method: "mean_of_available_weeks_times_52", sample_count: sample.length, sample_span_days: sampleSpanDays(sample), fetched_at, status: "valid" };
+}
 function stateStreetDate(plain) {
   const match = /Yields\s+as of\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})/i.exec(plain);
   return match && MONTHS[match[1]] ? `${match[3]}-${MONTHS[match[1]]}-${match[2].padStart(2, "0")}` : null;
@@ -343,12 +443,12 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       }
     }
     let retained = old.price;
-    if (!price && symbol === "XQQI") {
+    if (!price && (symbol === "XQQI" || symbol === "CHPY")) {
       try {
-        const official = await fetchNeosPrice(symbol, fetcher, fetched_at);
+        const official = symbol === "CHPY" ? await fetchYieldMaxPrice(symbol, fetcher, fetched_at) : await fetchNeosPrice(symbol, fetcher, fetched_at);
         if (official.price_date === session.date) {
           price = official;
-          record({ symbol, source: "NEOS", round, status: "success", price_date: price.price_date, price: price.price });
+          record({ symbol, source: symbol === "CHPY" ? "YieldMax" : "NEOS", round, status: "success", price_date: price.price_date, price: price.price });
         } else if (official.price_date < session.date && (!retained || official.price_date > retained.price_date)) retained = official;
       } catch {}
     }
@@ -371,6 +471,11 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       // blank NEOS table must not be replaced with Yahoo dates or invented rows.
       try { fetched = await fetchNeosDividends(symbol, fetcher, fetched_at); }
       catch { fetched = null; }
+    } else if (symbol === "CHPY") {
+      // US YieldMax history only. A failed or blank table must not be replaced
+      // with the European UCITS fund or with Yahoo dates.
+      try { fetched = await fetchYieldMaxDividends(symbol, fetcher, fetched_at); }
+      catch { fetched = null; }
     } else {
       try { fetched = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); }
       catch { try { fetched = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); } catch { try { fetched = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); } catch { fetched = null; } } }
@@ -380,6 +485,16 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
     if (merged.dividends) snapshot.symbols[symbol].dividends = { ...merged.dividends, status: merged.fresh ? "valid" : "stale" };
 
     if (NEOS.has(symbol)) { try { snapshot.symbols[symbol].dividend_rate = await fetchNeosDistributionRate(symbol, fetcher, fetched_at); } catch { snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { coverage: "insufficient", source: "NEOS official Distribution Rate", status: "unavailable" }; } }
+    else if (symbol === "CHPY") {
+      let official = null;
+      try { official = await fetchYieldMaxDistributionRate(symbol, fetcher, fetched_at); } catch {}
+      const rolling = rollingWeeklyDistributionRate(snapshot.symbols[symbol].dividends, price || old.price, session.date, fetched_at);
+      if (rolling.coverage === "complete" || rolling.coverage === "estimate") {
+        const status = merged.fresh ? "valid" : "stale";
+        snapshot.symbols[symbol].dividend_rate = { ...rolling, status, ...(official ? { official_distribution_rate: { rate: official.rate, data_date: official.data_date, source: official.source, kind: official.kind } } : {}) };
+      } else snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { ...rolling, status: "unavailable" };
+      if (fetched?.identity) snapshot.symbols[symbol].identity = fetched.identity;
+    }
     else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh: merged.fresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
   }
   try { snapshot.fx = await fetchFrankfurter(fetcher, fetched_at); } catch { try { snapshot.fx = await fetchOpenExchangeRate(fetcher, fetched_at); } catch { snapshot.fx = snapshot.fx ? { ...snapshot.fx, status: "stale" } : { status: "unavailable" }; } }
@@ -439,6 +554,7 @@ function hasDividendHistory(row) {
 }
 const DIVIDEND_SOURCE_RANK = new Map([
   ["NEOS official Distribution History", 100],
+  ["YieldMax official Distribution History", 100],
   ["Nasdaq official dividends", 80],
   ["Alpha Vantage Dividends", 60],
   ["Yahoo Finance Dividends", 40],

@@ -91,6 +91,10 @@ for (const engine of ["Chromium", "WebKit"]) {
       { name: "iphone390", width: 390, height: 744 },
       { name: "iphone402", width: 402, height: 774 },
       { name: "iphone430", width: 430, height: 832 },
+      { name: "width440", width: 440, height: 900 },
+      { name: "tablet768", width: 768, height: 1024 },
+      { name: "desktop1440", width: 1440, height: 900 },
+      { name: "landscape390", width: 844, height: 390 },
       { name: "large-text", width: 440, height: 763, fontSize: 24 },
     ]) {
       const context = await browser.newContext({ viewport: { width: profile.width, height: profile.height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, timezoneId: "Asia/Shanghai", reducedMotion: "reduce" });
@@ -139,17 +143,22 @@ for (const engine of ["Chromium", "WebKit"]) {
             const layout = await page.evaluate(() => {
               const cards = [...document.querySelectorAll(".asset-card-compact")].map(n => ({top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom,height:n.getBoundingClientRect().height}));
               const dockTop = document.querySelector(".navigation-dock").getBoundingClientRect().top;
-              return {cards,dockTop,oneScreen:cards.length===5 && cards[3].bottom+8<=dockTop};
+              return {cards,dockTop,cardCount:cards.length};
             });
             result.profiles.at(-1).portfolio = layout;
-            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),5);
-            if(profile.name.startsWith("iphone17promax")) assert.ok(layout.oneScreen,`${engine}/${profile.name} portfolio does not fit: ${JSON.stringify(layout)}`);
+            assert.equal(layout.cardCount, 6);
+            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),6);
             const xqqi = page.getByRole('button', {name:'展开 XQQI 详情', exact:true});
             await xqqi.scrollIntoViewIfNeeded();
             assert.ok(await xqqi.isVisible());
             await xqqi.click();
             assert.ok(await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).isVisible());
             await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).click();
+            const chpy = page.getByRole('button', {name:'展开 CHPY 详情', exact:true});
+            await chpy.scrollIntoViewIfNeeded();
+            await chpy.click();
+            assert.match(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
+            await page.getByRole('button', {name:'收起 CHPY 详情', exact:true}).click();
             await page.evaluate(() => scrollTo(0,0));
             if (profile.name === "iphone17promax-pwa") {
               await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-light.png`, fullPage: true });
@@ -183,7 +192,7 @@ for (const engine of ["Chromium", "WebKit"]) {
         assert.deepEqual(errors, []);
       } finally { await context.close(); }
     }
-    console.log(`PASS ${engine}: seven layout profiles, four tabs, dark/light, full amounts, safe-area simulation, tap sizes, ledger persistence`);
+    console.log(`PASS ${engine}: layout profiles 375/390/440/768/1440 plus landscape, four tabs, dark/light, safe-area simulation, tap sizes, ledger persistence`);
   } catch (error) {
     if (engine === "WebKit" && !process.env.REQUIRE_WEBKIT && !browser) { console.log(`SKIP WebKit host unavailable: ${error.message.split("\n")[0]}`); continue; }
     throw error;

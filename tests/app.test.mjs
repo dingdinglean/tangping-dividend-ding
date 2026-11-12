@@ -10,12 +10,16 @@ class FixedDate extends Date {
   constructor(...args) { super(...(args.length ? args : ["2026-09-05T12:00:00Z"])); }
   static now() { return new Date("2026-09-05T12:00:00Z").getTime(); }
 }
-function app(saved, { systemDark = false } = {}) {
+function app(saved, { systemDark = false, now = "2026-09-05T12:00:00Z" } = {}) {
+  class ClockDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return new Date(now).getTime(); }
+  }
   const storage = new Map(saved ? [["tangping-dividend.v1", JSON.stringify(saved)]] : []);
   const themeColor = { content: "#f4f4f6" };
   const documentElement = { dataset: {}, style: {} };
   const mediaQuery = { matches: systemDark, addEventListener(type, listener) { if (type === "change") this.listener = listener; } };
-  const context = vm.createContext({ Date: FixedDate, crypto: webcrypto, structuredClone, Intl, URL,
+  const context = vm.createContext({ Date: ClockDate, crypto: webcrypto, structuredClone, Intl, URL,
     FormData: class { constructor(target) { this.pairs = Object.entries(target?.fields || {}); } [Symbol.iterator]() { return this.pairs[Symbol.iterator](); } },
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
     navigator: { onLine: true }, window: { matchMedia: () => mediaQuery }, document: { visibilityState: "visible", documentElement, querySelector: (selector) => selector === 'meta[name="theme-color"]' ? themeColor : null }, setTimeout, clearTimeout,
@@ -27,7 +31,7 @@ function app(saved, { systemDark = false } = {}) {
   return { run: (code) => vm.runInContext(code, context), context, storage, themeColor, documentElement, mediaQuery };
 }
 function fixture() {
-  return { version: 1, migrations: { xqqi: true }, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
+  return { version: 1, migrations: { xqqi: true, chpy: true }, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
     assets: [{ id: "a", ticker: "TEST", frequency: "monthly", currentPrice: 100, priceDate: "2026-09-04", manualDividendYieldPercent: 12, remoteDividends: [] }],
     transactions: [{ id: "b", assetId: "a", type: "buy", date: "2026-01-01", shares: 100, price: 90 }] };
 }
@@ -683,7 +687,9 @@ test("XQQI migration preserves original ledger and backup and runs only once", (
   for (const [key, value] of Object.entries(saved.assets[0])) assert.deepEqual(migrated.assets[0][key], value);
   assert.equal(migrated.settings.customSetting, "keep");
   assert.equal(migrated.assets.filter(row => row.ticker === "XQQI").length, 1);
+  assert.equal(migrated.assets.filter(row => row.ticker === "CHPY").length, 1);
   assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI").shares'), 0);
+  assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "CHPY").shares'), 0);
   const again = app(migrated); again.run("saveState()");
   assert.deepEqual(JSON.parse(again.storage.get("tangping-dividend.v1")), migrated);
   assert.equal(a.storage.get("tangping-dividend.backup-before-delete"), "original-backup");
@@ -695,9 +701,10 @@ test("manually added XQQI is recognized by normalized ticker or API symbol witho
     const saved = fixture(); delete saved.migrations;
     Object.assign(saved.assets[0], fields);
     const a = app(saved);
-    assert.equal(a.run("state.assets.length"), 1);
+    assert.equal(a.run("state.assets.length"), 2);
     assert.equal(a.run("state.assets[0].id"), "a");
     assert.equal(a.run("state.transactions[0].assetId"), "a");
+    assert.equal(a.run('state.assets.filter(asset => asset.ticker === "CHPY").length'), 1);
   }
 });
 test("XQQI buys, sells and editable tax affect forecasts, never confirmed receipts", () => {
@@ -744,7 +751,9 @@ test("legacy four-ETF storage gains a zero XQQI holding and keeps the ledger", (
   const xqqi = stored.assets.find((row) => row.ticker === "XQQI");
   assert.equal(xqqi.currentPrice, 0);
   assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI").shares'), 0);
-  assert.deepEqual(stored.assets.filter((row) => row.ticker !== "XQQI").map((row) => row.ticker), ["QQQI", "SPYI", "QNDX", "SCHD"]);
+  assert.deepEqual(stored.assets.filter((row) => row.ticker !== "XQQI" && row.ticker !== "CHPY").map((row) => row.ticker), ["QQQI", "SPYI", "QNDX", "SCHD"]);
+  assert.equal(stored.assets.find((row) => row.ticker === "CHPY").currentPrice, 0);
+  assert.equal(stored.assets.find((row) => row.ticker === "CHPY").frequency, "weekly");
 });
 
 test("a missing session change stays blank and a real zero still renders", async () => {
@@ -867,4 +876,128 @@ test("a shorter snapshot keeps holdings, custom milestones, older dividends and 
   assert.equal(receipt.status, "received");
   assert.equal(receipt.netDividend, 42);
   assert.equal(receipt.perShare, 0.5);
+});
+
+test("CHPY upgrade stores one local pre-migration copy and restore keeps the original ledger", () => {
+  const saved = {
+    version: 1,
+    migrations: { xqqi: true },
+    settings: { displayCurrency: "CNY", exchangeRate: 7.1, monthlyGoal: 1800, customSetting: "keep", alphaVantageApiKey: "TEST-ONLY", theme: "dark" },
+    assets: ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((ticker, index) => ({ id: ticker, ticker, name: `${ticker} name`, frequency: index < 3 ? "monthly" : "quarterly", currentPrice: 10 + index, priceDate: "2026-11-11", remoteDividends: [{ exDate: "2026-08-01", amount: 0.5 }] })),
+    transactions: ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((ticker) => ({ id: `buy-${ticker}`, assetId: ticker, type: "buy", date: "2026-01-02", shares: 3, price: 20 })),
+  };
+  const raw = JSON.stringify(saved);
+  const a = app(saved);
+  assert.equal(a.run("stateNeedsMigration"), true);
+  a.run("saveState()");
+  const backup = JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade"));
+  assert.equal(backup.migration, "chpy");
+  assert.equal(backup.raw, raw);
+  assert.equal(a.storage.get("tangping-dividend.backup-before-delete") || null, null);
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.equal(stored.assets.find((row) => row.ticker === "CHPY").frequency, "weekly");
+  assert.equal(stored.assets.find((row) => row.ticker === "CHPY").currentPrice, 0);
+  assert.deepEqual(stored.transactions, saved.transactions);
+  for (const asset of saved.assets) assert.equal(stored.assets.find((row) => row.id === asset.id).currentPrice, asset.currentPrice);
+  a.run("state = loadState(); if (stateNeedsMigration) saveState();");
+  assert.equal(JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade")).raw, raw);
+  a.run("restoreUpgradeBackup()");
+  const restored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.deepEqual(restored.transactions, saved.transactions);
+  assert.equal(restored.settings.customSetting, "keep");
+  assert.equal(restored.settings.exchangeRate, 7.1);
+  assert.equal(JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade")).raw, raw);
+  assert.equal(restored.assets.find((row) => row.ticker === "QQQI").id, "QQQI");
+  const removed = structuredClone(stored);
+  removed.assets = removed.assets.filter((row) => row.ticker !== "CHPY");
+  assert.equal(app(removed).run('state.assets.some(asset => asset.ticker === "CHPY")'), false);
+});
+
+test("CHPY weekly cash uses pay dates, entitled shares, and does not double-count a confirmation", () => {
+  const pays = [
+    ["2026-09-03", "2026-09-02", 0.51],
+    ["2026-09-10", "2026-09-09", 0.52],
+    ["2026-09-17", "2026-09-16", 0.53],
+    ["2026-09-24", "2026-09-23", 0.54],
+    ["2026-10-01", "2026-09-30", 0.5385],
+    ["2026-10-08", "2026-10-07", 0.58],
+    ["2026-10-15", "2026-10-14", 0.51],
+    ["2026-10-22", "2026-10-21", 0.47],
+    ["2026-10-29", "2026-10-28", 0.46],
+  ];
+  const saved = fixture();
+  saved.settings.exchangeRate = 7;
+  saved.settings.displayCurrency = "CNY";
+  saved.assets = [{
+    id: "chpy", ticker: "CHPY", apiSymbol: "CHPY", name: "YieldMax Semiconductor Portfolio Option Income ETF", frequency: "weekly",
+    currentPrice: 55.07, priceDate: "2026-11-11", priceSource: "Nasdaq historical close", manualDividendYieldPercent: null,
+    dividendRate: null, dividendCoverage: "estimate", remoteDividends: [
+      ...pays.map(([paymentDate, exDate, amount]) => ({ exDate, paymentDate, recordDate: exDate, declarationDate: exDate, amount })),
+      { exDate: "2026-11-19", paymentDate: "2026-11-20", amount: "" },
+    ],
+  }];
+  saved.transactions = [
+    { id: "buy-1", assetId: "chpy", type: "buy", date: "2026-09-01", shares: 10, price: 50 },
+    { id: "sell-1", assetId: "chpy", type: "sell", date: "2026-09-20", shares: 2, price: 51 },
+    { id: "buy-ex", assetId: "chpy", type: "buy", date: "2026-09-30", shares: 5, price: 52 },
+  ];
+  const a = app(saved, { now: "2026-11-12T12:00:00Z" });
+  const before = a.run("state.transactions.length");
+  a.run('syncDeclaredDividendTransactions(state.assets[0]); syncDeclaredDividendTransactions(state.assets[0]);');
+  const rows = a.run('state.transactions.filter(tx => tx.type === "dividend")');
+  assert.equal(rows.length, 9);
+  assert.equal(a.run("state.transactions.length"), before + 9);
+  const crossed = rows.find((row) => row.exDate === "2026-09-30");
+  assert.equal(crossed.paymentDate, "2026-10-01");
+  assert.equal(crossed.date, "2026-10-01");
+  assert.equal(crossed.shareCount, 8);
+  assert.equal(Number(crossed.grossDividend.toFixed(4)), Number((8 * 0.5385).toFixed(4)));
+  assert.equal(crossed.status, "announced");
+  assert.equal(rows.some((row) => row.exDate === "2026-11-19"), false);
+  a.run(`const tx = state.transactions.find(row => row.exDate === "2026-09-30");
+    confirmDividendRecord(tx, { actualDate: "2026-10-01", grossDividend: "4.31", taxAndFees: "1.08", netDividend: "3.23", note: "券商到账" });
+    confirmDividendRecord(tx, { actualDate: "2026-10-01", grossDividend: "4.31", taxAndFees: "1.08", netDividend: "3.23", note: "券商到账" });
+    syncDeclaredDividendTransactions(state.assets[0]);`);
+  const confirmed = a.run('state.transactions.filter(tx => tx.exDate === "2026-09-30")');
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0].status, "received");
+  assert.equal(confirmed[0].netDividend, 3.23);
+  assert.equal(confirmed[0].grossDividend, 4.31);
+  const chart = a.run("monthlyIncomeData(2026)");
+  const september = rows.filter((row) => String(row.date).startsWith("2026-09"));
+  const october = a.run('state.transactions.filter(tx => tx.type === "dividend" && String(tx.date).startsWith("2026-10"))');
+  assert.equal(september.length, 4);
+  assert.equal(october.length, 5);
+  assert.equal(chart.received[8], 0);
+  assert.equal(chart.received[9], 3.23);
+  assert.ok(chart.announced[9] > 0);
+  assert.equal(chart.announced[8] > 0, true);
+  assert.equal(a.run('state.transactions.filter(tx => tx.status === "forecast").length'), 0);
+  const position = a.run('calculatePortfolio().positions.find(item => item.asset.ticker === "CHPY")');
+  assert.equal(position.shares, 13);
+  assert.equal(position.receivedDividends, 3.23);
+  assert.match(a.run('money(calculatePortfolio().positions.find(item => item.asset.ticker === "CHPY").receivedDividends)'), /¥|CNY/);
+  assert.match(a.run('renderAssetCard(calculatePortfolio().positions.find(item => item.asset.ticker === "CHPY"))'), /样本不足一年/);
+  assert.equal(Number(a.run('getForwardDividendPerShare(state.assets[0])').toFixed(4)), Number((pays.slice(0, 13).reduce((sum, row) => sum + row[2], 0) / pays.length * 52).toFixed(4)));
+});
+
+test("weekly forecast counts four- and five-payment months without writing announcements", () => {
+  const saved = fixture();
+  saved.assets = [{
+    id: "chpy", ticker: "CHPY", frequency: "weekly", currentPrice: 100, priceDate: "2026-01-02", priceSource: "test",
+    manualDividendYieldPercent: null, dividendRate: 0.52, dividendRateDate: "2026-01-02", dividendRateKind: "rolling_weekly_estimate",
+    dividendRateYieldType: "滚动周派息年化（样本不足一年）", dividendCoverage: "estimate",
+    remoteDividends: ["2025-12-04", "2025-12-11", "2025-12-18", "2025-12-25"].map((paymentDate) => ({ exDate: paymentDate, paymentDate, amount: 1 })),
+  }];
+  saved.transactions = [{ id: "buy", assetId: "chpy", type: "buy", date: "2025-12-01", shares: 10, price: 40 }];
+  const a = app(saved, { now: "2026-01-01T12:00:00Z" });
+  const ledger = a.run("JSON.stringify(state.transactions)");
+  const chart = a.run("monthlyIncomeData(2026)");
+  assert.equal(a.run("JSON.stringify(state.transactions)"), ledger);
+  const annual = a.run('calculatePortfolio().positions[0].annualForecast');
+  assert.equal(chart.forecast[0], annual / 52 * 5);
+  assert.equal(chart.forecast[1], annual / 52 * 4);
+  assert.notEqual(chart.forecast[0], annual / 12);
+  assert.match(a.run("renderHome()"), /样本不足一年/);
+  assert.match(a.run("renderIncomeChart(monthlyIncomeData(2026), 1)"), /1月/);
 });

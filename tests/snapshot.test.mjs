@@ -4,12 +4,13 @@ import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay, watchPla
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, snapshotIsPublishable, run, runWatch, mergeDividends, buildRunSummary } from "../scripts/update-market-data.mjs";
+import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, fetchYieldMaxDividends, fetchYieldMaxDistributionRate, fetchYieldMaxPrice, rollingWeeklyDistributionRate, snapshotIsPublishable, snapshotIsRecordable, run, runWatch, mergeDividends, buildRunSummary, SYMBOLS } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
 const dayStamp = (day) => Math.floor(Date.parse(`${day}T20:00:00Z`) / 1000);
 const neos = (rate = "14.39") => `<div>Distribution Information (as of 08/31/2026) Distribution Rate ${rate}%</div>`;
+const chpyPage = ({ blank = false, ucits = false, rate = "40.96", close = "52.41", closeDate = "11/10/2026" } = {}) => `${ucits ? "UCITS ISIN IE000T8QD852" : "YieldMax Semiconductor Portfolio Option Income ETF"} Ticker CHPY Primary Exchange: NYSE Arca CUSIP: 88636R693 Fund Inception: 4/2/2025 weekly basis ${rate}% Distribution Rate As of ${closeDate} NAV: $52.33 Closing Price: $${close} As of ${closeDate} <table class="distributions-table"><tr><th>DISTRIBUTION PER SHARE</th><th>DECLARED DATE</th><th>EX DATE</th><th>RECORD DATE</th><th>PAYABLE DATE</th><th>ROC</th></tr><tr><td>$0.4127</td><td>11/10/2026</td><td>11/12/2026</td><td>11/12/2026</td><td>11/13/2026</td><td>21.42%</td></tr><tr><td>$0.5385</td><td>09/29/2026</td><td>09/30/2026</td><td>09/30/2026</td><td>10/01/2026</td><td>99.88%</td></tr><tr><td>${blank ? "" : "$0.4544"}</td><td>11/11/2025</td><td>11/12/2025</td><td>11/12/2025</td><td>11/13/2025</td><td>—</td></tr><tr><td>$0.3627</td><td>04/16/2025</td><td>04/17/2025</td><td>04/17/2025</td><td>04/21/2025</td><td>—</td></tr></table>`;
 const stateStreet = ({ fundDistributionYield, noYield } = {}) => `<div>Yields as of Sep 15 2026 ${fundDistributionYield ? `Fund Distribution Yield ${fundDistributionYield}%` : noYield ? "Index Dividend Yield 0.58%" : "30 Day SEC Yield 0.44%"}</div>`;
 
 function fetcher(options = {}) {
@@ -50,6 +51,11 @@ function fetcher(options = {}) {
     }
     if (parsed.hostname.includes("neosfunds.com")) { if (options.neosFails) throw new Error("network"); return { ok: true, text: async () => neos(symbol === "spyi" ? "12.15" : "14.39") }; }
     if (parsed.hostname.includes("ssga.com")) { if (options.stateStreetFails) throw new Error("network"); return { ok: true, text: async () => stateStreet({ fundDistributionYield: options.stateStreetFundYield, noYield: options.stateStreetNoYield }) }; }
+    if (parsed.hostname.includes("yieldmaxetfs.com")) {
+      if (!parsed.pathname.includes("/chpy")) throw new Error("unexpected yieldmax path");
+      if (options.yieldmaxFails) throw new Error("network");
+      return { ok: true, text: async () => options.yieldmaxPage || chpyPage() };
+    }
     if (parsed.hostname.includes("frankfurter")) { if (options.fxPrimaryFails) throw new Error("network"); return response({ rate: 7.2, date: "2026-09-15" }); }
     if (parsed.hostname.includes("open.er-api.com")) { if (options.fxBackupFails) throw new Error("network"); return response({ rates: { CNY: 7.21 }, time_last_update_unix: dayStamp("2026-09-15") }); }
     throw new Error(`unexpected ${url}`);
@@ -233,10 +239,10 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
     }
     return base(url, opts);
   } });
-  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1,XQQI:1});
+  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1,XQQI:1,CHPY:1});
   assert.deepEqual(delays, [45000,90000]);
   assert.equal(snapshot.refresh.summary.status, "complete");
-  assert.equal(snapshot.refresh.summary.valid, 5);
+  assert.equal(snapshot.refresh.summary.valid, SYMBOLS.length);
   assert.equal(JSON.stringify(logs).includes("SECRET-ONLY-TEST"), false);
   assert.equal(JSON.stringify(snapshot).includes("SECRET-ONLY-TEST"), false);
 });
@@ -244,7 +250,9 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
 test("partial failure has an explicit summary and never rewrites the last valid price date", async () => {
   const previous = { symbols:{ SPYI:{price:{symbol:"SPYI",price:55,price_date:"2026-09-14",source:"test",fetched_at:"2026-09-14T22:00:00Z"}}}};
   const snapshot = await updateSnapshot({previous, now:NOW, apiKey:"test", fetcher:fetcher({alphaFails:["SPYI"],yahooFails:["SPYI"]})});
-  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:4,total:5,stale_symbols:["SPYI"],updated:4,failed_symbols:["SPYI"]});
+  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:5,total:6,stale_symbols:["SPYI"],updated:5,failed_symbols:["SPYI"]});
+  assert.equal(snapshot.symbols.CHPY.price_status, "valid");
+  assert.equal(snapshot.symbols.QQQI.price_status, "valid");
   assert.equal(snapshot.symbols.SPYI.price.price_date,"2026-09-14");
   assert.equal(snapshot.symbols.SPYI.price.price,55);
 });
@@ -263,7 +271,7 @@ test("Alpha Vantage rate limits stop further paid calls and the daily budget per
   const next=await updateSnapshot({previous:snapshot,now:NOW+1000,apiKey:"SECRET",fetcher:limited});
   assert.equal(alphaCalls,0);
   assert.equal(next.refresh.alpha_vantage_usage.count,25);
-  assert.equal(next.refresh.summary.valid,5); // Yahoo remains independent.
+  assert.equal(next.refresh.summary.valid,6); // Yahoo remains independent.
 });
 
 test("Yahoo daily rows select the completed session and cannot promote a live intraday row", async () => {
@@ -303,11 +311,15 @@ test("retaining same-session prices cannot disguise a failed fetch as a successf
   assert.equal(snapshot.refresh.summary.status,"partial");
   assert.equal(snapshot.refresh.summary.updated,0);
   assert.equal(snapshot.refresh.summary.valid,5);
-  assert.equal(snapshot.refresh.summary.failed_symbols.length,5);
-  for(const row of Object.values(snapshot.symbols)) {
-    assert.equal(row.price_status,"valid");
-    assert.equal(row.price.fetched_at,"2026-09-15T21:00:00.000Z");
+  assert.equal(snapshot.refresh.summary.failed_symbols.length,6);
+  assert.equal(snapshot.refresh.freshness, "stale");
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) {
+    assert.equal(snapshot.symbols[symbol].price_status, "valid");
+    assert.equal(snapshot.symbols[symbol].price.fetched_at, "2026-09-15T21:00:00.000Z");
   }
+  assert.equal(snapshot.symbols.CHPY.price_status, "stale");
+  assert.equal(snapshot.symbols.CHPY.price, undefined);
+  assert.equal(snapshot.symbols.CHPY.price_error, "upstream_unavailable");
 });
 
 
@@ -548,7 +560,7 @@ test("after the Beijing deadline a missing session is stale instead of a success
   const dir = await mkdtemp(join(tmpdir(), "deadline-"));
   const output = join(dir, "market.json");
   const prior = withXqqiHistory({
-    nasdaqInfo: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 2, 2026 4:00 PM ET" }])),
+    nasdaqInfo: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 2, 2026 4:00 PM ET" }])),
   });
   await run({ output, now: Date.parse("2026-11-03T18:00:00Z"), apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: prior });
   let clock = Date.parse("2026-11-04T00:48:00Z");
@@ -668,15 +680,15 @@ test("XQQI official November row is retained when a later table is only that row
 
 test("weekend keeps Friday as the completed session, and Monday after the close marks all five stale when sources are still Friday", async () => {
   const friday = "2026-11-06";
-  const previous = { schemaVersion: 2, symbols: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, {
+  const previous = { schemaVersion: 2, symbols: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, {
     price: { symbol, price: 10 + symbol.length, price_date: friday, source: "Nasdaq official close", fetched_at: "2026-11-07T02:19:50.000Z" },
-    dividends: { data: [{ ex_date: "2026-10-21", amount: 0.5, payment_date: "2026-10-23" }], source: "Nasdaq official dividends", fetched_at: "2026-11-07T02:19:50.000Z" },
+    dividends: { data: [{ ex_date: "2026-10-21", amount: 0.5, payment_date: "2026-10-23" }], source: symbol === "CHPY" ? "YieldMax official Distribution History" : "Nasdaq official dividends", fetched_at: "2026-11-07T02:19:50.000Z" },
   }])) };
-  const older = Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, friday]));
+  const older = Object.fromEntries(SYMBOLS.map((symbol) => [symbol, friday]));
   const sources = {
     alphaDate: older, yahooDate: older,
-    nasdaqHistorical: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, [{ date: "11/06/2026", close: "$10" }]])),
-    nasdaqInfo: Object.fromEntries(["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"].map((symbol) => [symbol, { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 6, 2026 4:00 PM ET" }])),
+    nasdaqHistorical: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, [{ date: "11/06/2026", close: "$10" }]])),
+    nasdaqInfo: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, { lastSalePrice: "$10", lastTradeTimestamp: "Closed at Nov 6, 2026 4:00 PM ET" }])),
   };
   const weekend = await updateSnapshot({ previous, now: Date.parse("2026-11-08T12:00:00Z"), apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher(sources) });
   assert.equal(weekend.refresh.target_price_date, friday);
@@ -684,7 +696,7 @@ test("weekend keeps Friday as the completed session, and Monday after the close 
   const snapshot = await updateSnapshot({ previous, now: Date.parse("2026-11-09T22:40:00Z"), apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher(sources) });
   assert.equal(snapshot.refresh.target_price_date, "2026-11-09");
   assert.equal(snapshot.refresh.freshness, "stale");
-  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) {
+  for (const symbol of SYMBOLS) {
     assert.equal(snapshot.symbols[symbol].price_status, "stale", symbol);
     assert.equal(snapshot.symbols[symbol].price.price_date, friday, symbol);
     assert.equal(snapshot.symbols[symbol].expected_price_date, "2026-11-09", symbol);
@@ -708,7 +720,7 @@ test("weekend keeps Friday as the completed session, and Monday after the close 
   assert.equal(holiday.targetDate, "2026-11-25");
   assert.equal(isUsTradingDay("2026-11-26"), false);
   const report = buildRunSummary({ snapshot, plan: compensation, fresh: false });
-  assert.equal(report.lines.length, 5);
+  assert.equal(report.lines.length, SYMBOLS.length);
   assert.match(report.lines.join("\n"), /QQQI/);
   assert.match(report.lines.join("\n"), /XQQI/);
   assert.match(report.header, /2026-11-09/);
@@ -725,4 +737,140 @@ test("a malformed upstream response and a write failure both leave the last snap
   await writeFile(join(dir, "not-a-directory"), "blocked");
   await assert.rejects(run({ output: join(dir, "not-a-directory", "market.json"), now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher() }));
   assert.equal(await readFile(output, "utf8"), original);
+});
+
+test("CHPY reader accepts the NYSE Arca fund and rejects the European UCITS share class", async () => {
+  const fetchedAt = "2026-11-12T03:30:00.000Z";
+  const history = await fetchYieldMaxDividends("CHPY", async () => ({ ok: true, text: async () => chpyPage() }), fetchedAt);
+  assert.equal(history.source, "YieldMax official Distribution History");
+  assert.equal(history.identity.cusip, "88636R693");
+  assert.equal(history.identity.exchange, "NYSE Arca");
+  assert.equal(history.identity.currency, "USD");
+  assert.equal(history.identity.frequency, "weekly");
+  assert.equal(history.identity.inception, "2025-04-02");
+  assert.equal(history.data.some((row) => row.amount === 0.4572), false);
+  const cross = history.data.find((row) => row.ex_date === "2026-09-30");
+  assert.deepEqual(cross, { ex_date: "2026-09-30", declaration_date: "2026-09-29", record_date: "2026-09-30", payment_date: "2026-10-01", amount: 0.5385 });
+  const blank = await fetchYieldMaxDividends("CHPY", async () => ({ ok: true, text: async () => chpyPage({ blank: true }) }), fetchedAt);
+  assert.equal(blank.data.some((row) => row.ex_date === "2025-11-12"), false);
+  await assert.rejects(fetchYieldMaxDividends("CHPY", async () => ({ ok: true, text: async () => chpyPage({ ucits: true }) }), fetchedAt), /invalid_data/);
+  await assert.rejects(fetchYieldMaxPrice("CHPY", async () => ({ ok: true, text: async () => "YieldMax Semiconductor Option Income UCITS ETF IE000T8QD852 CHPY" }), fetchedAt), /invalid_data/);
+  const price = await fetchYieldMaxPrice("CHPY", async () => ({ ok: true, text: async () => chpyPage() }), fetchedAt);
+  assert.equal(price.price, 52.41);
+  assert.equal(price.price_date, "2026-11-10");
+  assert.equal(price.source, "YieldMax official Closing Price");
+  const official = await fetchYieldMaxDistributionRate("CHPY", async () => ({ ok: true, text: async () => chpyPage() }), fetchedAt);
+  assert.equal(official.rate, 0.4096);
+  assert.equal(official.data_date, "2026-11-10");
+});
+
+test("weekly rolling yield uses a 365-day sum or a 52-week estimate, never a monthly multiplier", () => {
+  const short = rollingWeeklyDistributionRate({
+    data: [{ ex_date: "2026-09-08", amount: 2 }, { ex_date: "2026-09-01", amount: 1 }],
+    source: "YieldMax official Distribution History",
+  }, { price: 50 }, "2026-09-15", "2026-09-15T00:00:00.000Z");
+  assert.equal(short.coverage, "estimate");
+  assert.equal(short.method, "mean_of_available_weeks_times_52");
+  assert.equal(short.annual_per_share, 78);
+  assert.notEqual(short.annual_per_share, 18);
+  assert.equal(short.sample_span_days, 7);
+  const full = rollingWeeklyDistributionRate({
+    data: [
+      { ex_date: "2026-11-12", payment_date: "2026-11-13", amount: 5 },
+      { ex_date: "2026-11-04", amount: 0.4 },
+      { ex_date: "2025-11-12", amount: 0.5 },
+      { ex_date: "2025-04-17", amount: 9 },
+    ],
+    source: "YieldMax official Distribution History",
+  }, { price: 55.07 }, "2026-11-11", "2026-11-12T00:00:00.000Z");
+  assert.equal(full.coverage, "complete");
+  assert.equal(full.method, "trailing_365_day_sum");
+  assert.equal(Number(full.annual_per_share.toFixed(4)), 0.9);
+  assert.equal(full.sample_count, 2);
+  assert.equal(full.sample_span_days, 357);
+  assert.equal(full.data_date, "2026-11-04");
+});
+
+test("published CHPY trailing year is the 52 in-window ex-dates, not the future payable or the full history", async () => {
+  const snapshot = JSON.parse(await readFile(new URL("../data/market.json", import.meta.url), "utf8"));
+  const dividends = snapshot.symbols.CHPY.dividends;
+  const price = snapshot.symbols.CHPY.price;
+  assert.equal(price.price_date, "2026-11-11");
+  assert.equal(price.price, 55.07);
+  const future = dividends.data.find((row) => row.ex_date === "2026-11-12");
+  assert.equal(future.payment_date, "2026-11-13");
+  assert.equal(future.amount, 0.4127);
+  const cutoff = Date.parse("2026-11-11T00:00:00Z") - 365 * 86400000;
+  const sample = dividends.data.filter((row) => row.ex_date <= price.price_date && Date.parse(`${row.ex_date}T00:00:00Z`) >= cutoff);
+  const exDates = sample.map((row) => row.ex_date);
+  assert.equal(sample.length, 52);
+  assert.equal(new Set(exDates).size, 52);
+  assert.equal(sample.some((row) => row.payment_date === "2026-11-13" || row.ex_date === "2026-11-12"), false);
+  const ordered = [...exDates].sort();
+  assert.equal(ordered[0], "2025-11-12");
+  assert.equal(ordered.at(-1), "2026-11-04");
+  const span = Math.round((Date.parse(`${ordered.at(-1)}T00:00:00Z`) - Date.parse(`${ordered[0]}T00:00:00Z`)) / 86400000);
+  assert.equal(span, 357);
+  const sum = sample.reduce((total, row) => total + row.amount, 0);
+  assert.equal(Number(sum.toFixed(4)), 27.6161);
+  const rate = rollingWeeklyDistributionRate(dividends, price, price.price_date, dividends.fetched_at);
+  assert.equal(rate.coverage, "complete");
+  assert.equal(rate.method, "trailing_365_day_sum");
+  assert.equal(rate.sample_count, 52);
+  assert.equal(rate.sample_span_days, 357);
+  assert.equal(rate.data_date, "2026-11-04");
+  assert.equal(Number(rate.annual_per_share.toFixed(4)), 27.6161);
+  assert.equal(snapshot.symbols.CHPY.dividend_rate.sample_span_days, 357);
+  assert.equal(Number(snapshot.symbols.CHPY.dividend_rate.annual_per_share.toFixed(4)), 27.6161);
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) assert.equal(snapshot.symbols[symbol].dividend_rate.sample_span_days, undefined);
+});
+
+test("a failed CHPY refresh leaves the other five current and keeps CHPY's last close as stale", async () => {
+  const previous = { schemaVersion: 2, symbols: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, {
+    price: { symbol, price: symbol === "CHPY" ? 52.41 : 10, price_date: "2026-09-14", source: "test", fetched_at: "2026-09-14T21:00:00.000Z" },
+    dividends: { data: [{ ex_date: "2026-08-01", amount: 0.4, payment_date: "2026-08-03", declaration_date: "2026-07-31", record_date: "2026-08-01" }, { ex_date: "2026-07-25", amount: 0.3, payment_date: "2026-07-27" }], source: symbol === "CHPY" ? "YieldMax official Distribution History" : "Nasdaq official dividends", fetched_at: "2026-09-14T21:00:00.000Z", status: "valid" },
+    dividend_rate: { rate: 0.2, data_date: "2026-08-01", source: "test", kind: "ttm_distribution_yield", coverage: "complete" },
+    ...(symbol === "CHPY" ? { identity: { cusip: "88636R693", exchange: "NYSE Arca" } } : {}),
+  }])) };
+  const snapshot = await updateSnapshot({
+    previous, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {},
+    fetcher: fetcher({
+      nasdaqHistorical: Object.fromEntries(SYMBOLS.filter((symbol) => symbol !== "CHPY").map((symbol) => [symbol, [{ date: "09/15/2026", close: "$20" }]])),
+      alphaFails: ["CHPY"], yahooFails: ["CHPY"], yieldmaxFails: true,
+    }),
+  });
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) {
+    assert.equal(snapshot.symbols[symbol].price_status, "valid", symbol);
+    assert.equal(snapshot.symbols[symbol].price.price, 20, symbol);
+    assert.equal(snapshot.symbols[symbol].price.price_date, "2026-09-15", symbol);
+  }
+  assert.equal(snapshot.symbols.CHPY.price_status, "stale");
+  assert.equal(snapshot.symbols.CHPY.price.price, 52.41);
+  assert.equal(snapshot.symbols.CHPY.price.price_date, "2026-09-14");
+  assert.equal(snapshot.symbols.CHPY.price.fetched_at, "2026-09-14T21:00:00.000Z");
+  assert.equal(snapshot.symbols.CHPY.price_error, "upstream_unavailable");
+  assert.equal(snapshot.symbols.CHPY.dividends.status, "stale");
+  assert.equal(snapshot.symbols.CHPY.dividends.data.length, 2);
+  assert.equal(snapshot.symbols.CHPY.identity.cusip, "88636R693");
+  assert.equal(snapshot.refresh.freshness, "stale");
+  assert.equal(snapshot.refresh.summary.failed_symbols.includes("CHPY"), true);
+  assert.equal(snapshot.refresh.summary.stale_symbols.includes("QQQI"), false);
+  assert.equal(snapshotIsPublishable(snapshot), false);
+  assert.equal(snapshotIsRecordable(snapshot), true);
+});
+
+test("a shorter CHPY table cannot delete an older ex-date or turn a blank into zero", async () => {
+  const previous = { schemaVersion: 2, symbols: { CHPY: { dividends: { data: [
+    { ex_date: "2026-10-07", amount: 0.5847, declaration_date: "2026-10-06", record_date: "2026-10-07", payment_date: "2026-10-08" },
+    { ex_date: "2026-09-30", amount: 0.5385, declaration_date: "2026-09-29", record_date: "2026-09-30", payment_date: "2026-10-01" },
+    { ex_date: "2025-11-12", amount: 0.4544, payment_date: "2025-11-13" },
+    { ex_date: "2025-04-17", amount: 0.3627, payment_date: "2025-04-21" },
+  ], source: "YieldMax official Distribution History", fetched_at: "2026-11-01T00:00:00.000Z", status: "valid" } } } };
+  const onlyLatest = chpyPage().replace(/<tr><td>\$0\.5385[\s\S]*?<\/tr>/, "").replace(/<tr><td>\$0\.4544[\s\S]*?<\/tr>/, "").replace(/<tr><td>\$0\.3627[\s\S]*?<\/tr>/, "");
+  const snapshot = await updateSnapshot({ previous, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher({ yieldmaxPage: onlyLatest }) });
+  const rows = snapshot.symbols.CHPY.dividends.data;
+  assert.equal(rows.find((row) => row.ex_date === "2025-04-17").amount, 0.3627);
+  assert.equal(rows.find((row) => row.ex_date === "2026-09-30").payment_date, "2026-10-01");
+  assert.equal(rows.some((row) => row.amount === 0), false);
+  assert.ok(rows.length >= 4);
 });

@@ -141,5 +141,6 @@ test("cache cleanup drops old app shells and never selects user data or snapshot
   assert.match(app, /const DELETE_BACKUP_KEY = "tangping-dividend\.backup-before-delete";/);
   assert.doesNotMatch(app, /STORAGE_KEY = [^;\n]*APP_VERSION/);
   assert.doesNotMatch(app, /localStorage\.clear\s*\(/);
-  assert.deepEqual(USER_DATA_KEYS, ["tangping-dividend.v1", "tangping-dividend.backup-before-delete"]);
+  assert.deepEqual(USER_DATA_KEYS, ["tangping-dividend.v1", "tangping-dividend.backup-before-delete", "tangping-dividend.backup-before-upgrade"]);
+  assert.match(app, /const UPGRADE_BACKUP_KEY = "tangping-dividend\.backup-before-upgrade";/);
 });

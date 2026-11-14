@@ -1,25 +1,17 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-13T23:28:28.484Z",
+  "generatedAt": "2026-11-14T02:40:15.317Z",
   "refresh": {
     "target_price_date": "2026-11-13",
-    "generated_at": "2026-11-13T23:28:28.484Z",
+    "generated_at": "2026-11-14T02:40:15.317Z",
     "alpha_vantage_usage": {
-      "date": "2026-11-13",
-      "count": 4
+      "date": "2026-11-14",
+      "count": 2
     },
     "price_attempts": [
       {
         "symbol": "QQQI",
         "source": "Nasdaq",
-        "round": 1,
-        "status": "error",
-        "price_date": "2026-11-12",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "QQQI",
-        "source": "Nasdaq official",
         "round": 1,
         "status": "success",
         "price_date": "2026-11-13",
@@ -29,29 +21,13 @@
         "symbol": "SPYI",
         "source": "Nasdaq",
         "round": 1,
-        "status": "error",
-        "price_date": "2026-11-12",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "SPYI",
-        "source": "Nasdaq official",
-        "round": 1,
         "status": "success",
         "price_date": "2026-11-13",
-        "price": 52.455
+        "price": 52.48
       },
       {
         "symbol": "QNDX",
         "source": "Nasdaq",
-        "round": 1,
-        "status": "error",
-        "price_date": "2026-11-12",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "QNDX",
-        "source": "Nasdaq official",
         "round": 1,
         "status": "success",
         "price_date": "2026-11-13",
@@ -61,29 +37,13 @@
         "symbol": "SCHD",
         "source": "Nasdaq",
         "round": 1,
-        "status": "error",
-        "price_date": "2026-11-12",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "SCHD",
-        "source": "Nasdaq official",
-        "round": 1,
         "status": "success",
         "price_date": "2026-11-13",
-        "price": 36.1
+        "price": 36.12
       },
       {
         "symbol": "XQQI",
         "source": "Nasdaq",
-        "round": 1,
-        "status": "error",
-        "price_date": "2026-11-12",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "XQQI",
-        "source": "Nasdaq official",
         "round": 1,
         "status": "success",
         "price_date": "2026-11-13",
@@ -93,17 +53,9 @@
         "symbol": "CHPY",
         "source": "Nasdaq",
         "round": 1,
-        "status": "error",
-        "price_date": "2026-11-12",
-        "error": "price_date_stale"
-      },
-      {
-        "symbol": "CHPY",
-        "source": "Nasdaq official",
-        "round": 1,
         "status": "success",
         "price_date": "2026-11-13",
-        "price": 52.775
+        "price": 52.84
       }
     ],
     "summary": {
@@ -117,10 +69,10 @@
     "freshness": "current"
   },
   "fx": {
-    "rate": 6.6645,
-    "fx_date": "2026-11-13",
+    "rate": 6.6644,
+    "fx_date": "2026-11-14",
     "source": "Frankfurter",
-    "fetched_at": "2026-11-13T23:28:28.484Z"
+    "fetched_at": "2026-11-14T02:40:15.317Z"
   },
   "symbols": {
     "QQQI": {
@@ -128,8 +80,8 @@
         "symbol": "QQQI",
         "price": 51.13,
         "price_date": "2026-11-13",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
         "change": -0.51,
         "change_percent": -0.009876
       },
@@ -169,10 +121,6 @@
         {
           "date": "2026-11-03",
           "close": 51.31
-        },
-        {
-          "date": "2026-11-02",
-          "close": 51.05
         }
       ],
       "dividends": {
@@ -352,7 +300,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-13T23:28:28.484Z"
+        "fetched_at": "2026-11-14T02:40:15.317Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-13"
@@ -360,17 +308,17 @@
     "SPYI": {
       "price": {
         "symbol": "SPYI",
-        "price": 52.455,
+        "price": 52.48,
         "price_date": "2026-11-13",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
-        "change": -0.185,
-        "change_percent": -0.003514
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
+        "change": -0.16,
+        "change_percent": -0.00304
       },
       "price_history": [
         {
           "date": "2026-11-13",
-          "close": 52.455
+          "close": 52.48
         },
         {
           "date": "2026-11-12",
@@ -403,10 +351,6 @@
         {
           "date": "2026-11-03",
           "close": 52.35
-        },
-        {
-          "date": "2026-11-02",
-          "close": 52.19
         }
       ],
       "dividends": {
@@ -762,7 +706,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-13T23:28:28.484Z"
+        "fetched_at": "2026-11-14T02:40:15.317Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-13"
@@ -772,8 +716,8 @@
         "symbol": "QNDX",
         "price": 23.03,
         "price_date": "2026-11-13",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
         "change": -0.27,
         "change_percent": -0.011588
       },
@@ -813,10 +757,6 @@
         {
           "date": "2026-11-03",
           "close": 23.23
-        },
-        {
-          "date": "2026-11-02",
-          "close": 23.09
         }
       ],
       "dividends": {
@@ -838,7 +778,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -847,17 +787,17 @@
     "SCHD": {
       "price": {
         "symbol": "SCHD",
-        "price": 36.1,
+        "price": 36.12,
         "price_date": "2026-11-13",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
-        "change": 0.17,
-        "change_percent": 0.004731
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
+        "change": 0.19,
+        "change_percent": 0.005288
       },
       "price_history": [
         {
           "date": "2026-11-13",
-          "close": 36.1
+          "close": 36.12
         },
         {
           "date": "2026-11-12",
@@ -890,10 +830,6 @@
         {
           "date": "2026-11-03",
           "close": 35.55
-        },
-        {
-          "date": "2026-11-02",
-          "close": 35.9
         }
       ],
       "dividends": {
@@ -1225,14 +1161,14 @@
         "status": "valid"
       },
       "dividend_rate": {
-        "rate": 0.0291994459833795,
+        "rate": 0.029183277962347733,
         "annual_per_share": 1.0541,
         "data_date": "2026-09-23",
         "source": "Alpha Vantage Dividends",
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -1243,8 +1179,8 @@
         "symbol": "XQQI",
         "price": 43.7037,
         "price_date": "2026-11-13",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
         "change": -0.7063,
         "change_percent": -0.015904
       },
@@ -1284,10 +1220,6 @@
         {
           "date": "2026-11-03",
           "close": 44.73
-        },
-        {
-          "date": "2026-11-02",
-          "close": 44.57
         }
       ],
       "dividends": {
@@ -1372,7 +1304,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-13T23:28:28.484Z"
+        "fetched_at": "2026-11-14T02:40:15.317Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-13"
@@ -1380,17 +1312,17 @@
     "CHPY": {
       "price": {
         "symbol": "CHPY",
-        "price": 52.775,
+        "price": 52.84,
         "price_date": "2026-11-13",
-        "source": "Nasdaq official close",
-        "fetched_at": "2026-11-13T23:28:28.484Z",
-        "change": -1.385,
-        "change_percent": -0.025572
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
+        "change": -1.32,
+        "change_percent": -0.024372
       },
       "price_history": [
         {
           "date": "2026-11-13",
-          "close": 52.775
+          "close": 52.84
         },
         {
           "date": "2026-11-12",
@@ -1423,10 +1355,6 @@
         {
           "date": "2026-11-03",
           "close": 55.9
-        },
-        {
-          "date": "2026-11-02",
-          "close": 54.68
         }
       ],
       "dividends": {
@@ -2018,7 +1946,7 @@
         "status": "valid"
       },
       "dividend_rate": {
-        "rate": 0.5224898152534345,
+        "rate": 0.5218470855412567,
         "annual_per_share": 27.574400000000004,
         "data_date": "2026-11-12",
         "source": "YieldMax official Distribution History",
@@ -2029,7 +1957,7 @@
         "method": "trailing_365_day_sum",
         "sample_count": 52,
         "sample_span_days": 358,
-        "fetched_at": "2026-11-13T23:28:28.484Z",
+        "fetched_at": "2026-11-14T02:40:15.317Z",
         "status": "valid",
         "official_distribution_rate": {
           "rate": 0.4096,

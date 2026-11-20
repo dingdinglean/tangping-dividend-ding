@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-20T03:41:55.041Z",
+  "generatedAt": "2026-11-20T07:11:16.050Z",
   "refresh": {
     "target_price_date": "2026-11-19",
-    "generated_at": "2026-11-20T03:41:55.041Z",
+    "generated_at": "2026-11-20T07:11:16.050Z",
     "alpha_vantage_usage": {
       "date": "2026-11-20",
-      "count": 4
+      "count": 6
     },
     "price_attempts": [
       {
@@ -69,10 +69,10 @@
     "freshness": "current"
   },
   "fx": {
-    "rate": 6.6628,
+    "rate": 6.6631,
     "fx_date": "2026-11-20",
     "source": "Frankfurter",
-    "fetched_at": "2026-11-20T03:41:55.041Z"
+    "fetched_at": "2026-11-20T07:11:16.050Z"
   },
   "symbols": {
     "QQQI": {
@@ -81,7 +81,7 @@
         "price": 48.14,
         "price_date": "2026-11-19",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "change": -1.05,
         "change_percent": -0.021346
       },
@@ -305,7 +305,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-20T03:41:55.041Z"
+        "fetched_at": "2026-11-20T07:11:16.050Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-19"
@@ -316,7 +316,7 @@
         "price": 49.55,
         "price_date": "2026-11-19",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "change": -0.98,
         "change_percent": -0.019394
       },
@@ -718,7 +718,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-20T03:41:55.041Z"
+        "fetched_at": "2026-11-20T07:11:16.050Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-19"
@@ -729,7 +729,7 @@
         "price": 21.86,
         "price_date": "2026-11-19",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "change": -0.49,
         "change_percent": -0.021924
       },
@@ -790,7 +790,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -802,7 +802,7 @@
         "price": 34.2,
         "price_date": "2026-11-19",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "change": -0.5,
         "change_percent": -0.014409
       },
@@ -1180,7 +1180,7 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -1192,7 +1192,7 @@
         "price": 40.45,
         "price_date": "2026-11-19",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "change": -1.4,
         "change_percent": -0.033453
       },
@@ -1316,7 +1316,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-20T03:41:55.041Z"
+        "fetched_at": "2026-11-20T07:11:16.050Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-19"
@@ -1327,7 +1327,7 @@
         "price": 48.71,
         "price_date": "2026-11-19",
         "source": "Nasdaq historical close",
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "change": -1.14,
         "change_percent": -0.022869
       },
@@ -1976,7 +1976,7 @@
         "method": "trailing_365_day_sum",
         "sample_count": 53,
         "sample_span_days": 364,
-        "fetched_at": "2026-11-20T03:41:55.041Z",
+        "fetched_at": "2026-11-20T07:11:16.050Z",
         "status": "valid",
         "official_distribution_rate": {
           "rate": 0.4052,

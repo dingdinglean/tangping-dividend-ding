@@ -30,6 +30,10 @@ References: https://docs.github.com/en/actions/how-tos/troubleshoot-workflows an
 
 The production token must be dedicated to **this one repository**, fine-grained **Actions: write** (metadata read is implicit; public contents are readable). Do not copy a broad developer token, mint a key from another credential, put it in the repository, pass it on a command line, or print it. Supply it only via the administrator's approved secret input as `DIVIDEND_ACTIONS_TOKEN`. Rotate/revoke it through its normal provider flow. No credential was created or extracted for this change.
 
+## Existing Grok Bot box routine (no new credential)
+
+An authorized routine can execute `node scripts/market-watchdog.mjs --github-cli --dispatch --monitor` using the existing `gh` session. This uses the same public official API and fixed repository boundary, **does not read or export the CLI credential**, and writes its persistent dedup state outside the checkout (set `DIVIDEND_WATCHDOG_STATE`). This option is for the existing box only, not permission to copy the account session to Tencent. Authentication failures stop safely; repeated auth failures should pause the routine and request normal reconnection. The routine must still be explicitly saved by the parent with its actual schedule/result, not inferred from this document. On a persistent snapshot/auth/ambiguous-dispatch error, wake the parent in the user's original chat; do not send an external test message. Keep only one active external authority.
+
 ## Tencent Cloud install acceptance (administrator only)
 
 Use a separate `/opt/tangping-dividend` checkout/read-only release directory and Node >=22. Review `deploy/tangping-market-watchdog.service` and `.timer`, then install those units through the approved administration channel. Supply `/etc/tangping-market-watchdog.env` root-owned mode 0600 with the dedicated token; the unit is a DynamicUser sandbox with a private StateDirectory, not a web-server user. Do not touch nginx/PHP/other app directories. Enable only this timer after authorization.

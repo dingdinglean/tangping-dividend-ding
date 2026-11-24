@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApi, decide, inspectSnapshot, watchdog, REPOSITORY, SYMBOLS } from "../scripts/market-watchdog.mjs";
+import { createApi, createGhApi, decide, inspectSnapshot, watchdog, REPOSITORY, SYMBOLS } from "../scripts/market-watchdog.mjs";
 const now = Date.parse("2026-11-24T00:30:00Z");
 const snapshot = (date = "2026-11-23") => ({ schemaVersion: 2, generatedAt: new Date(now).toISOString(), symbols: Object.fromEntries(SYMBOLS.map(symbol => [symbol, { price: { price: 10, price_date: date }, price_status: "valid", dividends: { data: [{ ex_date: "2026-11-18", amount: 0.3 }] } }])) });
 const run = (overrides = {}) => ({ id: 100, head_branch: "main", status: "completed", conclusion: "failure", event: "workflow_dispatch", created_at: "2026-11-24T00:20:00Z", ...overrides });
@@ -91,4 +91,25 @@ test("safe API retries GET, not POST; fixed repository boundary", async () => {
   await assert.rejects(api(`/repos/${REPOSITORY}/x`), /github_http_503/); assert.equal(calls, 3);
   calls = 0; await assert.rejects(api(`/repos/${REPOSITORY}/x`, { method: "POST" }), /github_http_503/); assert.equal(calls, 1);
   await assert.rejects(api("/repos/other/project/x"), /repository_scope_denied/); assert.equal(calls, 1);
+});
+
+test("existing gh session transport never extracts secrets and bounds scope/retries", async () => {
+  const calls = [];
+  const api = createGhApi({ runner: (command, args, opts) => { calls.push({ command, args, opts }); return { status: 0, stdout: args.includes("POST") ? "" : '{"ok":true}' }; } });
+  assert.deepEqual(await api(`/repos/${REPOSITORY}/contents/data/market.json`), { ok: true });
+  assert.equal(await api(`/repos/${REPOSITORY}/actions/workflows/350907457/dispatches`, { method: "POST", body: { ref: "main" } }), null);
+  assert.equal(calls[0].command, "gh");
+  assert.equal(calls[0].opts.timeout, 20000);
+  assert.deepEqual(JSON.parse(calls[1].opts.input), { ref: "main" });
+  assert.equal(calls[1].args.includes("--input"), true);
+  await assert.rejects(api("/user"), /repository_scope_denied/);
+  assert.equal(calls.length, 2);
+});
+test("gh POST errors are not repeated or logged, GET retry is bounded", async () => {
+  let count = 0;
+  const api = createGhApi({ runner: () => { count++; return { status: 1, stderr: "PRIVATE" }; }, waiter: async () => {} });
+  await assert.rejects(api(`/repos/${REPOSITORY}/x`, { method: "POST" }), /dispatch_acceptance_unknown/);
+  assert.equal(count, 1);
+  await assert.rejects(api(`/repos/${REPOSITORY}/x`), /github_cli_failed/);
+  assert.equal(count, 4);
 });

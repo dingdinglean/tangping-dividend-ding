@@ -2,6 +2,7 @@
 import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { cashCloseUtc, latestCompletedUsTradingSession } from "../market-calendar.js";
 
 export const REPOSITORY = "dingdinglean/tangping-dividend-ding";
@@ -70,6 +71,23 @@ export function createApi({ token = "", fetcher = fetch, waiter = ms => new Prom
     }
   };
 }
+// For an authorized Grok Bot routine on the existing box only. Use gh's
+// normal authenticated session without reading/exporting any credential.
+// Do not copy that developer session onto a production server.
+export function createGhApi({ runner = spawnSync, waiter = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  return async (path, { method = "GET", body } = {}) => {
+    if (!path.startsWith(`/repos/${REPOSITORY}/`)) throw new Error("repository_scope_denied");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const result = runner("gh", ["api", path, "--method", method, ...(body ? ["--input", "-"] : [])], {
+        encoding: "utf8", timeout: 20000, maxBuffer: 4 * 1024 * 1024,
+        ...(body ? { input: JSON.stringify(body) } : {}),
+      });
+      if (!result.error && result.status === 0) return result.stdout.trim() ? JSON.parse(result.stdout) : null;
+      if (method !== "GET" || attempt === 2) throw new Error(method === "GET" ? "github_cli_failed" : "dispatch_acceptance_unknown");
+      await waiter(1000 * (attempt + 1));
+    }
+  };
+}
 export async function readEvidence(api, now = Date.now()) {
   const since = new Date(cashCloseUtc(latestCompletedUsTradingSession(now).date).closeAt - 8 * 3600000).toISOString();
   const root = `/repos/${REPOSITORY}`;
@@ -125,8 +143,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const dispatch = process.argv.includes("--dispatch");
     const monitor = process.argv.includes("--monitor");
-    if (dispatch && !process.env.DIVIDEND_ACTIONS_TOKEN) throw new Error("dedicated_actions_token_required");
-    const api = createApi({ token: process.env.DIVIDEND_ACTIONS_TOKEN || "" });
+    const githubCli = process.argv.includes("--github-cli");
+    if (dispatch && !githubCli && !process.env.DIVIDEND_ACTIONS_TOKEN) throw new Error("dedicated_actions_token_required");
+    const api = githubCli ? createGhApi() : createApi({ token: process.env.DIVIDEND_ACTIONS_TOKEN || "" });
     const statePath = resolve(process.env.DIVIDEND_WATCHDOG_STATE || "./watchdog-state/state.json");
     const deadline = Date.now() + 20 * 60000;
     for (;;) {

@@ -147,3 +147,6 @@ test-results/
 
 # Wage reminder runtime state. Kept in Actions cache, never committed.
 wage-remind/.state/
+
+# Private independent scheduler journal; never commit credential/state files.
+watchdog-state/

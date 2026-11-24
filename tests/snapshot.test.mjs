@@ -791,8 +791,9 @@ test("weekly rolling yield uses a 365-day sum or a 52-week estimate, never a mon
   assert.equal(full.data_date, "2026-11-04");
 });
 
-test("published CHPY trailing year is the 52 in-window ex-dates, not the future payable or the full history", async () => {
-  const snapshot = JSON.parse(await readFile(new URL("../data/market.json", import.meta.url), "utf8"));
+// Pin the release regression to its real historical snapshot. Live market data moves daily.
+test("CHPY release fixture trailing year excludes future payable and full history", async () => {
+  const snapshot = JSON.parse(await readFile(new URL("./fixtures/chpy-release-20261111.json", import.meta.url), "utf8"));
   const dividends = snapshot.symbols.CHPY.dividends;
   const price = snapshot.symbols.CHPY.price;
   assert.equal(price.price_date, "2026-11-11");
@@ -873,4 +874,23 @@ test("a shorter CHPY table cannot delete an older ex-date or turn a blank into z
   assert.equal(rows.find((row) => row.ex_date === "2026-09-30").payment_date, "2026-10-01");
   assert.equal(rows.some((row) => row.amount === 0), false);
   assert.ok(rows.length >= 4);
+});
+
+// Independently validate the moving production snapshot without fixing a date/price.
+test("published CHPY weekly yield equals its actual trailing-window distributions", async () => {
+  const snapshot = JSON.parse(await readFile(new URL("../data/market.json", import.meta.url), "utf8"));
+  const row = snapshot.symbols.CHPY;
+  const cutoff = Date.parse(`${row.price.price_date}T00:00:00Z`) - 365 * 86400000;
+  const sample = row.dividends.data.filter(d => d.ex_date <= row.price.price_date && Date.parse(`${d.ex_date}T00:00:00Z`) >= cutoff);
+  assert.ok(sample.length >= 50, "published TTM must have a full weekly year");
+  assert.equal(new Set(sample.map(d => d.ex_date)).size, sample.length);
+  const sum = sample.reduce((total, d) => total + d.amount, 0);
+  const rate = row.dividend_rate;
+  assert.equal(rate.method, "trailing_365_day_sum");
+  assert.equal(rate.frequency, "weekly");
+  assert.equal(rate.sample_count, sample.length);
+  assert.ok(Math.abs(rate.annual_per_share - sum) < 1e-8);
+  assert.ok(Math.abs(rate.rate - sum / row.price.price) < 1e-10);
+  assert.equal(rate.data_date, sample.map(d => d.ex_date).sort().at(-1));
+  assert.ok(row.dividends.data.length > sample.length, "older distribution history remains protected");
 });

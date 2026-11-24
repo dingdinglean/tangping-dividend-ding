@@ -1,0 +1,12 @@
+[Unit]
+Description=Check completed US ETF session at 08:30 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 Asia/Shanghai
+Persistent=true
+AccuracySec=30s
+RandomizedDelaySec=0
+Unit=tangping-market-watchdog.service
+
+[Install]
+WantedBy=timers.target

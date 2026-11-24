@@ -349,7 +349,8 @@ test("a prior close still values the holding, and a missing price stays out of t
   assert.equal(a.run("calculatePortfolio().totals.carriedCloseCount"), 1);
   assert.match(a.run("renderPortfolio()"), /待更新/);
   const home = a.run("renderHome()");
-  assert.match(home, /沿用上一交易日收盘价 · 2026-09-03/);
+  assert.match(home, /行情收盘 2026-09-03 \/ —/);
+  assert.doesNotMatch(home, /行情暂未更新|沿用上一交易日收盘价/);
   assert.doesNotMatch(home, /按各标的自身口径估算/);
   assert.match(home, /部分标的待更新/);
   const card = a.run("renderAssetCard(calculatePortfolio().positions[0])");
@@ -1027,30 +1028,37 @@ test("empty-holdings home has no sample date and derives six-watchlist freshness
   const initial = app(undefined, { now: "2026-11-24T01:30:00Z" });
   initial.context.latestCompletedUsTradingSession = () => ({ date: "2026-11-23" });
   assert.match(initial.run("renderHome()"), /暂无持仓/);
-  assert.match(initial.run("marketStatusText()"), /缺少 6 只收盘价/);
+  assert.equal(initial.run("marketStatusText()"), "行情收盘 —");
   assert.doesNotMatch(initial.run("renderHome()"), /2026-11-12|行情收盘 2026-11-23/);
   const a = homeMarketApp();
   assert.match(a.run("renderHome()"), /暂无持仓/);
   assert.match(a.run("renderHome()"), /行情收盘 2026-11-23/);
   assert.equal(a.run("state.transactions.length"), 0);
 });
-test("one truly stale close cannot be hidden by five current quotes or a fresh global timestamp", () => {
+test("home removes the stale banner but retains actual mixed/missing/future dates and internal checks", () => {
   const a = homeMarketApp();
   a.run('state.assets[5].priceDate="2026-11-20";state.assets[5].priceTradingDay="2026-11-20";state.settings.lastMarketRefreshAt=new Date().toISOString()');
-  assert.match(a.run("marketStatusText()"), /沿用上一交易日收盘价.*2026-11-20.*2026-11-23.*应为 2026-11-23/);
+  assert.equal(a.run("marketStatusText()"), "行情收盘 2026-11-20 / 2026-11-23");
+  assert.equal(a.run("hasLatestValidPrice(state.assets[5])"), false);
+  assert.equal(a.run("usesPriorClose(state.assets[5])"), true);
+  assert.match(a.run("renderMarketCaption()"), /已完成美国交易日 2026-11-23/);
   a.run('state.assets[0].currentPrice=0');
-  assert.match(a.run("marketStatusText()"), /缺少 1 只收盘价/);
+  assert.match(a.run("marketStatusText()"), /2026-11-20 \/ 2026-11-23 \/ —/);
   a.run('state.assets[1].priceDate="2026-11-24"');
-  assert.match(a.run("marketStatusText()"), /日期待核验.*应为 2026-11-23/);
+  assert.match(a.run("marketStatusText()"), /2026-11-24/);
+  assert.equal(a.run("hasLatestValidPrice(state.assets[1])"), false);
+  assert.doesNotMatch(a.run("marketStatusText()"), /行情暂未更新|行情待更新|沿用上一交易日|正在核验|最新|已更新/);
 });
-test("loading and offline old cache retain actual close dates instead of claiming fresh data", () => {
+test("offline old cache keeps honest date and provenance without replacing the removed home warning", () => {
   const a = homeMarketApp({ date: "2026-11-12" });
   a.run("refreshInProgress=true");
-  assert.match(a.run("marketStatusText()"), /正在核验行情.*缓存收盘 2026-11-12.*应为 2026-11-23/);
+  assert.equal(a.run("marketStatusText()"), "行情收盘 2026-11-12");
   a.run("navigator.onLine=false");
-  assert.match(a.run("marketStatusText()"), /行情离线.*沿用上一交易日收盘价.*2026-11-12.*应为 2026-11-23/);
+  assert.equal(a.run("marketStatusText()"), "行情收盘 2026-11-12");
+  assert.match(a.run("renderMarketCaption()"), /离线缓存日期.*已完成美国交易日 2026-11-23.*收盘 2026-11-12.*来源 test close/);
+  assert.equal(a.run("usesPriorClose(state.assets[0])"), true);
   a.run('state.assets.forEach(asset=>asset.priceDate="2026-11-23")');
-  assert.equal(a.run("marketStatusText()"), "行情离线 · 缓存收盘 2026-11-23");
+  assert.equal(a.run("marketStatusText()"), "行情收盘 2026-11-23");
 });
 test("startup old prices synchronize while old dividend metadata cannot re-poison home after tab return", async () => {
   const a = homeMarketApp({ date: "2026-11-12" });
@@ -1068,4 +1076,20 @@ test("startup old prices synchronize while old dividend metadata cannot re-poiso
   const restored = app(JSON.parse(a.storage.get("tangping-dividend.v1")), {now:"2026-11-24T01:30:00Z"});
   restored.context.latestCompletedUsTradingSession = () => ({date:"2026-11-23"});
   assert.equal(restored.run("marketStatusText()"), "行情收盘 2026-11-23");
+});
+
+test("user-requested removal applies to every home caption state, never to protection checks", () => {
+  for (const date of ["2026-11-12", "2026-11-20", "2026-11-23", "2026-11-24"]) {
+    const a = homeMarketApp({date});
+    for (const online of [true,false]) {
+      a.context.navigator.onLine=online;
+      for (const loading of [true,false]) {
+        a.run(`refreshInProgress=${loading}`);
+        const caption=a.run("renderMarketCaption()");
+        assert.doesNotMatch(caption,/行情暂未更新|行情待更新|继续使用上次数据|沿用上一交易日收盘价|正在核验行情/);
+        assert.match(caption,new RegExp(date));
+      }
+    }
+    assert.equal(a.run("hasLatestValidPrice(state.assets[0])"),date==="2026-11-23");
+  }
 });

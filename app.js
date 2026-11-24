@@ -1038,32 +1038,12 @@ function renderDividendBell() {
 }
 
 function marketStatusText() {
-  // Price-session evidence only: dividend fetch age/global refresh timestamps
-  // describe other resources, not whether these closes are current.
-  const expected = latestSessionDate();
-  const assets = state.assets;
-  const usable = assets.filter(hasUsableClose);
+  // Home is a neutral date caption, not a second freshness/error banner.
+  // Never infer a price date from dividend/global timestamps or generatedAt.
+  const usable = state.assets.filter(hasUsableClose);
   const dates = [...new Set(usable.map(priceDateOf))].sort();
-  const heldDates = dates.length === 1 ? dates[0] : `${dates[0]}—${dates.at(-1)}`;
-  const offline = !navigator.onLine;
-  if (!assets.length) return offline ? "行情离线 · 暂无行情数据" : "暂无行情数据";
-  if (assets.every(hasLatestValidPrice)) {
-    return offline ? `行情离线 · 缓存收盘 ${expected}` : `行情收盘 ${expected}`;
-  }
-  // Do not label the server stale while still checking a persisted old cache.
-  // Retain the cache's real dates and expected session even during this phase.
-  if (!offline && refreshInProgress) {
-    return `正在核验行情${dates.length ? ` · 缓存收盘 ${heldDates}` : " · 尚无收盘价"} · 应为 ${expected}`;
-  }
-  let status;
-  if (dates.some(date => date > expected)) {
-    status = `行情日期待核验 · ${heldDates} · 应为 ${expected}`;
-  } else if (usable.length < assets.length) {
-    status = `行情待更新 · 缺少 ${assets.length - usable.length} 只收盘价${dates.length ? `${dates.some(date => date < expected) ? " · 沿用上一交易日收盘价 · " : " · 已有 "}${heldDates}` : ""} · 应为 ${expected}`;
-  } else {
-    status = `沿用上一交易日收盘价 · ${heldDates} · 应为 ${expected}`;
-  }
-  return offline ? `行情离线 · ${status}` : status;
+  if (usable.length < state.assets.length || !dates.length) dates.push("—");
+  return `行情收盘 ${dates.join(" / ")}`;
 }
 
 function blendedYieldFoot(positions) {
@@ -1076,7 +1056,9 @@ function blendedYieldFoot(positions) {
 }
 
 function renderMarketCaption() {
-  return `<p class="market-caption">${escapeHtml(marketStatusText())}</p>`;
+  const evidence = state.assets.map(asset => `${asset.ticker} · 收盘 ${hasUsableClose(asset) ? priceDateOf(asset) : "—"} · 来源 ${asset.priceSource || "—"} · 抓取 ${formatUpdatedAt(asset.priceUpdatedAt, "—")}`);
+  const detail = `${navigator.onLine ? "行情日期" : "离线缓存日期"}；已完成美国交易日 ${latestSessionDate()}；${evidence.join("；")}`;
+  return `<p class="market-caption" title="${escapeHtml(detail)}">${escapeHtml(marketStatusText())}</p>`;
 }
 
 function renderHome() {

@@ -215,11 +215,42 @@ async function runUi(browser, engine) {
     await market.page.waitForFunction(expected => JSON.parse(localStorage.getItem("tangping-dividend.v1")).assets[0].currentPrice === expected, source.symbols.QQQI.price.price);
     const saved = await market.page.evaluate(() => JSON.parse(localStorage.getItem("tangping-dividend.v1")));
     assert.equal(saved.assets[0].priceDate, source.symbols.QQQI.price.price_date);
+    const expectedCaption = `行情收盘 ${source.symbols.QQQI.price.price_date}`;
+    await market.page.waitForFunction(expected => document.querySelector(".market-caption")?.textContent === expected, expectedCaption);
+    assert.equal(await market.page.locator(".market-caption").innerText(), expectedCaption);
+    for (const tab of ["portfolio", "home"]) await market.page.locator(`[data-tab="${tab}"]`).click();
+    assert.equal(await market.page.locator(".market-caption").innerText(), expectedCaption);
     assert.equal(saved.assets[0].manualDividendYieldPercent, 12);
     assert.equal(saved.transactions.find(tx => tx.id === "oct").netDividend, 40);
     assert.deepEqual(market.errors, []);
     console.log(`PASS ${engine}: unchanged automatic snapshot path loads ${source.generatedAt} / close ${saved.assets[0].priceDate}, keeps holdings and confirmed receipts`);
   } finally { await market.context.close(); liveMarket = false; }
+
+  liveMarket = true;
+  const emptyContext = await browser.newContext({viewport:{width:390,height:844},timezoneId:"Asia/Shanghai"});
+  try {
+    await emptyContext.addInitScript(clock => {
+      const NativeDate = Date;
+      window.Date = class extends NativeDate { constructor(...args){super(...(args.length?args:[clock]));} static now(){return new NativeDate(clock).getTime();} };
+    }, source.generatedAt);
+    const page = await emptyContext.newPage(); const errors=[];
+    page.on("pageerror", error=>errors.push(error.message));
+    await page.goto(base);
+    await page.waitForSelector(".empty-home");
+    const expected = source.refresh.target_price_date;
+    await page.waitForFunction(date => {
+      const state = JSON.parse(localStorage.getItem("tangping-dividend.v1") || "null");
+      return state?.assets.length === 6 && state.assets.every(asset=>asset.priceDate===date) && document.querySelector(".market-caption")?.textContent===`行情收盘 ${date}`;
+    }, expected);
+    assert.match(await page.locator(".empty-home").innerText(), /暂无持仓/);
+    for (const tab of ["portfolio","home"]) await page.locator(`[data-tab="${tab}"]`).click();
+    assert.equal(await page.locator(".market-caption").innerText(), `行情收盘 ${expected}`);
+    const state = await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")));
+    assert.equal(state.transactions.length,0);
+    assert.deepEqual(errors,[]);
+    console.log(`PASS ${engine}: empty-holdings default home synchronizes all six real close dates and keeps correct caption after tab return`);
+  } finally { await emptyContext.close(); liveMarket = false; }
+
 }
 
 let browser;

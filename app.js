@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.5";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.5";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.5";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.6";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.6";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.6";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -1038,14 +1038,32 @@ function renderDividendBell() {
 }
 
 function marketStatusText() {
-  if (!navigator.onLine) return "行情离线，继续使用上次数据";
-  const carried = state.assets.filter((asset) => usesPriorClose(asset));
-  if (carried.length) {
-    const dates = [...new Set(carried.map((asset) => priceDateOf(asset)).filter(Boolean))];
-    return dates.length === 1 ? `沿用上一交易日收盘价 · ${dates[0]}` : "沿用上一交易日收盘价";
+  // Price-session evidence only: dividend fetch age/global refresh timestamps
+  // describe other resources, not whether these closes are current.
+  const expected = latestSessionDate();
+  const assets = state.assets;
+  const usable = assets.filter(hasUsableClose);
+  const dates = [...new Set(usable.map(priceDateOf))].sort();
+  const heldDates = dates.length === 1 ? dates[0] : `${dates[0]}—${dates.at(-1)}`;
+  const offline = !navigator.onLine;
+  if (!assets.length) return offline ? "行情离线 · 暂无行情数据" : "暂无行情数据";
+  if (assets.every(hasLatestValidPrice)) {
+    return offline ? `行情离线 · 缓存收盘 ${expected}` : `行情收盘 ${expected}`;
   }
-  const staleCount = state.assets.filter((asset) => isStale(asset.priceUpdatedAt, MARKET_REFRESH_MS) || isStale(asset.dividendUpdatedAt, DIVIDEND_REFRESH_MS)).length;
-  return staleCount ? "行情暂未更新，继续使用上次数据" : `行情 ${formatUpdatedAt(state.settings.lastMarketRefreshAt)}`;
+  // Do not label the server stale while still checking a persisted old cache.
+  // Retain the cache's real dates and expected session even during this phase.
+  if (!offline && refreshInProgress) {
+    return `正在核验行情${dates.length ? ` · 缓存收盘 ${heldDates}` : " · 尚无收盘价"} · 应为 ${expected}`;
+  }
+  let status;
+  if (dates.some(date => date > expected)) {
+    status = `行情日期待核验 · ${heldDates} · 应为 ${expected}`;
+  } else if (usable.length < assets.length) {
+    status = `行情待更新 · 缺少 ${assets.length - usable.length} 只收盘价${dates.length ? `${dates.some(date => date < expected) ? " · 沿用上一交易日收盘价 · " : " · 已有 "}${heldDates}` : ""} · 应为 ${expected}`;
+  } else {
+    status = `沿用上一交易日收盘价 · ${heldDates} · 应为 ${expected}`;
+  }
+  return offline ? `行情离线 · ${status}` : status;
 }
 
 function blendedYieldFoot(positions) {

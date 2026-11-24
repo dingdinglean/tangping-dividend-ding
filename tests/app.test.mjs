@@ -1001,3 +1001,71 @@ test("weekly forecast counts four- and five-payment months without writing annou
   assert.match(a.run("renderHome()"), /样本不足一年/);
   assert.match(a.run("renderIncomeChart(monthlyIncomeData(2026), 1)"), /1月/);
 });
+
+
+function homeMarketApp({ date = "2026-11-23", emptyHoldings = true } = {}) {
+  const a = app(undefined, { now: "2026-11-24T01:30:00Z" });
+  a.context.latestCompletedUsTradingSession = () => ({ date: "2026-11-23" });
+  a.run(`state.assets.forEach(asset => Object.assign(asset, {
+    currentPrice: 100, priceDate: "${date}", priceTradingDay: "${date}", priceSource: "test close",
+    priceUpdatedAt: "2026-11-12T00:00:00Z", dividendUpdatedAt: "2026-11-12T00:00:00Z",
+    dividendLastError: "old dividend metadata", dividendRateStale: true
+  })); state.settings.lastMarketRefreshAt="2026-11-12T00:00:00Z";
+  state.settings.lastMarketRefreshMessage="行情暂未更新，继续使用上次数据";`);
+  if (!emptyHoldings) a.run('state.transactions.push({assetId:state.assets[0].id,type:"buy",date:"2026-01-01",shares:1,price:90})');
+  return a;
+}
+test("home fresh close date ignores old dividend/price-fetch/global metadata without hiding dividend warnings", () => {
+  const a = homeMarketApp({ emptyHoldings: false });
+  assert.equal(a.run("marketStatusText()"), "行情收盘 2026-11-23");
+  assert.match(a.run("renderHome()"), /行情收盘 2026-11-23/);
+  assert.doesNotMatch(a.run("renderHome()"), /行情暂未更新|沿用上一交易日收盘价|2026-11-12/);
+  assert.equal(a.run("state.assets[0].dividendRateStale"), true);
+  assert.equal(a.run("state.assets[0].dividendLastError"), "old dividend metadata");
+});
+test("empty-holdings home has no sample date and derives six-watchlist freshness separately", () => {
+  const initial = app(undefined, { now: "2026-11-24T01:30:00Z" });
+  initial.context.latestCompletedUsTradingSession = () => ({ date: "2026-11-23" });
+  assert.match(initial.run("renderHome()"), /暂无持仓/);
+  assert.match(initial.run("marketStatusText()"), /缺少 6 只收盘价/);
+  assert.doesNotMatch(initial.run("renderHome()"), /2026-11-12|行情收盘 2026-11-23/);
+  const a = homeMarketApp();
+  assert.match(a.run("renderHome()"), /暂无持仓/);
+  assert.match(a.run("renderHome()"), /行情收盘 2026-11-23/);
+  assert.equal(a.run("state.transactions.length"), 0);
+});
+test("one truly stale close cannot be hidden by five current quotes or a fresh global timestamp", () => {
+  const a = homeMarketApp();
+  a.run('state.assets[5].priceDate="2026-11-20";state.assets[5].priceTradingDay="2026-11-20";state.settings.lastMarketRefreshAt=new Date().toISOString()');
+  assert.match(a.run("marketStatusText()"), /沿用上一交易日收盘价.*2026-11-20.*2026-11-23.*应为 2026-11-23/);
+  a.run('state.assets[0].currentPrice=0');
+  assert.match(a.run("marketStatusText()"), /缺少 1 只收盘价/);
+  a.run('state.assets[1].priceDate="2026-11-24"');
+  assert.match(a.run("marketStatusText()"), /日期待核验.*应为 2026-11-23/);
+});
+test("loading and offline old cache retain actual close dates instead of claiming fresh data", () => {
+  const a = homeMarketApp({ date: "2026-11-12" });
+  a.run("refreshInProgress=true");
+  assert.match(a.run("marketStatusText()"), /正在核验行情.*缓存收盘 2026-11-12.*应为 2026-11-23/);
+  a.run("navigator.onLine=false");
+  assert.match(a.run("marketStatusText()"), /行情离线.*沿用上一交易日收盘价.*2026-11-12.*应为 2026-11-23/);
+  a.run('state.assets.forEach(asset=>asset.priceDate="2026-11-23")');
+  assert.equal(a.run("marketStatusText()"), "行情离线 · 缓存收盘 2026-11-23");
+});
+test("startup old prices synchronize while old dividend metadata cannot re-poison home after tab return", async () => {
+  const a = homeMarketApp({ date: "2026-11-12" });
+  a.context.fetchAlphaQuote = async () => ({price:100,priceDate:"2026-11-23",tradingDay:"2026-11-23",source:"test close",fetchedAt:"2026-11-24T01:28:13Z"});
+  a.context.fetchAlphaDividends = async () => ({dividends:[{exDate:"2026-11-04",amount:.5}],source:"test dividends",fetchedAt:"2026-11-12T00:00:00Z"});
+  a.context.fetchAlphaOverviewDividend = async () => ({dividendYield:.12,dataDate:"2026-10-31",coverage:"complete",stale:true});
+  a.context.fetchUsdCnyRate = async () => ({rate:7,date:"2026-11-23",fetchedAt:"2026-11-24T01:28:13Z"});
+  await a.run("refreshAllData({automatic:true,snapshotChanged:true})");
+  assert.equal(a.run("state.assets.every(asset=>asset.priceDate==='2026-11-23')"), true);
+  assert.equal(a.run("marketStatusText()"), "行情收盘 2026-11-23");
+  a.run('currentTab="portfolio";renderAssetCard(calculatePortfolio().positions[0]);currentTab="home"');
+  assert.match(a.run("renderHome()"), /行情收盘 2026-11-23/);
+  assert.doesNotMatch(a.run("renderHome()"), /行情暂未更新|沿用上一交易日收盘价|2026-11-12/);
+  a.run("saveState()");
+  const restored = app(JSON.parse(a.storage.get("tangping-dividend.v1")), {now:"2026-11-24T01:30:00Z"});
+  restored.context.latestCompletedUsTradingSession = () => ({date:"2026-11-23"});
+  assert.equal(restored.run("marketStatusText()"), "行情收盘 2026-11-23");
+});

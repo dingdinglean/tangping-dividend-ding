@@ -1,6 +1,6 @@
-import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.6";
-import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.6";
-import { APP_VERSION } from "./pwa-release.js?v=7.7.6";
+import { configureMarketEndpoint, refreshSnapshot, fetchUsdCnyRate, fetchAlphaQuote, fetchAlphaDividends, fetchAlphaMonthlyAdjustedDividends, fetchAlphaOverviewDividend, wait } from "./market-data.js?v=7.7.7";
+import { latestCompletedUsTradingSession } from "./market-calendar.js?v=7.7.7";
+import { APP_VERSION } from "./pwa-release.js?v=7.7.7";
 
 const STORAGE_KEY = "tangping-dividend.v1";
 const DELETE_BACKUP_KEY = "tangping-dividend.backup-before-delete";
@@ -52,8 +52,9 @@ const defaultState = {
     { id: crypto.randomUUID(), ticker: "SCHD", apiSymbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", type: "ETF", frequency: "quarterly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "股息增长" },
     { id: crypto.randomUUID(), ticker: "XQQI", apiSymbol: "XQQI", name: "NEOS Boosted Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
     { id: crypto.randomUUID(), ticker: "CHPY", apiSymbol: "CHPY", name: "YieldMax Semiconductor Portfolio Option Income ETF", type: "ETF", frequency: "weekly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
+    { id: crypto.randomUUID(), ticker: "TDAQ", apiSymbol: "TDAQ", name: "TappAlpha Innovation 100 Growth & Daily Income ETF", type: "ETF", frequency: "monthly", currentPrice: 0, priceUpdatedAt: null, priceTradingDay: null, priceDate: null, priceSource: null, remoteDividends: [], dividendUpdatedAt: null, dividendSource: null, dividendRate: null, dividendRateDate: null, dividendRateKind: null, dividendRateYieldType: null, dividendRateStale: false, dividendCoverage: null, manualDividendYieldPercent: null, role: "高现金流" },
   ],
-  migrations: { xqqi: true, chpy: true },
+  migrations: { xqqi: true, chpy: true, tdaq: true },
   transactions: [],
 };
 
@@ -91,7 +92,7 @@ function writeUpgradeBackupOnce(raw) {
     }
     localStorage.setItem(UPGRADE_BACKUP_KEY, JSON.stringify({
       createdAt: new Date().toISOString(),
-      migration: "chpy",
+      migration: "tdaq",
       appVersion: APP_VERSION,
       raw,
     }));
@@ -158,7 +159,7 @@ function loadState() {
     // One-time catalog additions. A deleted symbol stays deleted. The original
     // localStorage string is copied once before either addition is saved.
     merged.migrations = { ...saved.migrations };
-    const catalog = [["xqqi", "XQQI"], ["chpy", "CHPY"]];
+    const catalog = [["xqqi", "XQQI"], ["chpy", "CHPY"], ["tdaq", "TDAQ"]];
     const pending = catalog.filter(([flag]) => !merged.migrations[flag]);
     if (pending.length && writeUpgradeBackupOnce(raw)) {
       for (const [flag, ticker] of pending) {

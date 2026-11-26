@@ -19,7 +19,7 @@ References: https://docs.github.com/en/actions/how-tos/troubleshoot-workflows an
 `node scripts/market-watchdog.mjs` performs a real read-only/dry-run check. It uses the official GitHub API, fixed to this repository and workflow 350907457, and writes only its local lock/state directory. It never edits market data, formulas, holdings, dividends, or the other applications. `--dispatch --monitor` enables the already-authorized workflow dispatch and observes it for at most 20 minutes. Default state path is `./watchdog-state/state.json`; production must set a persistent private `DIVIDEND_WATCHDOG_STATE`.
 
 - Reuse `market-calendar.js`: latest **completed** New York session, weekends, holidays, half-days, DST; never assume yesterday.
-- All six valid prices and their actual session dates must match. `generatedAt` alone is never freshness. Malformed data / missing dividend history fails closed.
+- All seven valid prices and their actual session dates must match. `generatedAt` alone is never freshness. Malformed data / missing dividend history fails closed.
 - Read current main snapshot and recent runs; query every active status separately so old queued/sleeping runs count. Any active main run suppresses dispatch. A run stuck for six hours alerts.
 - A current successful run but stale repository data alerts rather than creating a storm. Pages lag alone does not trigger another data update.
 - An exclusive filesystem lock and atomic private state record the session intent **before** POST. HTTP/network ambiguous POST is never retried automatically. GET retries are bounded (3, 20-second request timeout); do not print response bodies or credentials.

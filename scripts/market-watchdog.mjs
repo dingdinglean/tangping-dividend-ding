@@ -7,7 +7,7 @@ import { cashCloseUtc, latestCompletedUsTradingSession } from "../market-calenda
 
 export const REPOSITORY = "dingdinglean/tangping-dividend-ding";
 export const WORKFLOW = "350907457";
-export const SYMBOLS = ["QQQI", "SPYI", "XQQI", "QNDX", "SCHD", "CHPY"];
+export const SYMBOLS = ["QQQI", "SPYI", "XQQI", "QNDX", "SCHD", "CHPY", "TDAQ"];
 const ACTIVE = new Set(["queued", "in_progress", "requested", "waiting", "pending"]);
 const FAILED = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
 export function inspectSnapshot(snapshot, expected) {

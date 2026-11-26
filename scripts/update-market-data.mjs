@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { latestCompletedUsTradingSession, sessionDateFromTimestamp, watchPlan } from "../market-calendar.js";
 
-export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"];
+export const SYMBOLS = ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY", "TDAQ"];
 const ALPHA = "https://www.alphavantage.co/query";
 const YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const NASDAQ = "https://api.nasdaq.com/api/quote/";
@@ -12,6 +12,10 @@ const STATE_STREET = new Map([["QNDX", "https://www.ssga.com/us/en/individual/et
 // US listing only. The Irish UCITS fund IE000T8QD852 also uses the ticker CHPY and is never read.
 export const YIELDMAX_CHPY_URL = "https://yieldmaxetfs.com/our-etfs/chpy/";
 const YIELDMAX_CHPY_CUSIP = "88636R693";
+export const TAPPALPHA_TDAQ_URL = "https://www.tappalphafunds.com/etfs/tdaq";
+export const TAPPALPHA_API = "https://jdkfnvgkfwotjlyovbrk.supabase.co/functions/v1/fund-public-api";
+const TAPPALPHA_TDAQ_CUSIP = "26923N546";
+const TAPPALPHA_TDAQ_ISIN = "US26923N5462";
 const DAY = 86400000;
 const validDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
 const validPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
@@ -293,6 +297,79 @@ export async function fetchYieldMaxDistributionRate(symbol, fetcher, fetched_at)
   if (!rate || !asOf || !validDate(isoDate(asOf[1]))) throw new Error("invalid_data");
   return { rate: Number(rate[1]) / 100, data_date: isoDate(asOf[1]), source: "YieldMax official Distribution Rate", kind: "distribution_rate", fetched_at };
 }
+function percentToRate(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Number((number / 100).toFixed(8)) : null;
+}
+// Official page data is served by the same public NavStar API the TDAQ site embeds.
+// Validate the US TDAQ share class before any price or amount is stored.
+export function assertTappAlphaTdaqIdentity(fund) {
+  const row = fund || {};
+  const name = String(row.name || row.fund_name || "");
+  if (row.ticker !== "TDAQ" || !/TappAlpha Innovation 100 Growth & Daily Income ETF/.test(name)) throw new Error("invalid_data");
+  // The distributions view may omit CUSIP/ISIN/exchange; when present they must be the US TDAQ share class.
+  if (row.cusip && row.cusip !== TAPPALPHA_TDAQ_CUSIP) throw new Error("invalid_data");
+  if (row.isin && row.isin !== TAPPALPHA_TDAQ_ISIN) throw new Error("invalid_data");
+  if (row.exchange && !/^Cboe$/i.test(String(row.exchange))) throw new Error("invalid_data");
+}
+export async function fetchTappAlphaView(symbol, view, fetcher) {
+  if (symbol !== "TDAQ") throw new Error("invalid_data");
+  const url = new URL(TAPPALPHA_API);
+  url.search = new URLSearchParams({ ticker: "TDAQ", view }).toString();
+  const body = await json(fetcher, url);
+  assertTappAlphaTdaqIdentity(body.fund || body.latest || body.data || {});
+  return body;
+}
+export async function fetchTappAlphaPrice(symbol, fetcher, fetched_at) {
+  const body = await fetchTappAlphaView(symbol, "latest", fetcher);
+  const row = body.data || body.latest || {};
+  const price = Number(row.market_price);
+  const price_date = isoDate(row.as_of_date);
+  if (!validPrice(price) || !validDate(price_date)) throw new Error("invalid_data");
+  const quote = { symbol, price, price_date, source: "TappAlpha official Closing Market Price", fetched_at };
+  const change = optionalFinite(row.mp_change_usd);
+  const changePercent = percentToRate(row.mp_change_pct);
+  if (change !== null) quote.change = change;
+  if (changePercent !== null) quote.change_percent = Number(changePercent.toFixed(6));
+  return quote;
+}
+// Declared rows only. A blank future calendar amount stays unpublished and is not stored as zero.
+export async function fetchTappAlphaDividends(symbol, fetcher, fetched_at) {
+  const body = await fetchTappAlphaView(symbol, "distributions", fetcher);
+  const data = [];
+  for (const row of body.distributions || []) {
+    const amount = explicitDividendAmount(row?.amount);
+    const declaration_date = isoDate(row?.declaration_date);
+    const ex_date = isoDate(row?.ex_date);
+    const record_date = isoDate(row?.record_date);
+    const payment_date = isoDate(row?.pay_date || row?.payment_date);
+    if (amount === null || ![declaration_date, ex_date, record_date, payment_date].every(validDate)) continue;
+    data.push({ declaration_date, ex_date, record_date, payment_date, amount });
+  }
+  const result = safeDividends({ data, source: "TappAlpha official Distribution History", fetched_at });
+  if (!result) throw new Error("invalid_data");
+  const fund = body.fund || {};
+  result.identity = {
+    name: "TappAlpha Innovation 100 Growth & Daily Income ETF",
+    exchange: String(fund.exchange || "Cboe"),
+    cusip: TAPPALPHA_TDAQ_CUSIP,
+    isin: TAPPALPHA_TDAQ_ISIN,
+    currency: "USD",
+    frequency: "monthly",
+    inception: validDate(isoDate(fund.inception_date)) ? isoDate(fund.inception_date) : null,
+    source: TAPPALPHA_TDAQ_URL,
+  };
+  return result;
+}
+export async function fetchTappAlphaDistributionRate(symbol, fetcher, fetched_at) {
+  const body = await fetchTappAlphaView(symbol, "latest", fetcher);
+  const row = body.data || body.latest || {};
+  const rate = percentToRate(row.distribution_rate);
+  const data_date = isoDate(row.distribution_rate_as_of_date || row.yields_as_of_date);
+  if (!validDividendRate(rate) || !validDate(data_date)) throw new Error("invalid_data");
+  if (row.distribution_frequency && row.distribution_frequency !== "monthly") throw new Error("invalid_data");
+  return { rate, data_date, source: "TappAlpha official Distribution Rate", kind: "distribution_rate", fetched_at };
+}
 // A full year uses the trailing 365-day sum. A shorter listing uses the mean of
 // the weeks on hand times 52 and is marked as an estimate. Neither path treats
 // one weekly distribution as a monthly distribution.
@@ -443,12 +520,13 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       }
     }
     let retained = old.price;
-    if (!price && (symbol === "XQQI" || symbol === "CHPY")) {
+    if (!price && (symbol === "XQQI" || symbol === "CHPY" || symbol === "TDAQ")) {
       try {
-        const official = symbol === "CHPY" ? await fetchYieldMaxPrice(symbol, fetcher, fetched_at) : await fetchNeosPrice(symbol, fetcher, fetched_at);
+        const official = symbol === "CHPY" ? await fetchYieldMaxPrice(symbol, fetcher, fetched_at) : symbol === "TDAQ" ? await fetchTappAlphaPrice(symbol, fetcher, fetched_at) : await fetchNeosPrice(symbol, fetcher, fetched_at);
+        const sourceName = symbol === "CHPY" ? "YieldMax" : symbol === "TDAQ" ? "TappAlpha" : "NEOS";
         if (official.price_date === session.date) {
           price = official;
-          record({ symbol, source: symbol === "CHPY" ? "YieldMax" : "NEOS", round, status: "success", price_date: price.price_date, price: price.price });
+          record({ symbol, source: sourceName, round, status: "success", price_date: price.price_date, price: price.price });
         } else if (official.price_date < session.date && (!retained || official.price_date > retained.price_date)) retained = official;
       } catch {}
     }
@@ -476,6 +554,11 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
       // with the European UCITS fund or with Yahoo dates.
       try { fetched = await fetchYieldMaxDividends(symbol, fetcher, fetched_at); }
       catch { fetched = null; }
+    } else if (symbol === "TDAQ") {
+      // Official TappAlpha history only. A failed or blank table must not be
+      // replaced with Yahoo dates or invented future calendar rows.
+      try { fetched = await fetchTappAlphaDividends(symbol, fetcher, fetched_at); }
+      catch { fetched = null; }
     } else {
       try { fetched = await fetchNasdaqDividends(symbol, limitedFetcher, fetched_at); }
       catch { try { fetched = await fetchAlphaDividends(symbol, apiKey, limitedFetcher, fetched_at); } catch { try { fetched = await fetchYahooDividends(symbol, limitedFetcher, fetched_at); } catch { fetched = null; } } }
@@ -493,6 +576,11 @@ export async function updateSnapshot({ previous = {}, apiKey = "", fetcher = fet
         const status = merged.fresh ? "valid" : "stale";
         snapshot.symbols[symbol].dividend_rate = { ...rolling, status, ...(official ? { official_distribution_rate: { rate: official.rate, data_date: official.data_date, source: official.source, kind: official.kind } } : {}) };
       } else snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { ...rolling, status: "unavailable" };
+      if (fetched?.identity) snapshot.symbols[symbol].identity = fetched.identity;
+    }
+    else if (symbol === "TDAQ") {
+      try { snapshot.symbols[symbol].dividend_rate = await fetchTappAlphaDistributionRate(symbol, fetcher, fetched_at); }
+      catch { snapshot.symbols[symbol].dividend_rate = isUsableDividendRate(old.dividend_rate) ? staleDividendRate(old.dividend_rate) : { coverage: "insufficient", source: "TappAlpha official Distribution Rate", status: "unavailable" }; }
       if (fetched?.identity) snapshot.symbols[symbol].identity = fetched.identity;
     }
     else snapshot.symbols[symbol].dividend_rate = await resolveOrdinaryDividendRate({ symbol, dividends: snapshot.symbols[symbol].dividends, dividendsFresh: merged.fresh, price: price || old.price, target: session.date, fetched_at, old: old.dividend_rate, fetcher });
@@ -555,6 +643,7 @@ function hasDividendHistory(row) {
 const DIVIDEND_SOURCE_RANK = new Map([
   ["NEOS official Distribution History", 100],
   ["YieldMax official Distribution History", 100],
+  ["TappAlpha official Distribution History", 100],
   ["Nasdaq official dividends", 80],
   ["Alpha Vantage Dividends", 60],
   ["Yahoo Finance Dividends", 40],

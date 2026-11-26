@@ -4,7 +4,7 @@ import { latestCompletedUsTradingSession, isEarlyClose, isUsTradingDay, watchPla
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, fetchYieldMaxDividends, fetchYieldMaxDistributionRate, fetchYieldMaxPrice, rollingWeeklyDistributionRate, snapshotIsPublishable, snapshotIsRecordable, run, runWatch, mergeDividends, buildRunSummary, SYMBOLS } from "../scripts/update-market-data.mjs";
+import { updateSnapshot, fetchYahooPrice, fetchNeosDividends, fetchNeosDistributionRate, fetchNeosPrice, fetchYieldMaxDividends, fetchYieldMaxDistributionRate, fetchYieldMaxPrice, fetchTappAlphaDividends, fetchTappAlphaDistributionRate, fetchTappAlphaPrice, assertTappAlphaTdaqIdentity, rollingWeeklyDistributionRate, snapshotIsPublishable, snapshotIsRecordable, run, runWatch, mergeDividends, buildRunSummary, SYMBOLS } from "../scripts/update-market-data.mjs";
 
 const NOW = Date.parse("2026-09-15T22:00:00Z"); // Monday 18:00 New York, after close.
 const response = (body) => ({ ok: true, json: async () => body, text: async () => String(body) });
@@ -12,6 +12,36 @@ const dayStamp = (day) => Math.floor(Date.parse(`${day}T20:00:00Z`) / 1000);
 const neos = (rate = "14.39") => `<div>Distribution Information (as of 08/31/2026) Distribution Rate ${rate}%</div>`;
 const chpyPage = ({ blank = false, ucits = false, rate = "40.96", close = "52.41", closeDate = "11/10/2026" } = {}) => `${ucits ? "UCITS ISIN IE000T8QD852" : "YieldMax Semiconductor Portfolio Option Income ETF"} Ticker CHPY Primary Exchange: NYSE Arca CUSIP: 88636R693 Fund Inception: 4/2/2025 weekly basis ${rate}% Distribution Rate As of ${closeDate} NAV: $52.33 Closing Price: $${close} As of ${closeDate} <table class="distributions-table"><tr><th>DISTRIBUTION PER SHARE</th><th>DECLARED DATE</th><th>EX DATE</th><th>RECORD DATE</th><th>PAYABLE DATE</th><th>ROC</th></tr><tr><td>$0.4127</td><td>11/10/2026</td><td>11/12/2026</td><td>11/12/2026</td><td>11/13/2026</td><td>21.42%</td></tr><tr><td>$0.5385</td><td>09/29/2026</td><td>09/30/2026</td><td>09/30/2026</td><td>10/01/2026</td><td>99.88%</td></tr><tr><td>${blank ? "" : "$0.4544"}</td><td>11/11/2025</td><td>11/12/2025</td><td>11/12/2025</td><td>11/13/2025</td><td>—</td></tr><tr><td>$0.3627</td><td>04/16/2025</td><td>04/17/2025</td><td>04/17/2025</td><td>04/21/2025</td><td>—</td></tr></table>`;
 const stateStreet = ({ fundDistributionYield, noYield } = {}) => `<div>Yields as of Sep 15 2026 ${fundDistributionYield ? `Fund Distribution Yield ${fundDistributionYield}%` : noYield ? "Index Dividend Yield 0.58%" : "30 Day SEC Yield 0.44%"}</div>`;
+const tdaqFund = { ticker: "TDAQ", name: "TappAlpha Innovation 100 Growth & Daily Income ETF", cusip: "26923N546", isin: "US26923N5462", exchange: "Cboe", inception_date: "2025-09-04" };
+const tdaqLatest = (options = {}) => ({
+  fund: tdaqFund,
+  data: {
+    ...tdaqFund,
+    fund_name: tdaqFund.name,
+    as_of_date: options.asOf || "2026-09-15",
+    nav: options.nav ?? 22.94,
+    market_price: options.marketPrice ?? 22.99,
+    mp_change_usd: options.change ?? 0.5,
+    mp_change_pct: options.changePct ?? 2.22,
+    distribution_frequency: options.frequency || "monthly",
+    distribution_rate: options.rate ?? 17.86,
+    distribution_rate_as_of_date: options.rateDate || "2026-09-15",
+    yields_as_of_date: options.rateDate || "2026-09-15",
+  },
+  mode: "live",
+  fetched_at: "2026-09-15T22:00:00.000Z",
+});
+const tdaqDistributions = (options = {}) => ({
+  fund: tdaqFund,
+  distributions: options.rows || [
+    { ticker: "TDAQ", declaration_date: "2026-12-14", record_date: "2026-12-15", ex_date: "2026-12-15", pay_date: "2026-12-16", amount: null },
+    { ticker: "TDAQ", declaration_date: "2026-11-16", record_date: "2026-11-17", ex_date: "2026-11-17", pay_date: "2026-11-18", amount: 0.35153 },
+    { ticker: "TDAQ", declaration_date: "2026-10-19", record_date: "2026-10-20", ex_date: "2026-10-20", pay_date: "2026-10-21", amount: 0.38252 },
+    { ticker: "TDAQ", declaration_date: "2025-10-20", record_date: "2025-10-21", ex_date: "2025-10-21", pay_date: "2025-10-22", amount: 0.38142 },
+  ],
+  count: 4,
+  mode: "live",
+});
 
 function fetcher(options = {}) {
   return async (url) => {
@@ -55,6 +85,14 @@ function fetcher(options = {}) {
       if (!parsed.pathname.includes("/chpy")) throw new Error("unexpected yieldmax path");
       if (options.yieldmaxFails) throw new Error("network");
       return { ok: true, text: async () => options.yieldmaxPage || chpyPage() };
+    }
+    if (parsed.hostname.includes("jdkfnvgkfwotjlyovbrk.supabase.co") && parsed.pathname.endsWith("/fund-public-api")) {
+      if (parsed.searchParams.get("ticker") !== "TDAQ") throw new Error("unexpected tappalpha ticker");
+      if (options.tappalphaFails) throw new Error("network");
+      const view = parsed.searchParams.get("view") || "latest";
+      if (view === "distributions") return response(options.tdaqDistributions || tdaqDistributions());
+      if (view === "latest" || view === null) return response(options.tdaqLatest || tdaqLatest());
+      throw new Error(`unexpected tappalpha view ${view}`);
     }
     if (parsed.hostname.includes("frankfurter")) { if (options.fxPrimaryFails) throw new Error("network"); return response({ rate: 7.2, date: "2026-09-15" }); }
     if (parsed.hostname.includes("open.er-api.com")) { if (options.fxBackupFails) throw new Error("network"); return response({ rates: { CNY: 7.21 }, time_last_update_unix: dayStamp("2026-09-15") }); }
@@ -239,7 +277,7 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
     }
     return base(url, opts);
   } });
-  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1,XQQI:1,CHPY:1});
+  assert.deepEqual(Object.fromEntries(calls), {QQQI:1,SPYI:3,QNDX:1,SCHD:1,XQQI:1,CHPY:1,TDAQ:1});
   assert.deepEqual(delays, [45000,90000]);
   assert.equal(snapshot.refresh.summary.status, "complete");
   assert.equal(snapshot.refresh.summary.valid, SYMBOLS.length);
@@ -250,7 +288,7 @@ test("delayed publication retries only unresolved ETFs, with bounded delays and 
 test("partial failure has an explicit summary and never rewrites the last valid price date", async () => {
   const previous = { symbols:{ SPYI:{price:{symbol:"SPYI",price:55,price_date:"2026-09-14",source:"test",fetched_at:"2026-09-14T22:00:00Z"}}}};
   const snapshot = await updateSnapshot({previous, now:NOW, apiKey:"test", fetcher:fetcher({alphaFails:["SPYI"],yahooFails:["SPYI"]})});
-  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:5,total:6,stale_symbols:["SPYI"],updated:5,failed_symbols:["SPYI"]});
+  assert.deepEqual(snapshot.refresh.summary, {status:"partial",valid:6,total:7,stale_symbols:["SPYI"],updated:6,failed_symbols:["SPYI"]});
   assert.equal(snapshot.symbols.CHPY.price_status, "valid");
   assert.equal(snapshot.symbols.QQQI.price_status, "valid");
   assert.equal(snapshot.symbols.SPYI.price.price_date,"2026-09-14");
@@ -271,7 +309,7 @@ test("Alpha Vantage rate limits stop further paid calls and the daily budget per
   const next=await updateSnapshot({previous:snapshot,now:NOW+1000,apiKey:"SECRET",fetcher:limited});
   assert.equal(alphaCalls,0);
   assert.equal(next.refresh.alpha_vantage_usage.count,25);
-  assert.equal(next.refresh.summary.valid,6); // Yahoo remains independent.
+  assert.equal(next.refresh.summary.valid,7); // Yahoo remains independent.
 });
 
 test("Yahoo daily rows select the completed session and cannot promote a live intraday row", async () => {
@@ -311,7 +349,7 @@ test("retaining same-session prices cannot disguise a failed fetch as a successf
   assert.equal(snapshot.refresh.summary.status,"partial");
   assert.equal(snapshot.refresh.summary.updated,0);
   assert.equal(snapshot.refresh.summary.valid,5);
-  assert.equal(snapshot.refresh.summary.failed_symbols.length,6);
+  assert.equal(snapshot.refresh.summary.failed_symbols.length,7);
   assert.equal(snapshot.refresh.freshness, "stale");
   for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) {
     assert.equal(snapshot.symbols[symbol].price_status, "valid");
@@ -840,7 +878,7 @@ test("a failed CHPY refresh leaves the other five current and keeps CHPY's last 
       alphaFails: ["CHPY"], yahooFails: ["CHPY"], yieldmaxFails: true,
     }),
   });
-  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI"]) {
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "TDAQ"]) {
     assert.equal(snapshot.symbols[symbol].price_status, "valid", symbol);
     assert.equal(snapshot.symbols[symbol].price.price, 20, symbol);
     assert.equal(snapshot.symbols[symbol].price.price_date, "2026-09-15", symbol);
@@ -893,4 +931,106 @@ test("published CHPY weekly yield equals its actual trailing-window distribution
   assert.ok(Math.abs(rate.rate - sum / row.price.price) < 1e-10);
   assert.equal(rate.data_date, sample.map(d => d.ex_date).sort().at(-1));
   assert.ok(row.dividends.data.length > sample.length, "older distribution history remains protected");
+});
+
+test("TDAQ official history reads declared amounts and ignores empty future calendar rows", async () => {
+  const fetched_at = new Date(NOW).toISOString();
+  const history = await fetchTappAlphaDividends("TDAQ", fetcher(), fetched_at);
+  assert.deepEqual(history.data, [
+    { declaration_date: "2026-11-16", ex_date: "2026-11-17", record_date: "2026-11-17", payment_date: "2026-11-18", amount: 0.35153 },
+    { declaration_date: "2026-10-19", ex_date: "2026-10-20", record_date: "2026-10-20", payment_date: "2026-10-21", amount: 0.38252 },
+    { declaration_date: "2025-10-20", ex_date: "2025-10-21", record_date: "2025-10-21", payment_date: "2025-10-22", amount: 0.38142 },
+  ]);
+  assert.equal(history.source, "TappAlpha official Distribution History");
+  assert.equal(history.data.some((row) => row.ex_date === "2026-12-15"), false);
+  assert.equal(history.identity.cusip, "26923N546");
+  assert.equal(history.identity.frequency, "monthly");
+  const price = await fetchTappAlphaPrice("TDAQ", fetcher(), fetched_at);
+  assert.equal(price.price, 22.99);
+  assert.equal(price.price_date, "2026-09-15");
+  assert.equal(price.source, "TappAlpha official Closing Market Price");
+  assert.equal(price.change, 0.5);
+  assert.equal(price.change_percent, 0.0222);
+  const rate = await fetchTappAlphaDistributionRate("TDAQ", fetcher(), fetched_at);
+  assert.equal(rate.data_date, "2026-09-15");
+  assert.equal(rate.source, "TappAlpha official Distribution Rate");
+  assert.equal(rate.kind, "distribution_rate");
+  assert.equal(rate.fetched_at, fetched_at);
+  assert.equal(Number(rate.rate.toFixed(6)), 0.1786);
+  await assert.rejects(() => fetchTappAlphaDistributionRate("TDAQ", fetcher({ tdaqLatest: tdaqLatest({ frequency: "weekly" }) }), fetched_at));
+  assert.throws(() => assertTappAlphaTdaqIdentity({ ticker: "TDAX", name: tdaqFund.name, cusip: "26923N546", isin: "US26923N5462", exchange: "Cboe" }));
+  assert.doesNotThrow(() => assertTappAlphaTdaqIdentity({ ticker: "TDAQ", name: tdaqFund.name }));
+  assert.throws(() => assertTappAlphaTdaqIdentity({ ticker: "TDAQ", name: tdaqFund.name, cusip: "000000000" }));
+});
+
+test("TDAQ official close is the market price, never NAV, and a stale official date cannot count as current", async () => {
+  const fetched_at = new Date(NOW).toISOString();
+  const official = await fetchTappAlphaPrice("TDAQ", fetcher({ tdaqLatest: tdaqLatest({ marketPrice: 22.99, nav: 50, asOf: "2026-09-15" }) }), fetched_at);
+  assert.equal(official.price, 22.99);
+  assert.notEqual(official.price, 50);
+  const snapshot = await updateSnapshot({
+    now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {},
+    fetcher: fetcher({
+      nasdaqHistoricalFails: ["TDAQ"], alphaFails: ["TDAQ"], yahooFails: ["TDAQ"],
+      tdaqLatest: tdaqLatest({ marketPrice: 22.99, nav: 50, asOf: "2026-09-14" }),
+    }),
+  });
+  assert.equal(snapshot.symbols.TDAQ.price_status, "stale");
+  assert.notEqual(snapshot.symbols.TDAQ.price?.price_date, "2026-09-15");
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"]) {
+    assert.equal(snapshot.symbols[symbol].price_status, "valid", symbol);
+  }
+});
+
+test("a failed TDAQ refresh leaves the other six current and keeps TDAQ's last close as stale", async () => {
+  const previous = { schemaVersion: 2, symbols: Object.fromEntries(SYMBOLS.map((symbol) => [symbol, {
+    price: { symbol, price: symbol === "TDAQ" ? 22.99 : 10, price_date: "2026-09-14", source: "test", fetched_at: "2026-09-14T21:00:00.000Z" },
+    dividends: { data: [{ ex_date: "2026-08-18", amount: 0.35, payment_date: "2026-08-19", declaration_date: "2026-08-17", record_date: "2026-08-18" }, { ex_date: "2026-07-21", amount: 0.34, payment_date: "2026-07-22" }], source: symbol === "TDAQ" ? "TappAlpha official Distribution History" : "Nasdaq official dividends", fetched_at: "2026-09-14T21:00:00.000Z", status: "valid" },
+    dividend_rate: { rate: 0.1786, data_date: "2026-08-18", source: "test", kind: "distribution_rate" },
+    ...(symbol === "TDAQ" ? { identity: { cusip: "26923N546", exchange: "Cboe", frequency: "monthly" } } : {}),
+  }])) };
+  const snapshot = await updateSnapshot({
+    previous, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {},
+    fetcher: fetcher({
+      nasdaqHistorical: Object.fromEntries(SYMBOLS.filter((symbol) => symbol !== "TDAQ").map((symbol) => [symbol, [{ date: "09/15/2026", close: "$20" }]])),
+      alphaFails: ["TDAQ"], yahooFails: ["TDAQ"], tappalphaFails: true,
+    }),
+  });
+  for (const symbol of ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"]) {
+    assert.equal(snapshot.symbols[symbol].price_status, "valid", symbol);
+    assert.equal(snapshot.symbols[symbol].price.price, 20, symbol);
+    assert.equal(snapshot.symbols[symbol].price.price_date, "2026-09-15", symbol);
+  }
+  assert.equal(snapshot.symbols.TDAQ.price_status, "stale");
+  assert.equal(snapshot.symbols.TDAQ.price.price, 22.99);
+  assert.equal(snapshot.symbols.TDAQ.price.price_date, "2026-09-14");
+  assert.equal(snapshot.symbols.TDAQ.price.fetched_at, "2026-09-14T21:00:00.000Z");
+  assert.equal(snapshot.symbols.TDAQ.price_error, "upstream_unavailable");
+  assert.equal(snapshot.symbols.TDAQ.dividends.status, "stale");
+  assert.equal(snapshot.symbols.TDAQ.dividends.data.length, 2);
+  assert.equal(snapshot.symbols.TDAQ.dividend_rate.status, "stale");
+  assert.equal(snapshot.symbols.TDAQ.identity.cusip, "26923N546");
+  assert.equal(snapshot.refresh.freshness, "stale");
+  assert.equal(snapshot.refresh.summary.failed_symbols.includes("TDAQ"), true);
+  assert.equal(snapshot.refresh.summary.stale_symbols.includes("QQQI"), false);
+  assert.equal(snapshotIsPublishable(snapshot), false);
+  assert.equal(snapshotIsRecordable(snapshot), true);
+});
+
+test("a shorter TDAQ table cannot delete an older ex-date or turn a blank into zero", async () => {
+  const previous = { schemaVersion: 2, symbols: { TDAQ: { dividends: { data: [
+    { ex_date: "2026-11-17", amount: 0.35153, declaration_date: "2026-11-16", record_date: "2026-11-17", payment_date: "2026-11-18" },
+    { ex_date: "2026-10-20", amount: 0.38252, declaration_date: "2026-10-19", record_date: "2026-10-20", payment_date: "2026-10-21" },
+    { ex_date: "2025-10-21", amount: 0.38142, payment_date: "2025-10-22" },
+  ], source: "TappAlpha official Distribution History", fetched_at: "2026-11-01T00:00:00.000Z", status: "valid" } } } };
+  const onlyLatest = tdaqDistributions({ rows: [
+    { ticker: "TDAQ", declaration_date: "2026-12-14", record_date: "2026-12-15", ex_date: "2026-12-15", pay_date: "2026-12-16", amount: null },
+    { ticker: "TDAQ", declaration_date: "2026-11-16", record_date: "2026-11-17", ex_date: "2026-11-17", pay_date: "2026-11-18", amount: 0.35153 },
+  ] });
+  const snapshot = await updateSnapshot({ previous, now: NOW, apiKey: "test", priceAttempts: 1, waiter: async () => {}, fetcher: fetcher({ tdaqDistributions: onlyLatest }) });
+  const rows = snapshot.symbols.TDAQ.dividends.data;
+  assert.equal(rows.find((row) => row.ex_date === "2025-10-21").amount, 0.38142);
+  assert.equal(rows.find((row) => row.ex_date === "2026-10-20").payment_date, "2026-10-21");
+  assert.equal(rows.some((row) => row.amount === 0 || row.ex_date === "2026-12-15"), false);
+  assert.ok(rows.length >= 3);
 });

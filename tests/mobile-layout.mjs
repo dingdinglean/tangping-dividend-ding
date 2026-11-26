@@ -58,6 +58,12 @@ async function settle(page) {
   await page.waitForTimeout(450);
   await page.evaluate(() => scrollTo(0, 0));
 }
+async function revealAsset(page, label) {
+  const button = page.locator(`.asset-toggle[aria-label="${label}"]`);
+  await button.waitFor({ state: "visible" });
+  await button.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  return button;
+}
 async function validatePage(page, tab, profile) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${profile}/${tab} horizontal overflow`);
   if (baseline) return;
@@ -146,19 +152,21 @@ for (const engine of ["Chromium", "WebKit"]) {
               return {cards,dockTop,cardCount:cards.length};
             });
             result.profiles.at(-1).portfolio = layout;
-            assert.equal(layout.cardCount, 6);
-            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),6);
-            const xqqi = page.getByRole('button', {name:'展开 XQQI 详情', exact:true});
-            await xqqi.scrollIntoViewIfNeeded();
-            assert.ok(await xqqi.isVisible());
-            await xqqi.click();
+            assert.equal(layout.cardCount, 7);
+            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),7);
+            await (await revealAsset(page, "展开 XQQI 详情")).click();
             assert.ok(await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).isVisible());
             await page.getByRole('button', {name:'收起 XQQI 详情', exact:true}).click();
-            const chpy = page.getByRole('button', {name:'展开 CHPY 详情', exact:true});
-            await chpy.scrollIntoViewIfNeeded();
-            await chpy.click();
+            await settle(page);
+            await (await revealAsset(page, "展开 CHPY 详情")).click();
             assert.match(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
             await page.getByRole('button', {name:'收起 CHPY 详情', exact:true}).click();
+            await settle(page);
+            const symbols = await page.locator(".asset-symbol").allInnerTexts();
+            assert.ok(symbols.includes("TDAQ"), `missing TDAQ in ${profile.name}: ${symbols.join(",")}`);
+            await (await revealAsset(page, "展开 TDAQ 详情")).click();
+            assert.doesNotMatch(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
+            await page.getByRole('button', {name:'收起 TDAQ 详情', exact:true}).click();
             await page.evaluate(() => scrollTo(0,0));
             if (profile.name === "iphone17promax-pwa") {
               await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-light.png`, fullPage: true });

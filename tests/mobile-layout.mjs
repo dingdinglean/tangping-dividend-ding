@@ -159,9 +159,12 @@ for (const engine of ["Chromium", "WebKit"]) {
             await chpy.click();
             assert.match(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
             await page.getByRole('button', {name:'收起 CHPY 详情', exact:true}).click();
-            const tdaq = page.getByRole('button', {name:'展开 TDAQ 详情', exact:true});
-            await tdaq.scrollIntoViewIfNeeded();
-            assert.ok(await tdaq.isVisible());
+            await settle(page);
+            const symbols = await page.locator(".asset-symbol").allInnerTexts();
+            assert.ok(symbols.includes("TDAQ"), `missing TDAQ in ${profile.name}: ${symbols.join(",")}`);
+            const tdaq = page.locator('.asset-toggle[aria-label="展开 TDAQ 详情"]');
+            await tdaq.waitFor({ state: "visible" });
+            await tdaq.evaluate((el) => el.scrollIntoView({ block: "center" }));
             await tdaq.click();
             assert.doesNotMatch(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
             await page.getByRole('button', {name:'收起 TDAQ 详情', exact:true}).click();

@@ -2034,6 +2034,141 @@
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-25"
+    },
+    "TDAQ": {
+      "price": {
+        "symbol": "TDAQ",
+        "price": 22.76,
+        "price_date": "2026-11-25",
+        "source": "Nasdaq historical close",
+        "fetched_at": "2026-11-26T02:09:04.573Z",
+        "change": -0.23,
+        "change_percent": -0.010004
+      },
+      "price_status": "valid",
+      "expected_price_date": "2026-11-25",
+      "dividends": {
+        "data": [
+          {
+            "ex_date": "2026-11-17",
+            "amount": 0.35153,
+            "payment_date": "2026-11-18",
+            "declaration_date": "2026-11-16",
+            "record_date": "2026-11-17"
+          },
+          {
+            "ex_date": "2026-10-20",
+            "amount": 0.38252,
+            "payment_date": "2026-10-21",
+            "declaration_date": "2026-10-19",
+            "record_date": "2026-10-20"
+          },
+          {
+            "ex_date": "2026-09-15",
+            "amount": 0.3824,
+            "payment_date": "2026-09-16",
+            "declaration_date": "2026-09-14",
+            "record_date": "2026-09-15"
+          },
+          {
+            "ex_date": "2026-08-18",
+            "amount": 0.39274,
+            "payment_date": "2026-08-19",
+            "declaration_date": "2026-08-17",
+            "record_date": "2026-08-18"
+          },
+          {
+            "ex_date": "2026-07-14",
+            "amount": 0.39002,
+            "payment_date": "2026-07-15",
+            "declaration_date": "2026-07-13",
+            "record_date": "2026-07-14"
+          },
+          {
+            "ex_date": "2026-06-16",
+            "amount": 0.39547,
+            "payment_date": "2026-06-17",
+            "declaration_date": "2026-06-15",
+            "record_date": "2026-06-16"
+          },
+          {
+            "ex_date": "2026-05-19",
+            "amount": 0.38246,
+            "payment_date": "2026-05-20",
+            "declaration_date": "2026-05-18",
+            "record_date": "2026-05-19"
+          },
+          {
+            "ex_date": "2026-04-14",
+            "amount": 0.35022,
+            "payment_date": "2026-04-15",
+            "declaration_date": "2026-04-13",
+            "record_date": "2026-04-14"
+          },
+          {
+            "ex_date": "2026-03-17",
+            "amount": 0.35372,
+            "payment_date": "2026-03-18",
+            "declaration_date": "2026-03-16",
+            "record_date": "2026-03-17"
+          },
+          {
+            "ex_date": "2026-02-17",
+            "amount": 0.35722,
+            "payment_date": "2026-02-18",
+            "declaration_date": "2026-02-13",
+            "record_date": "2026-02-17"
+          },
+          {
+            "ex_date": "2026-01-20",
+            "amount": 0.3762,
+            "payment_date": "2026-01-21",
+            "declaration_date": "2026-01-16",
+            "record_date": "2026-01-20"
+          },
+          {
+            "ex_date": "2025-12-16",
+            "amount": 0.37405,
+            "payment_date": "2025-12-17",
+            "declaration_date": "2025-12-15",
+            "record_date": "2025-12-16"
+          },
+          {
+            "ex_date": "2025-11-18",
+            "amount": 0.37018,
+            "payment_date": "2025-11-19",
+            "declaration_date": "2025-11-17",
+            "record_date": "2025-11-18"
+          },
+          {
+            "ex_date": "2025-10-21",
+            "amount": 0.38142,
+            "payment_date": "2025-10-22",
+            "declaration_date": "2025-10-20",
+            "record_date": "2025-10-21"
+          }
+        ],
+        "source": "TappAlpha official Distribution History",
+        "fetched_at": "2026-11-26T02:09:04.573Z",
+        "status": "valid"
+      },
+      "dividend_rate": {
+        "rate": 0.1786,
+        "data_date": "2026-11-17",
+        "source": "TappAlpha official Distribution Rate",
+        "kind": "distribution_rate",
+        "fetched_at": "2026-11-26T02:09:04.573Z"
+      },
+      "identity": {
+        "name": "TappAlpha Innovation 100 Growth & Daily Income ETF",
+        "exchange": "Cboe",
+        "cusip": "26923N546",
+        "isin": "US26923N5462",
+        "currency": "USD",
+        "frequency": "monthly",
+        "inception": null,
+        "source": "https://www.tappalphafunds.com/etfs/tdaq"
+      }
     }
   }
 }

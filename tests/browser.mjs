@@ -27,7 +27,7 @@ async function testChpyLedger(browser, engine) {
   try {
     const ledger = {
       version: 1,
-      migrations: { xqqi: true, chpy: true },
+      migrations: { xqqi: true, chpy: true, tdaq: true },
       settings: { displayCurrency: "CNY", exchangeRate: 7, autoRefresh: false, marketDataMode: "snapshot", theme: "light", freedomMilestones: [
         { id: "insurance", name: "保费自由", amountCny: 1000 }, { id: "meals", name: "三餐自由", amountCny: 2500 },
         { id: "semi-retired", name: "半步退休", amountCny: 6000 }, { id: "journey", name: "诗和远方", amountCny: 12000 }, { id: "life", name: "人生自由", amountCny: 20000 },

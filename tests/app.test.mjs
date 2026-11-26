@@ -31,7 +31,7 @@ function app(saved, { systemDark = false, now = "2026-09-05T12:00:00Z" } = {}) {
   return { run: (code) => vm.runInContext(code, context), context, storage, themeColor, documentElement, mediaQuery };
 }
 function fixture() {
-  return { version: 1, migrations: { xqqi: true, chpy: true }, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
+  return { version: 1, migrations: { xqqi: true, chpy: true, tdaq: true }, settings: { marketDataMode: "direct", alphaVantageApiKey: "TEST-ONLY", exchangeRate: 7, autoRefresh: true, customSetting: "keep" },
     assets: [{ id: "a", ticker: "TEST", frequency: "monthly", currentPrice: 100, priceDate: "2026-09-04", manualDividendYieldPercent: 12, remoteDividends: [] }],
     transactions: [{ id: "b", assetId: "a", type: "buy", date: "2026-01-01", shares: 100, price: 90 }] };
 }
@@ -689,8 +689,10 @@ test("XQQI migration preserves original ledger and backup and runs only once", (
   assert.equal(migrated.settings.customSetting, "keep");
   assert.equal(migrated.assets.filter(row => row.ticker === "XQQI").length, 1);
   assert.equal(migrated.assets.filter(row => row.ticker === "CHPY").length, 1);
+  assert.equal(migrated.assets.filter(row => row.ticker === "TDAQ").length, 1);
   assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI").shares'), 0);
   assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "CHPY").shares'), 0);
+  assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "TDAQ").shares'), 0);
   const again = app(migrated); again.run("saveState()");
   assert.deepEqual(JSON.parse(again.storage.get("tangping-dividend.v1")), migrated);
   assert.equal(a.storage.get("tangping-dividend.backup-before-delete"), "original-backup");
@@ -702,10 +704,11 @@ test("manually added XQQI is recognized by normalized ticker or API symbol witho
     const saved = fixture(); delete saved.migrations;
     Object.assign(saved.assets[0], fields);
     const a = app(saved);
-    assert.equal(a.run("state.assets.length"), 2);
+    assert.equal(a.run("state.assets.length"), 3);
     assert.equal(a.run("state.assets[0].id"), "a");
     assert.equal(a.run("state.transactions[0].assetId"), "a");
     assert.equal(a.run('state.assets.filter(asset => asset.ticker === "CHPY").length'), 1);
+    assert.equal(a.run('state.assets.filter(asset => asset.ticker === "TDAQ").length'), 1);
   }
 });
 test("XQQI buys, sells and editable tax affect forecasts, never confirmed receipts", () => {
@@ -752,9 +755,11 @@ test("legacy four-ETF storage gains a zero XQQI holding and keeps the ledger", (
   const xqqi = stored.assets.find((row) => row.ticker === "XQQI");
   assert.equal(xqqi.currentPrice, 0);
   assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "XQQI").shares'), 0);
-  assert.deepEqual(stored.assets.filter((row) => row.ticker !== "XQQI" && row.ticker !== "CHPY").map((row) => row.ticker), ["QQQI", "SPYI", "QNDX", "SCHD"]);
+  assert.deepEqual(stored.assets.filter((row) => row.ticker !== "XQQI" && row.ticker !== "CHPY" && row.ticker !== "TDAQ").map((row) => row.ticker), ["QQQI", "SPYI", "QNDX", "SCHD"]);
   assert.equal(stored.assets.find((row) => row.ticker === "CHPY").currentPrice, 0);
   assert.equal(stored.assets.find((row) => row.ticker === "CHPY").frequency, "weekly");
+  assert.equal(stored.assets.find((row) => row.ticker === "TDAQ").currentPrice, 0);
+  assert.equal(stored.assets.find((row) => row.ticker === "TDAQ").frequency, "monthly");
 });
 
 test("a missing session change stays blank and a real zero still renders", async () => {
@@ -892,12 +897,15 @@ test("CHPY upgrade stores one local pre-migration copy and restore keeps the ori
   assert.equal(a.run("stateNeedsMigration"), true);
   a.run("saveState()");
   const backup = JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade"));
-  assert.equal(backup.migration, "chpy");
+  assert.equal(backup.migration, "tdaq");
   assert.equal(backup.raw, raw);
   assert.equal(a.storage.get("tangping-dividend.backup-before-delete") || null, null);
   const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
   assert.equal(stored.assets.find((row) => row.ticker === "CHPY").frequency, "weekly");
   assert.equal(stored.assets.find((row) => row.ticker === "CHPY").currentPrice, 0);
+  assert.equal(stored.assets.find((row) => row.ticker === "TDAQ").frequency, "monthly");
+  assert.equal(stored.assets.find((row) => row.ticker === "TDAQ").currentPrice, 0);
+  assert.equal(stored.assets.find((row) => row.ticker === "TDAQ").name, "TappAlpha Innovation 100 Growth & Daily Income ETF");
   assert.deepEqual(stored.transactions, saved.transactions);
   for (const asset of saved.assets) assert.equal(stored.assets.find((row) => row.id === asset.id).currentPrice, asset.currentPrice);
   a.run("state = loadState(); if (stateNeedsMigration) saveState();");
@@ -1024,7 +1032,7 @@ test("home fresh close date ignores old dividend/price-fetch/global metadata wit
   assert.equal(a.run("state.assets[0].dividendRateStale"), true);
   assert.equal(a.run("state.assets[0].dividendLastError"), "old dividend metadata");
 });
-test("empty-holdings home has no sample date and derives six-watchlist freshness separately", () => {
+test("empty-holdings home has no sample date and derives seven-watchlist freshness separately", () => {
   const initial = app(undefined, { now: "2026-11-24T01:30:00Z" });
   initial.context.latestCompletedUsTradingSession = () => ({ date: "2026-11-23" });
   assert.match(initial.run("renderHome()"), /暂无持仓/);
@@ -1093,3 +1101,98 @@ test("user-requested removal applies to every home caption state, never to prote
     assert.equal(a.run("hasLatestValidPrice(state.assets[0])"),date==="2026-11-23");
   }
 });
+
+test("TDAQ upgrade stores one local pre-migration copy and restore keeps the original ledger", () => {
+  const saved = {
+    version: 1,
+    migrations: { xqqi: true, chpy: true },
+    settings: { displayCurrency: "CNY", exchangeRate: 7.1, monthlyGoal: 1800, customSetting: "keep", alphaVantageApiKey: "TEST-ONLY", theme: "dark" },
+    assets: ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"].map((ticker, index) => ({ id: ticker, ticker, name: `${ticker} name`, frequency: ticker === "CHPY" ? "weekly" : index < 3 ? "monthly" : "quarterly", currentPrice: 10 + index, priceDate: "2026-11-24", remoteDividends: [{ exDate: "2026-08-01", amount: 0.5 }] })),
+    transactions: ["QQQI", "SPYI", "QNDX", "SCHD", "XQQI", "CHPY"].map((ticker) => ({ id: `buy-${ticker}`, assetId: ticker, type: "buy", date: "2026-01-02", shares: 3, price: 20 })),
+  };
+  const raw = JSON.stringify(saved);
+  const a = app(saved);
+  assert.equal(a.run("stateNeedsMigration"), true);
+  a.run("saveState()");
+  const backup = JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade"));
+  assert.equal(backup.migration, "tdaq");
+  assert.equal(backup.raw, raw);
+  assert.equal(a.storage.get("tangping-dividend.backup-before-delete") || null, null);
+  const stored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  const tdaq = stored.assets.find((row) => row.ticker === "TDAQ");
+  assert.equal(tdaq.frequency, "monthly");
+  assert.equal(tdaq.currentPrice, 0);
+  assert.equal(tdaq.role, "高现金流");
+  assert.equal(tdaq.name, "TappAlpha Innovation 100 Growth & Daily Income ETF");
+  assert.equal(a.run('calculatePortfolio().positions.find(p => p.asset.ticker === "TDAQ").shares'), 0);
+  assert.deepEqual(stored.transactions, saved.transactions);
+  for (const asset of saved.assets) assert.equal(stored.assets.find((row) => row.id === asset.id).currentPrice, asset.currentPrice);
+  a.run("state = loadState(); if (stateNeedsMigration) saveState();");
+  assert.equal(JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade")).raw, raw);
+  a.run("restoreUpgradeBackup()");
+  const restored = JSON.parse(a.storage.get("tangping-dividend.v1"));
+  assert.deepEqual(restored.transactions, saved.transactions);
+  assert.equal(restored.settings.customSetting, "keep");
+  assert.equal(restored.settings.exchangeRate, 7.1);
+  assert.equal(JSON.parse(a.storage.get("tangping-dividend.backup-before-upgrade")).raw, raw);
+  assert.equal(restored.assets.find((row) => row.ticker === "QQQI").id, "QQQI");
+  const removed = structuredClone(stored);
+  removed.assets = removed.assets.filter((row) => row.ticker !== "TDAQ");
+  assert.equal(app(removed).run('state.assets.some(asset => asset.ticker === "TDAQ")'), false);
+});
+
+test("TDAQ monthly cash uses pay dates, entitled shares, calendar, and chart without weekly math", () => {
+  const saved = fixture();
+  saved.settings.exchangeRate = 7;
+  saved.settings.displayCurrency = "CNY";
+  saved.assets = [{
+    id: "tdaq", ticker: "TDAQ", apiSymbol: "TDAQ", name: "TappAlpha Innovation 100 Growth & Daily Income ETF", frequency: "monthly",
+    currentPrice: 22.99, priceDate: "2026-11-24", priceSource: "test", manualDividendYieldPercent: null,
+    dividendRate: 0.1786, dividendRateDate: "2026-11-17", dividendRateKind: "distribution_rate", dividendRateYieldType: "Distribution Rate", dividendCoverage: "complete",
+    remoteDividends: [
+      { declarationDate: "2026-10-19", exDate: "2026-10-20", recordDate: "2026-10-20", paymentDate: "2026-10-21", amount: 0.38252 },
+      { declarationDate: "2026-11-16", exDate: "2026-11-17", recordDate: "2026-11-17", paymentDate: "2026-11-18", amount: 0.35153 },
+      { declarationDate: "2026-12-14", exDate: "2026-12-15", recordDate: "2026-12-15", paymentDate: "2026-12-16", amount: "" },
+    ],
+  }];
+  saved.transactions = [
+    { id: "buy-1", assetId: "tdaq", type: "buy", date: "2026-10-01", shares: 10, price: 23 },
+    { id: "sell-1", assetId: "tdaq", type: "sell", date: "2026-10-20", shares: 2, price: 24 },
+  ];
+  const a = app(saved, { now: "2026-11-20T12:00:00Z" });
+  a.run('syncDeclaredDividendTransactions(state.assets[0]); syncDeclaredDividendTransactions(state.assets[0]);');
+  const rows = a.run('state.transactions.filter(tx => tx.type === "dividend")');
+  assert.equal(rows.length, 2);
+  const october = rows.find((tx) => tx.exDate === "2026-10-20");
+  const november = rows.find((tx) => tx.exDate === "2026-11-17");
+  assert.equal(october.paymentDate, "2026-10-21");
+  assert.equal(october.shareCount, 10);
+  assert.equal(Number(october.perShare), 0.38252);
+  assert.equal(november.paymentDate, "2026-11-18");
+  assert.equal(november.shareCount, 8);
+  assert.equal(a.run('state.transactions.some(tx => tx.exDate === "2026-12-15")'), false);
+  const chart = a.run("monthlyIncomeData(2026)");
+  assert.equal(Number(chart.announced[9].toFixed(4)), Number((0.38252 * 10).toFixed(4)));
+  assert.equal(Number(chart.announced[10].toFixed(4)), Number((0.35153 * 8).toFixed(4)));
+  assert.equal(chart.announced[11], 0);
+  const annual = a.run('calculatePortfolio().positions.find(item => item.asset.ticker === "TDAQ").annualGross');
+  assert.equal(Number(annual.toFixed(4)), Number((22.99 * 8 * 0.1786).toFixed(4)));
+  assert.notEqual(chart.forecast[0], annual / 52);
+  assert.ok(chart.forecast.some((value) => value > 0));
+  a.run('selectedDate="2026-11-18"; calendarCursor=new Date("2026-11-18T12:00:00Z")');
+  const calendar = a.run("renderCalendar()");
+  assert.match(calendar, /TDAQ/);
+  assert.match(calendar, /除息 2026-11-17/);
+  const pending = a.run("getPendingDividendTransactions()");
+  assert.equal(pending.length, 2);
+  const inbox = a.run("renderPendingDividends(getPendingDividendTransactions())");
+  assert.match(inbox, /TDAQ/);
+  assert.match(inbox, /已宣布 · 待确认/);
+  a.run(`Object.assign(state.transactions.find(tx => tx.exDate === "2026-10-20"), { status: "received", netDividend: 3.06, grossDividend: 3.83, taxAndFees: 0.77 });`);
+  assert.equal(a.run("monthlyIncomeData(2026).received[9]"), 3.06);
+  assert.equal(a.run('state.transactions.filter(tx => tx.exDate === "2026-10-20" && tx.status === "received").length'), 1);
+  assert.equal(a.run('state.assets[0].frequency'), "monthly");
+  assert.match(a.run('renderAssetModal("tdaq")'), /每月/);
+  assert.doesNotMatch(a.run('renderAssetCard(calculatePortfolio().positions.find(item => item.asset.ticker === "TDAQ"))'), /每周/);
+});
+

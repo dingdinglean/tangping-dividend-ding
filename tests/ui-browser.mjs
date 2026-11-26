@@ -24,7 +24,7 @@ const fresh = "2026-10-13T03:12:09.822Z";
 // The separate market case below verifies synchronization against the committed snapshot.
 const fixture = {
   version: 1,
-  migrations: { xqqi: true, chpy: true },
+  migrations: { xqqi: true, chpy: true, tdaq: true },
   settings: { displayCurrency: "CNY", exchangeRate: 7, exchangeRateUpdatedAt: fresh, autoRefresh: true, lastMarketRefreshAt: fresh },
   assets: [{ id: "qqqi", ticker: "QQQI", name: "NEOS Nasdaq-100 High Income ETF", type: "ETF", frequency: "monthly", currentPrice: 100, priceDate: "2026-10-12", priceUpdatedAt: fresh, priceSource: "test", dividendUpdatedAt: fresh, manualDividendYieldPercent: 12, remoteDividends: [] }],
   transactions: [
@@ -240,7 +240,7 @@ async function runUi(browser, engine) {
     const expected = source.refresh.target_price_date;
     await page.waitForFunction(date => {
       const state = JSON.parse(localStorage.getItem("tangping-dividend.v1") || "null");
-      return state?.assets.length === 6 && state.assets.every(asset=>asset.priceDate===date) && document.querySelector(".market-caption")?.textContent===`行情收盘 ${date}`;
+      return state?.assets.length === 7 && state.assets.every(asset=>asset.priceDate===date) && document.querySelector(".market-caption")?.textContent===`行情收盘 ${date}`;
     }, expected);
     assert.match(await page.locator(".empty-home").innerText(), /暂无持仓/);
     for (const tab of ["portfolio","home"]) await page.locator(`[data-tab="${tab}"]`).click();
@@ -248,7 +248,7 @@ async function runUi(browser, engine) {
     const state = await page.evaluate(()=>JSON.parse(localStorage.getItem("tangping-dividend.v1")));
     assert.equal(state.transactions.length,0);
     assert.deepEqual(errors,[]);
-    console.log(`PASS ${engine}: empty-holdings default home synchronizes all six real close dates and keeps correct caption after tab return`);
+    console.log(`PASS ${engine}: empty-holdings default home synchronizes all seven real close dates and keeps correct caption after tab return`);
   } finally { await emptyContext.close(); liveMarket = false; }
 
 }

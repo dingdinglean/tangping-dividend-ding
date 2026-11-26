@@ -146,8 +146,8 @@ for (const engine of ["Chromium", "WebKit"]) {
               return {cards,dockTop,cardCount:cards.length};
             });
             result.profiles.at(-1).portfolio = layout;
-            assert.equal(layout.cardCount, 6);
-            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),6);
+            assert.equal(layout.cardCount, 7);
+            assert.equal(await page.locator('.asset-toggle[aria-expanded="false"]').count(),7);
             const xqqi = page.getByRole('button', {name:'展开 XQQI 详情', exact:true});
             await xqqi.scrollIntoViewIfNeeded();
             assert.ok(await xqqi.isVisible());
@@ -159,6 +159,12 @@ for (const engine of ["Chromium", "WebKit"]) {
             await chpy.click();
             assert.match(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
             await page.getByRole('button', {name:'收起 CHPY 详情', exact:true}).click();
+            const tdaq = page.getByRole('button', {name:'展开 TDAQ 详情', exact:true});
+            await tdaq.scrollIntoViewIfNeeded();
+            assert.ok(await tdaq.isVisible());
+            await tdaq.click();
+            assert.doesNotMatch(await page.locator(".asset-card-compact.is-expanded").innerText(), /每周/);
+            await page.getByRole('button', {name:'收起 TDAQ 详情', exact:true}).click();
             await page.evaluate(() => scrollTo(0,0));
             if (profile.name === "iphone17promax-pwa") {
               await page.screenshot({ path: `${output}/${engine.toLowerCase()}-xqqi-five-cards-440x956-light.png`, fullPage: true });

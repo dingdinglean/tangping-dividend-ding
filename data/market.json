@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-28T04:11:44.941Z",
+  "generatedAt": "2026-11-28T07:44:07.410Z",
   "refresh": {
     "target_price_date": "2026-11-27",
-    "generated_at": "2026-11-28T04:11:44.941Z",
+    "generated_at": "2026-11-28T07:44:07.410Z",
     "alpha_vantage_usage": {
       "date": "2026-11-28",
-      "count": 18
+      "count": 25
     },
     "price_attempts": [
       {
@@ -37,8 +37,7 @@
         "source": "Nasdaq",
         "round": 1,
         "status": "error",
-        "price_date": "2026-11-25",
-        "error": "price_date_stale"
+        "error": "invalid_data"
       },
       {
         "symbol": "SPYI",
@@ -60,8 +59,7 @@
         "source": "Nasdaq",
         "round": 1,
         "status": "error",
-        "price_date": "2026-11-25",
-        "error": "price_date_stale"
+        "error": "invalid_data"
       },
       {
         "symbol": "QNDX",
@@ -106,8 +104,7 @@
         "source": "Nasdaq",
         "round": 1,
         "status": "error",
-        "price_date": "2026-11-25",
-        "error": "price_date_stale"
+        "error": "invalid_data"
       },
       {
         "symbol": "XQQI",
@@ -143,9 +140,16 @@
         "symbol": "CHPY",
         "source": "Alpha Vantage",
         "round": 1,
+        "status": "error",
+        "error": "daily_budget_exhausted"
+      },
+      {
+        "symbol": "CHPY",
+        "source": "Yahoo",
+        "round": 1,
         "status": "success",
         "price_date": "2026-11-27",
-        "price": 47.26
+        "price": 47.2599983215332
       },
       {
         "symbol": "TDAQ",
@@ -166,9 +170,16 @@
         "symbol": "TDAQ",
         "source": "Alpha Vantage",
         "round": 1,
+        "status": "error",
+        "error": "daily_budget_exhausted"
+      },
+      {
+        "symbol": "TDAQ",
+        "source": "Yahoo",
+        "round": 1,
         "status": "success",
         "price_date": "2026-11-27",
-        "price": 23.34
+        "price": 23.34000015258789
       }
     ],
     "dividend_notes": [
@@ -190,10 +201,10 @@
     "freshness": "current"
   },
   "fx": {
-    "rate": 6.6566,
+    "rate": 6.6559,
     "fx_date": "2026-11-28",
     "source": "Frankfurter",
-    "fetched_at": "2026-11-28T04:11:44.941Z"
+    "fetched_at": "2026-11-28T07:44:07.410Z"
   },
   "symbols": {
     "QQQI": {
@@ -202,7 +213,7 @@
         "price": 48.59,
         "price_date": "2026-11-27",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 1.23,
         "change_percent": 0.025971
       },
@@ -426,7 +437,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-28T04:11:44.941Z"
+        "fetched_at": "2026-11-28T07:44:07.410Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-27"
@@ -437,7 +448,7 @@
         "price": 50.42,
         "price_date": "2026-11-27",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 0.8,
         "change_percent": 0.016123
       },
@@ -839,7 +850,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-28T04:11:44.941Z"
+        "fetched_at": "2026-11-28T07:44:07.410Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-27"
@@ -850,7 +861,7 @@
         "price": 22.05,
         "price_date": "2026-11-27",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 0.59,
         "change_percent": 0.027493
       },
@@ -911,7 +922,7 @@
         "kind": "30_day_sec_yield",
         "yield_type": "30 Day SEC Yield",
         "coverage": "complete",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -923,7 +934,7 @@
         "price": 35.67,
         "price_date": "2026-11-27",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 0.38,
         "change_percent": 0.010768
       },
@@ -1301,7 +1312,7 @@
         "kind": "ttm_distribution_yield",
         "yield_type": "TTM Distribution Yield",
         "coverage": "complete",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "status": "valid"
       },
       "price_status": "valid",
@@ -1313,7 +1324,7 @@
         "price": 41.09,
         "price_date": "2026-11-27",
         "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 1.69,
         "change_percent": 0.042893
       },
@@ -1437,7 +1448,7 @@
         "data_date": "2026-10-31",
         "source": "NEOS official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-28T04:11:44.941Z"
+        "fetched_at": "2026-11-28T07:44:07.410Z"
       },
       "price_status": "valid",
       "expected_price_date": "2026-11-27"
@@ -1445,49 +1456,53 @@
     "CHPY": {
       "price": {
         "symbol": "CHPY",
-        "price": 47.26,
+        "price": 47.2599983215332,
         "price_date": "2026-11-27",
-        "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "source": "Yahoo Finance Chart",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 1.81,
         "change_percent": 0.039824
       },
       "price_history": [
         {
           "date": "2026-11-27",
-          "close": 47.26
+          "close": 47.2599983215332
         },
         {
           "date": "2026-11-25",
-          "close": 45.45
+          "close": 45.45000076293945
         },
         {
           "date": "2026-11-24",
-          "close": 46.07
+          "close": 46.06999969482422
         },
         {
           "date": "2026-11-23",
-          "close": 49.52
+          "close": 49.52000045776367
         },
         {
           "date": "2026-11-20",
-          "close": 43.82
+          "close": 43.81999969482422
         },
         {
           "date": "2026-11-19",
-          "close": 48.71
+          "close": 48.709999084472656
         },
         {
           "date": "2026-11-18",
-          "close": 49.85
+          "close": 49.849998474121094
         },
         {
           "date": "2026-11-17",
-          "close": 50.03
+          "close": 50.029998779296875
         },
         {
           "date": "2026-11-16",
-          "close": 50.08
+          "close": 50.08000183105469
+        },
+        {
+          "date": "2026-11-13",
+          "close": 52.84000015258789
         }
       ],
       "dividends": {
@@ -2086,7 +2101,7 @@
         "status": "stale"
       },
       "dividend_rate": {
-        "rate": 0.5735950063478629,
+        "rate": 0.5735950267194287,
         "annual_per_share": 27.108099999999997,
         "data_date": "2026-11-18",
         "source": "YieldMax official Distribution History",
@@ -2097,7 +2112,7 @@
         "method": "trailing_365_day_sum",
         "sample_count": 51,
         "sample_span_days": 350,
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "status": "stale"
       },
       "identity": {
@@ -2115,49 +2130,53 @@
     "TDAQ": {
       "price": {
         "symbol": "TDAQ",
-        "price": 23.34,
+        "price": 23.34000015258789,
         "price_date": "2026-11-27",
-        "source": "Alpha Vantage EOD",
-        "fetched_at": "2026-11-28T04:11:44.941Z",
+        "source": "Yahoo Finance Chart",
+        "fetched_at": "2026-11-28T07:44:07.410Z",
         "change": 0.58,
         "change_percent": 0.025483
       },
       "price_history": [
         {
           "date": "2026-11-27",
-          "close": 23.34
+          "close": 23.34000015258789
         },
         {
           "date": "2026-11-25",
-          "close": 22.76
+          "close": 22.760000228881836
         },
         {
           "date": "2026-11-24",
-          "close": 22.99
+          "close": 22.989999771118164
         },
         {
           "date": "2026-11-23",
-          "close": 23.37
+          "close": 23.3700008392334
         },
         {
           "date": "2026-11-20",
-          "close": 21.97
+          "close": 21.969999313354492
         },
         {
           "date": "2026-11-19",
-          "close": 23.22
+          "close": 23.219999313354492
         },
         {
           "date": "2026-11-18",
-          "close": 23.73
+          "close": 23.729999542236328
         },
         {
           "date": "2026-11-17",
-          "close": 23.65
+          "close": 23.649999618530273
         },
         {
           "date": "2026-11-16",
-          "close": 24.17
+          "close": 24.170000076293945
+        },
+        {
+          "date": "2026-11-13",
+          "close": 24.81999969482422
         }
       ],
       "dividends": {
@@ -2270,7 +2289,7 @@
         "data_date": "2026-11-17",
         "source": "TappAlpha official Distribution Rate",
         "kind": "distribution_rate",
-        "fetched_at": "2026-11-28T04:11:44.941Z"
+        "fetched_at": "2026-11-28T07:44:07.410Z"
       },
       "identity": {
         "name": "TappAlpha Innovation 100 Growth & Daily Income ETF",
